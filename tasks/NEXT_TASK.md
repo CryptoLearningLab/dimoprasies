@@ -1,31 +1,23 @@
 # NEXT TASK
 
 Execute:
-`Status verification pass for analyzed candidate 221675`
+`Download and analyze candidate 221629 attachments`
 
 ## Instruction
 
 Keep the discovery/status separation:
 
-1. Use existing evidence for `221675`:
-   - `work/source_audit/eshidis_resource_audit_221675.json`
-   - `work/reports/document_analysis_221675.json`
-   - `work/reports/evaluation_public_works_dynamic_221675.json`
-   - downloaded attachments under `work/download_audit/`
-   - extracted text under `work/extracted_text/`
-2. Check the official detail deadline and attachment/document evidence for
-   newer acts that could affect status:
-   - extension,
-   - amendment/correction,
-   - cancellation,
-   - award/provisional contractor,
-   - contract signing,
-   - opening/evaluation evidence.
-3. Keep `221675` as `UNKNOWN` or candidate-only unless the latest official
-   evidence is sufficient for a stronger status.
-4. If code is added, keep status verification separate from content matching
-   and record provenance for every status finding.
-5. Write a JSON/Markdown status-verification report under `work/reports/`.
+1. Use existing evidence for `221629`:
+   - `work/source_audit/eshidis_resource_audit_221629.json`
+   - SQLite latest attachment rows for ESHIDIS id `221629`
+2. Run controlled bulk download:
+   - `.venv/bin/python -m tender_radar sources download-attachment 221629 --all --limit 20 --allow-insecure-tls`
+3. Run document analysis with JSON/Markdown reports:
+   - `.venv/bin/python -m tender_radar documents analyze --eshidis-id 221629 --report work/reports/document_analysis_221629.json --markdown-report work/reports/document_analysis_221629.md`
+4. Run dynamic evaluation:
+   - `.venv/bin/python -m tender_radar evaluate run --profile config/evaluation_profiles/public_works_dynamic.yml --eshidis-id 221629 --report work/reports/evaluation_public_works_dynamic_221629.json --markdown-report work/reports/evaluation_public_works_dynamic_221629.md`
+5. Do not infer `VERIFIED_ACTIVE` from content matches. Status verification
+   remains a separate command/gate.
 
 Do not store TEE subscription credentials in the repository. Treat TEE as a
 future authenticated adapter.

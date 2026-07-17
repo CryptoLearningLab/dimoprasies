@@ -37,6 +37,7 @@ from tender_radar.sources.eshidis_browser import (
     fetch_resource_audit,
     render_discovery_markdown,
 )
+from tender_radar.status import verify_tender_status, write_status_reports
 
 LOGGER = logging.getLogger(__name__)
 
@@ -101,6 +102,17 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_run.add_argument("--db", default="data/tender_radar.sqlite", help="SQLite database path.")
     evaluate_run.add_argument("--report", default=None, help="JSON report output path.")
     evaluate_run.add_argument("--markdown-report", default=None, help="Markdown report output path.")
+
+    status_parser = subparsers.add_parser("status", help="Status verification commands.")
+    status_sub = status_parser.add_subparsers(dest="status_command")
+    status_verify = status_sub.add_parser(
+        "verify",
+        help="Write an advisory status-verification report for one tender.",
+    )
+    status_verify.add_argument("--eshidis-id", required=True, help="ESHIDIS tender id.")
+    status_verify.add_argument("--db", default="data/tender_radar.sqlite", help="SQLite database path.")
+    status_verify.add_argument("--report", default=None, help="JSON report output path.")
+    status_verify.add_argument("--markdown-report", default=None, help="Markdown report output path.")
 
     sources_parser = subparsers.add_parser("sources", help="Source audit commands.")
     sources_sub = sources_parser.add_subparsers(dest="sources_command")
@@ -221,6 +233,8 @@ def main(argv: list[str] | None = None) -> int:
         return _search_run(args)
     if args.command == "evaluate" and args.evaluate_command == "run":
         return _evaluate_run(args)
+    if args.command == "status" and args.status_command == "verify":
+        return _status_verify(args)
     if args.command == "sources" and args.sources_command == "health":
         return _sources_health(args.allow_insecure_tls)
     if args.command == "sources" and args.sources_command == "discover-active":
@@ -456,6 +470,28 @@ def _evaluate_run(args: argparse.Namespace) -> int:
     report_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
     if markdown_path:
         markdown_path.write_text(render_evaluation_markdown(profile, evaluations), encoding="utf-8")
+    _emit_json(output)
+    return 0
+
+
+def _status_verify(args: argparse.Namespace) -> int:
+    db_path = Path(args.db)
+    report_path = Path(args.report or f"work/reports/status_verification_{args.eshidis_id}.json")
+    markdown_path = Path(args.markdown_report) if args.markdown_report else None
+    result = verify_tender_status(db_path, args.eshidis_id)
+    write_status_reports(result, report_path, markdown_path)
+    output = {
+        "db_path": str(db_path),
+        "eshidis_id": args.eshidis_id,
+        "recommended_status": result.recommended_status,
+        "status_confidence": result.status_confidence,
+        "verified_active": result.verified_active,
+        "signals_found": len(result.signals),
+        "documents_checked": result.documents_checked,
+        "latest_attachments_checked": result.latest_attachments_checked,
+        "report_path": str(report_path),
+        "markdown_report_path": str(markdown_path) if markdown_path else None,
+    }
     _emit_json(output)
     return 0
 

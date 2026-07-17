@@ -101,6 +101,9 @@ python -m tender_radar config validate
   writes search hits with evidence snippets.
 - `evaluate run` applies editable YAML evaluation rules with phrases, numeric
   thresholds and scores, then writes a tender-level evaluation report.
+- `status verify` writes an advisory status-verification report for one tender
+  from the official deadline, latest attachment names and analyzed document
+  signals; it does not mutate SQLite tender status or emit `VERIFIED_ACTIVE`.
 - `scan`, `download`, `search`, `export` and `status-check` are placeholders
   that intentionally fail until their later phase gates are complete.
 
@@ -151,6 +154,7 @@ tender-radar sources download-attachment 221744 --row-index 0 --allow-insecure-t
 tender-radar sources download-attachment 221744 --all --limit 8 --allow-insecure-tls
 tender-radar documents analyze --eshidis-id 221744 --report work\reports\document_analysis_221744.json --markdown-report work\reports\document_analysis_221744.md
 tender-radar search run --profile config\search_profiles\road_maintenance.yml --eshidis-id 221744 --report work\reports\search_road_maintenance_221744.json --markdown-report work\reports\search_road_maintenance_221744.md
+tender-radar status verify --eshidis-id 221744 --report work\reports\status_verification_221744.json --markdown-report work\reports\status_verification_221744.md
 ```
 
 Repeated resource fetches keep existing attachment download metadata when the

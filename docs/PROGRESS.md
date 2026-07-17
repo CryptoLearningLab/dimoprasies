@@ -178,10 +178,23 @@
   evidence hits.
 - `221675` remains `UNKNOWN` with `status_confidence = 0.0`; the candidate was
   not promoted to `VERIFIED_ACTIVE`.
+- `status verify` was added as a separate advisory status-verification command.
+  It checks the official deadline, latest attachment names and analyzed
+  document signals, writes JSON/Markdown evidence, and does not update
+  `tenders.status`.
+- `.venv/bin/python -m tender_radar status verify --eshidis-id 221675 --report work/reports/status_verification_221675.json --markdown-report work/reports/status_verification_221675.md`
+  checked 9 latest attachments and 9 analyzed documents. It recommended
+  `POSSIBLY_ACTIVE` with confidence `0.65`, found 2 non-decisive procedural
+  declaration mentions, and kept `verified_active = false`.
+- The generated status reports are:
+  `work/reports/status_verification_221675.json` and
+  `work/reports/status_verification_221675.md`.
 
 ## Tests Last Run
+- `.venv/bin/python -m pytest tests/test_status.py tests/test_cli.py`
+- Result: 12 passed.
 - `.venv/bin/python -m pytest`
-- Result: 35 passed.
+- Result: 39 passed.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
@@ -218,6 +231,7 @@ documents_parsed: 17
 documents_classified: 17
 documents_with_text: 17
 content_matches: 60
+status_reports: 1
 discovered_active_candidates: 15
 verified_active_matches: 0
 unknown_statuses: 6
@@ -226,10 +240,10 @@ unexplained_failures: 0
 
 ## Next Gate
 
-Discovery gate follow-up: implement and run a focused status-verification pass
-for analyzed candidate `221675`, checking the official detail deadline and
-newer official acts/attachments before considering any state stronger than
-`UNKNOWN` or candidate-only.
+Download/analyze follow-up: run the controlled attachment download and document
+analysis gate for candidate `221629`, then evaluate it with
+`config/evaluation_profiles/public_works_dynamic.yml` and keep status
+verification separate from content matches.
 
 ## Handoff Discipline
 

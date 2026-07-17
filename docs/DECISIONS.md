@@ -130,3 +130,12 @@ write access when Codex is expected to push updates.
 Public tunnel links may be used for short manual UI previews, but they are not
 stable deployment. Daily operation should use local access, LAN/Tailscale, or
 the documented Synology/container path.
+
+## D-019 - Status verification reports are advisory before persistence
+**Status:** Accepted
+
+`status verify` writes JSON/Markdown evidence with `recommended_status`,
+confidence, rationale and status signals, but it does not mutate
+`tenders.status`. Persisted status transitions require a separate status
+history/persistence model. Until then, even a future official deadline is
+reported as advisory `POSSIBLY_ACTIVE`, not `VERIFIED_ACTIVE`.

@@ -52,6 +52,14 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, exc.exception.code)
         self.assertIn("run", output.getvalue())
 
+    def test_status_help_lists_verify(self) -> None:
+        output = StringIO()
+        with redirect_stdout(output):
+            with self.assertRaises(SystemExit) as exc:
+                main(["status", "--help"])
+        self.assertEqual(0, exc.exception.code)
+        self.assertIn("verify", output.getvalue())
+
     def test_parse_row_indexes_deduplicates_and_preserves_order(self) -> None:
         self.assertEqual([0, 2, 1], _parse_row_indexes("0, 2, 0, 1"))
 

@@ -117,7 +117,10 @@ That URL is temporary and should not be treated as stable infrastructure.
   - 9 official attachments downloaded
   - 9 documents analyzed with extracted text
   - dynamic evaluation matched 1 tender with score `14.0` and 6 hits
-  - status remains `UNKNOWN`, not `VERIFIED_ACTIVE`
+  - advisory status verification checked 9 latest attachments and 9 analyzed
+    documents
+  - recommended status is `POSSIBLY_ACTIVE` with confidence `0.65`
+  - `verified_active` remains `false`; SQLite status remains `UNKNOWN`
 
 ## Current Verification
 
@@ -130,8 +133,16 @@ Latest confirmed command:
 Result:
 
 ```text
-35 passed in 0.92s
+39 passed in 1.18s
 ```
+
+Latest status verification command:
+
+```bash
+.venv/bin/python -m tender_radar status verify --eshidis-id 221675 --report work/reports/status_verification_221675.json --markdown-report work/reports/status_verification_221675.md
+```
+
+Result: `POSSIBLY_ACTIVE`, confidence `0.65`, `verified_active = false`.
 
 The system `python` command is not present in the remote environment; use
 `.venv/bin/python` or `python3`.
@@ -154,7 +165,8 @@ The system `python` command is not present in the remote environment; use
 ## What Is Missing
 
 - Production-grade source adapter coverage beyond the proven sample flow.
-- Strong active-status verification model for analyzed candidates.
+- Persisted status history/transitions; current `status verify` reports are
+  advisory and do not update `tenders.status`.
 - Strong active-status verification model. Discovery rows remain
   `DISCOVERED_ACTIVE_CANDIDATE` until verified by official evidence.
 - OCR for scanned PDFs.
@@ -173,7 +185,5 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Implement and run a focused status-verification pass for analyzed candidate
-`221675`, checking the official detail deadline and newer official
-acts/attachments before considering any state stronger than `UNKNOWN` or
-candidate-only.
+Run the controlled attachment download and document analysis gate for candidate
+`221629`, then evaluate it with `config/evaluation_profiles/public_works_dynamic.yml`.

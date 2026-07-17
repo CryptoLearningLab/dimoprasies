@@ -42,7 +42,7 @@ Known remote state:
 - Python 3.12.3 exists.
 - `.venv` exists.
 - `.venv/bin/python -m tender_radar --help` works.
-- `.venv/bin/python -m pytest` passed with `35 passed`.
+- `.venv/bin/python -m pytest` passed with `39 passed`.
 - GitHub repo `CryptoLearningLab/dimoprasies` has branch `main`.
 - Codex push access uses the dedicated deploy key `dimoprasies-codex`.
 
@@ -94,7 +94,7 @@ python -m pytest
 Expected current remote result:
 
 ```text
-35 passed
+39 passed
 ```
 
 Then verify the existing sample evaluation:
@@ -173,10 +173,8 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next work:
 
-Implement and run a focused status-verification pass for analyzed candidate
-`221675`, checking the official detail deadline and newer official
-acts/attachments before considering any state stronger than `UNKNOWN` or
-candidate-only.
+Run the controlled attachment download and document analysis gate for candidate
+`221629`, then evaluate it with `config/evaluation_profiles/public_works_dynamic.yml`.
 
 ## 7. Update Discipline
 
