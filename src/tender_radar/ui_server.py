@@ -135,6 +135,35 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                     )
                 )
                 return
+            if parsed.path == "/api/fetch-kimdis-open-proc":
+                self._send_json(
+                    run_cli_command(
+                        [
+                            "sources",
+                            "fetch-kimdis-open-proc",
+                            "--expanded-report",
+                            "work/reports/expanded_discovery_report.json",
+                            "--config",
+                            "config/sources.yml",
+                            "--download-dir",
+                            "work/download_audit/kimdis",
+                            "--text-dir",
+                            "work/extracted_text/kimdis",
+                            "--document-index",
+                            "work/derived/kimdis_open_proc_documents.json",
+                            "--report",
+                            "work/reports/kimdis_open_proc_fetch_report.json",
+                            "--markdown-report",
+                            "work/reports/kimdis_open_proc_fetch_report.md",
+                            "--limit",
+                            "50",
+                            "--timeout",
+                            "30",
+                            "--allow-insecure-tls",
+                        ]
+                    )
+                )
+                return
             if parsed.path == "/api/analyze":
                 eshidis_id = require_eshidis_id(payload)
                 self._send_json(
@@ -1028,7 +1057,8 @@ INDEX_HTML = """<!doctype html>
           <table class="tenderTable">
             <thead>
               <tr>
-                <th>Α/Α / Πηγή</th>
+                <th>Α/Α</th>
+                <th>Πηγή</th>
                 <th>Έργο</th>
                 <th>Φορέας</th>
                 <th>Προϋπολογισμός</th>
@@ -1060,6 +1090,11 @@ INDEX_HTML = """<!doctype html>
         <button id="fetchBtn">Fetch official detail</button>
         <button id="downloadBtn" class="secondary">Download files</button>
         <button id="analyzeBtn" class="secondary">Analyze docs</button>
+      </div>
+      <div class="toolbar compact">
+        <label>ΑΔΑΜ ΚΗΜΔΗΣ <input id="kimdisInput" type="text" inputmode="text" placeholder="π.χ. 26PROC019417347"></label>
+        <button id="kimdisPreviewBtn" class="secondary">Preview KIMDIS</button>
+        <button id="kimdisFetchBtn">Fetch KIMDIS files</button>
       </div>
       <div class="toolbar compact">
         <label>Search profile <select id="profileSelect"></select></label>
@@ -1331,12 +1366,12 @@ textarea {
   border-radius: 8px;
 }
 .tenderTable { table-layout: fixed; }
-table { width: 100%; border-collapse: collapse; min-width: 980px; }
+table { width: 100%; border-collapse: collapse; min-width: 1060px; }
 th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 th { font-size: 12px; color: var(--muted); background: #f1f4f7; }
 td:first-child { font-weight: 700; white-space: nowrap; }
-td:nth-child(2) { white-space: nowrap; }
-.tenderTable td:nth-child(2) { white-space: normal; }
+td:nth-child(2) { white-space: nowrap; color: var(--muted); font-weight: 700; }
+.tenderTable td:nth-child(3) { white-space: normal; }
 .tenderTitle {
   max-width: 360px;
   white-space: normal;
@@ -1632,7 +1667,7 @@ function renderDashboard(payload) {
   const rows = $('tenderRows');
   rows.innerHTML = '';
   if (!payload.tenders.length) {
-    rows.innerHTML = '<tr><td colspan="6" class="emptyState">Δεν υπάρχουν ακόμα έργα για αυτό το φίλτρο. Δοκίμασε νέα αναζήτηση ΕΣΗΔΗΣ ή ενεργοποίησε όλη την Ελλάδα.</td></tr>';
+    rows.innerHTML = '<tr><td colspan="7" class="emptyState">Δεν υπάρχουν ακόμα έργα για αυτό το φίλτρο. Δοκίμασε νέα αναζήτηση ΕΣΗΔΗΣ ή ενεργοποίησε όλη την Ελλάδα.</td></tr>';
     resetPreview();
     return;
   }
@@ -1643,7 +1678,8 @@ function renderDashboard(payload) {
     const linkLabel = tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : 'ΕΣΗΔΗΣ';
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><strong>${escapeHtml(tender.display_id || tender.eshidis_id || '')}</strong><span class="mutedLine">${escapeHtml(tender.source_label || '')}</span></td>
+      <td><strong>${escapeHtml(tender.display_id || tender.eshidis_id || '')}</strong></td>
+      <td>${escapeHtml(tender.source_label || '')}</td>
       <td class="tenderTitle">${escapeHtml(tender.title || '')}${tender.interest_reason ? `<span class="pill">${escapeHtml(tender.interest_reason)}</span>` : ''}</td>
       <td class="authorityCell">${escapeHtml(tender.authority_name || '')}</td>
       <td class="budgetCell">${escapeHtml(tender.budget_display || '')}</td>
@@ -1684,6 +1720,7 @@ async function selectTender(eshidisId, downloadFirst) {
   const supportsKimdis = Boolean(tender.supports_kimdis_actions);
   const actualEshidisId = tender.eshidis_id || '';
   $('eshidisInput').value = supportsEshidis ? actualEshidisId : '';
+  $('kimdisInput').value = supportsKimdis ? (tender.official_id || tender.display_id || '') : '';
   $('previewTitle').textContent = `${tender.display_id || actualEshidisId || eshidisId} · ${tender.title || ''}`;
   $('officialLink').textContent = tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : 'ΕΣΗΔΗΣ';
   $('officialLink').href = tender.official_url || tender.attachment_url || tender.download_url || '#';
@@ -1709,7 +1746,7 @@ async function selectTender(eshidisId, downloadFirst) {
 
 async function renderKimdisPreview(officialId) {
   const payload = await api(`/api/kimdis-document-preview?official_id=${encodeURIComponent(officialId)}`);
-  const docs = payload.featured?.length ? payload.featured : payload.documents || [];
+  const docs = payload.documents || [];
   if (!docs.length) {
     $('previewBody').innerHTML = '<div class="emptyState">Δεν υπάρχει ακόμα structured ΚΗΜΔΗΣ preview για αυτό το ΑΔΑΜ.</div>';
     return;
@@ -1729,7 +1766,7 @@ async function renderKimdisPreview(officialId) {
 
 async function renderPreview(eshidisId) {
   const payload = await api(`/api/document-preview?eshidis_id=${encodeURIComponent(eshidisId)}`);
-  const docs = payload.featured?.length ? payload.featured : payload.documents || [];
+  const docs = payload.documents || [];
   if (!docs.length) {
     $('previewBody').innerHTML = '<div class="emptyState">Δεν υπάρχουν ακόμα συνημμένα στη βάση για αυτό το έργο. Πάτα Fetch official detail και μετά Download files.</div>';
     return;
@@ -1764,6 +1801,20 @@ async function runAction(path, body, label) {
 
 function selectedId() {
   return $('eshidisInput').value.trim();
+}
+
+function selectedKimdisId() {
+  return $('kimdisInput').value.trim();
+}
+
+async function previewSelectedKimdis() {
+  const officialId = selectedKimdisId();
+  if (!officialId) return;
+  state.selected = `KIMDIS:${officialId}`;
+  $('previewTitle').textContent = officialId;
+  $('officialLink').textContent = 'ΚΗΜΔΗΣ';
+  $('officialLink').href = `https://cerpp.eprocurement.gov.gr/khmdhs-opendata/notice/attachment/${encodeURIComponent(officialId)}`;
+  await renderKimdisPreview(officialId);
 }
 
 async function loadRules() {
@@ -1900,6 +1951,8 @@ $('discoverBtn').addEventListener('click', () => runAction('/api/discover', { li
 $('fetchBtn').addEventListener('click', () => runAction('/api/fetch-resource', { eshidis_id: selectedId() }, 'Fetching official detail...'));
 $('downloadBtn').addEventListener('click', () => runAction('/api/download-all', { eshidis_id: selectedId() }, 'Downloading attachments...'));
 $('analyzeBtn').addEventListener('click', () => runAction('/api/analyze', { eshidis_id: selectedId() }, 'Analyzing documents...'));
+$('kimdisPreviewBtn').addEventListener('click', () => previewSelectedKimdis().catch((error) => { $('statusText').textContent = String(error); }));
+$('kimdisFetchBtn').addEventListener('click', () => runAction('/api/fetch-kimdis-open-proc', {}, 'Fetching KIMDIS attachments...'));
 $('searchBtn').addEventListener('click', () => runAction('/api/search', { eshidis_id: selectedId(), profile: $('profileSelect').value }, 'Running search profile...'));
 $('evaluateBtn').addEventListener('click', () => runAction('/api/evaluate', { eshidis_id: selectedId(), profile: $('evaluationProfileSelect').value }, 'Running evaluation rules...'));
 $('loadRulesBtn').addEventListener('click', () => loadRules().catch((error) => { $('rulesStatus').textContent = String(error); }));

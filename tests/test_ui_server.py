@@ -2,6 +2,7 @@ from pathlib import Path
 
 import tender_radar.ui_server as ui_server
 from tender_radar.ui_server import (
+    INDEX_HTML,
     content_type_for_path,
     dashboard_payload,
     discovery_search_steps,
@@ -22,6 +23,14 @@ def test_report_json_content_type_includes_utf8_charset() -> None:
 
 def test_report_markdown_content_type_includes_utf8_charset() -> None:
     assert content_type_for_path(Path("candidates.md")) == "text/markdown; charset=utf-8"
+
+
+def test_ui_has_separate_id_source_columns_and_kimdis_tool_input() -> None:
+    assert "<th>Α/Α</th>" in INDEX_HTML
+    assert "<th>Πηγή</th>" in INDEX_HTML
+    assert "Α/Α / Πηγή" not in INDEX_HTML
+    assert 'id="kimdisInput"' in INDEX_HTML
+    assert 'id="kimdisFetchBtn"' in INDEX_HTML
 
 
 def test_budget_parser_extracts_candidate_row_budget() -> None:

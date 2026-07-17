@@ -493,6 +493,23 @@
 - Result: all repository configs OK.
 - `.venv/bin/python -m pytest`
 - Result: 65 passed in 1.44s.
+- Updated the UI table so `Α/Α` and `Πηγή` are separate columns, improving
+  mobile readability where KIMDIS ADAM ids and source labels previously
+  collided.
+- Added a KIMDIS/ADAM input group on the `Εργαλεία` page with `Preview KIMDIS`
+  and `Fetch KIMDIS files` actions. The fetch action runs the existing
+  candidate-only KIMDIS open PROC attachment flow and refreshes the document
+  index/text artifacts.
+- Changed ESHIDIS and KIMDIS preview rendering to show all available documents
+  in the preview pane instead of only the featured declaration/technical
+  description/budget subset. The ESHIDIS `Download files` button continues to
+  call `sources download-attachment --all --limit 50`.
+- `.venv/bin/python -m pytest tests/test_ui_server.py`
+- Result: 14 passed in 0.41s.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m pytest`
+- Result: 66 passed in 1.46s.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
@@ -551,6 +568,8 @@ content_matches: 60
 status_reports: 1
 ui_dashboard_scope_focus_rows: 14
 ui_dashboard_scope_all_rows: 32
+ui_table_id_source_split: true
+ui_kimdis_tools: true
 source_whitelist_files: 2
 source_whitelist_entries_checked: 36
 source_whitelist_reachable: 29

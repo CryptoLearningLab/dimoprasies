@@ -202,6 +202,9 @@ That URL is temporary and should not be treated as stable infrastructure.
   with local files expose Preview and Download file actions through
   `/api/kimdis-document-preview?official_id=...` and
   `/api/kimdis-document-file?official_id=...`.
+- The UI table uses separate `Α/Α` and `Πηγή` columns. The `Εργαλεία` page has
+  both an ESHIDIS id input and a KIMDIS ADAM input. Document previews render
+  all available documents rather than only the featured subset.
 - Ambiguous place aliases are recall-first. `Γλυφάδα` and `Γλυφάδας` are
   configured as ambiguous aliases for Δήμος Δωρίδος: positive context such as
   `Δωρίδος`, `Φωκίδα` or `EL645` confirms the match; negative context such as
@@ -220,7 +223,7 @@ Latest confirmed command:
 Result:
 
 ```text
-65 passed in 1.44s
+66 passed in 1.46s
 ```
 
 Latest KIMDIS PROC attachment fetch command:
