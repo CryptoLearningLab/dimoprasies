@@ -165,6 +165,48 @@ scopes:
     assert report["summary"]["focus_candidates"] == 0
 
 
+def test_qualified_glyfada_alias_does_not_match_attica_glyfada(tmp_path) -> None:
+    config_path = tmp_path / "sources.yml"
+    config_path.write_text(
+        """
+version: 1
+global_sources: []
+collection_order: []
+rules: []
+scopes:
+  - id: dorida
+    name: "Δήμος Δωρίδος"
+    aliases: ["Γλυφάδα Δωρίδος"]
+    sources: []
+""",
+        encoding="utf-8",
+    )
+    candidates_path = tmp_path / "candidates.json"
+    candidates_path.write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {
+                        "eshidis_id": "12345",
+                        "title": "ΑΝΑΚΑΤΑΣΚΕΥΗ ΚΡΗΠΙΔΩΜΑΤΟΣ ΜΑΡΙΝΑΣ ΓΛΥΦΑΔΑΣ",
+                        "authority_name": "ΔΗΜΟΣ ΓΛΥΦΑΔΑΣ",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_expanded_report(
+        sources_config_path=config_path,
+        eshidis_candidates_path=candidates_path,
+        kimdis_pages=0,
+    )
+
+    assert report["summary"]["focus_candidates"] == 0
+
+
 def test_kimdis_proc_future_deadline_is_open_candidate(tmp_path) -> None:
     config_path = tmp_path / "sources.yml"
     config_path.write_text(

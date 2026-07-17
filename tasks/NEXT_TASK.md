@@ -29,19 +29,19 @@ work/reports/expanded_discovery_report.md
 Latest result as of `2026-07-17`:
 
 ```text
-750 total KIMDIS records
-53 focus-related records
-11 SUBMISSION_OPEN_CANDIDATE PROC notices
-1 CANCELLED_NOTICE PROC notice
-41 historical AWRD/SYMV records
+765 total records
+51 focus-related records
+12 SUBMISSION_OPEN_CANDIDATE PROC notices
+0 focus-expired PROC notices
+37 historical AWRD/SYMV records
 0 runtime errors
 ```
 
 Fetch and verify the open PROC records:
 
-1. Treat the 11 open PROC records as `SUBMISSION_OPEN_CANDIDATE`, not
+1. Treat the 12 open PROC records as `SUBMISSION_OPEN_CANDIDATE`, not
    `VERIFIED_ACTIVE`.
-2. Fetch official KIMDIS attachment URLs for those 11 PROC ids.
+2. Fetch official KIMDIS attachment URLs for those 12 PROC ids.
 3. Extract or inspect the attachments for exact place/authority evidence.
 4. Compare related/cancelled notice pairs through `docs/DEDUPLICATION.md`;
    never merge by title alone.

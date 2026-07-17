@@ -4,6 +4,7 @@ import tender_radar.ui_server as ui_server
 from tender_radar.ui_server import (
     content_type_for_path,
     dashboard_payload,
+    discovery_search_steps,
     format_budget,
     interest_reason,
     parse_budget_from_row_text,
@@ -88,9 +89,21 @@ regions: []
     assert payload["summary"]["focus_matches"] == 2
     assert payload["tenders"][0]["source_label"] == "ΚΗΜΔΗΣ"
     assert payload["tenders"][0]["display_id"] == "26PROC000000001"
+    assert payload["tenders"][0]["interest_reason"] == "Δήμος Πατρέων"
     assert payload["tenders"][0]["download_url"] == "https://example.test/attachment/26PROC000000001"
     assert payload["tenders"][0]["supports_eshidis_actions"] is False
     assert payload["tenders"][0]["deadline_display"] == "24-07-2026 13:00"
+
+
+def test_discovery_search_steps_run_eshidis_then_expanded_kimdis() -> None:
+    steps = discovery_search_steps(limit=25, as_of_date="2026-07-17")
+
+    assert [step["name"] for step in steps] == ["eshidis_discover", "expanded_report"]
+    assert steps[0]["args"][:2] == ["sources", "discover-active"]
+    assert steps[1]["args"][:2] == ["sources", "expanded-report"]
+    assert "--eshidis-candidates" in steps[1]["args"]
+    assert "work/reports/expanded_discovery_report.json" in steps[1]["args"]
+    assert "2026-07-17" in steps[1]["args"]
 
 
 def test_interest_reason_uses_locations_config() -> None:

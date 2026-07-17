@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import date
 import json
 import mimetypes
 import re
@@ -105,21 +106,8 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             parsed = urlparse(self.path)
             payload = self._read_json()
             if parsed.path == "/api/discover":
-                self._send_json(
-                    run_cli_command(
-                        [
-                            "sources",
-                            "discover-active",
-                            "--allow-insecure-tls",
-                            "--limit",
-                            str(int(payload.get("limit") or 25)),
-                            "--report",
-                            "work/reports/eshidis_active_candidates.json",
-                            "--markdown-report",
-                            "work/reports/eshidis_active_candidates.md",
-                        ]
-                    )
-                )
+                limit = int(payload.get("limit") or 25)
+                self._send_json(run_discovery_search(limit=limit))
                 return
             if parsed.path == "/api/fetch-resource":
                 eshidis_id = require_eshidis_id(payload)
@@ -247,28 +235,103 @@ def run_cli_command(args: list[str]) -> dict[str, Any]:
     if not COMMAND_LOCK.acquire(blocking=False):
         return {"ok": False, "error": "Another command is already running. Wait for it to finish."}
     try:
-        command = [sys.executable, "-m", "tender_radar", *args]
-        completed = subprocess.run(
-            command,
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=180,
-        )
-        return {
-            "ok": completed.returncode == 0,
-            "returncode": completed.returncode,
-            "command": " ".join(args),
-            "stdout": completed.stdout,
-            "stderr": completed.stderr,
-            "candidates": candidates_payload(),
-        }
+        result = run_cli_process(args, timeout=180)
+        result["candidates"] = candidates_payload()
+        return result
     except subprocess.TimeoutExpired as exc:
         return {"ok": False, "error": f"Command timed out: {exc!r}", "command": " ".join(args)}
     finally:
         COMMAND_LOCK.release()
+
+
+def run_discovery_search(*, limit: int) -> dict[str, Any]:
+    if limit < 1:
+        raise ValueError("Search limit must be positive.")
+    if not COMMAND_LOCK.acquire(blocking=False):
+        return {"ok": False, "error": "Another command is already running. Wait for it to finish."}
+    steps = discovery_search_steps(limit=limit, as_of_date=date.today().isoformat())
+    results: list[dict[str, Any]] = []
+    try:
+        for step in steps:
+            result = run_cli_process(step["args"], timeout=int(step["timeout"]))
+            result["name"] = step["name"]
+            results.append(result)
+        expanded_result = next((item for item in results if item.get("name") == "expanded_report"), {})
+        warnings = [item for item in results if item.get("returncode") not in (0, None)]
+        return {
+            "ok": expanded_result.get("returncode") == 0,
+            "command": " && ".join(item["command"] for item in results),
+            "steps": results,
+            "warnings": warnings,
+            "candidates": candidates_payload(),
+            "expanded_report": expanded_report_payload(),
+            "dashboard": dashboard_payload(scope="focus"),
+        }
+    except subprocess.TimeoutExpired as exc:
+        return {"ok": False, "error": f"Command timed out: {exc!r}", "steps": results}
+    finally:
+        COMMAND_LOCK.release()
+
+
+def discovery_search_steps(*, limit: int, as_of_date: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "name": "eshidis_discover",
+            "timeout": 180,
+            "args": [
+                "sources",
+                "discover-active",
+                "--allow-insecure-tls",
+                "--limit",
+                str(limit),
+                "--report",
+                "work/reports/eshidis_active_candidates.json",
+                "--markdown-report",
+                "work/reports/eshidis_active_candidates.md",
+            ],
+        },
+        {
+            "name": "expanded_report",
+            "timeout": 300,
+            "args": [
+                "sources",
+                "expanded-report",
+                "--allow-insecure-tls",
+                "--kimdis-pages",
+                "5",
+                "--timeout",
+                "20",
+                "--as-of-date",
+                as_of_date,
+                "--eshidis-candidates",
+                "work/reports/eshidis_active_candidates.json",
+                "--report",
+                "work/reports/expanded_discovery_report.json",
+                "--markdown-report",
+                "work/reports/expanded_discovery_report.md",
+            ],
+        },
+    ]
+
+
+def run_cli_process(args: list[str], *, timeout: int) -> dict[str, Any]:
+    command = [sys.executable, "-m", "tender_radar", *args]
+    completed = subprocess.run(
+        command,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+    )
+    return {
+        "ok": completed.returncode == 0,
+        "returncode": completed.returncode,
+        "command": " ".join(args),
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
 
 
 def require_eshidis_id(payload: dict[str, Any]) -> str:
@@ -401,6 +464,7 @@ def kimdis_open_proc_rows() -> list[dict[str, Any]]:
         if not official_id:
             continue
         deadline = str(candidate.get("submission_deadline") or "")
+        matched_scopes = [str(scope) for scope in candidate.get("matched_scopes") or [] if str(scope).strip()]
         rows.append(
             {
                 "source": "kimdis",
@@ -410,7 +474,7 @@ def kimdis_open_proc_rows() -> list[dict[str, Any]]:
                 "display_id": official_id,
                 "title": candidate.get("title"),
                 "authority_name": candidate.get("authority"),
-                "region": ", ".join(candidate.get("matched_scopes") or []),
+                "region": ", ".join(matched_scopes),
                 "budget_with_vat": candidate.get("budget"),
                 "current_deadline_at": deadline,
                 "status": candidate.get("status"),
@@ -423,6 +487,8 @@ def kimdis_open_proc_rows() -> list[dict[str, Any]]:
                 "attachment_url": candidate.get("attachment_url"),
                 "download_url": candidate.get("attachment_url"),
                 "supports_eshidis_actions": False,
+                "interest_match": bool(matched_scopes),
+                "interest_reason": ", ".join(matched_scopes),
             }
         )
     return rows
@@ -499,8 +565,8 @@ def decorate_tender_row(row: dict[str, Any]) -> dict[str, Any]:
         "row_key": row_key,
         "display_id": row.get("display_id") or eshidis_id,
         "source_label": row.get("source_label") or ("ΕΣΗΔΗΣ" if eshidis_id else row.get("source") or ""),
-        "interest_match": is_interest_match(text),
-        "interest_reason": interest_reason(text),
+        "interest_match": bool(row.get("interest_match")) or is_interest_match(text),
+        "interest_reason": row.get("interest_reason") or interest_reason(text),
         "budget_display": format_budget(row.get("budget_with_vat")),
         "deadline_display": deadline_display(str(row.get("current_deadline_at") or row.get("submission_deadline") or "")),
         "deadline_sort": deadline_sort_key(str(row.get("current_deadline_at") or "")),
@@ -817,7 +883,7 @@ INDEX_HTML = """<!doctype html>
         </label>
         <div class="toolbar inlineToolbar">
           <label>Πλήθος αναζήτησης <input id="limitInput" type="number" min="1" max="100" value="25"></label>
-          <button id="discoverBtn">Νέα αναζήτηση ΕΣΗΔΗΣ</button>
+          <button id="discoverBtn">Νέα αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ</button>
         </div>
       </div>
 
@@ -1673,7 +1739,7 @@ function deleteRule() {
 
 $('refreshBtn').addEventListener('click', refresh);
 $('allGreeceToggle').addEventListener('change', () => loadDashboard().catch((error) => { $('statusText').textContent = String(error); }));
-$('discoverBtn').addEventListener('click', () => runAction('/api/discover', { limit: $('limitInput').value }, 'Νέα αναζήτηση ΕΣΗΔΗΣ...'));
+$('discoverBtn').addEventListener('click', () => runAction('/api/discover', { limit: $('limitInput').value }, 'Νέα αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ...'));
 $('fetchBtn').addEventListener('click', () => runAction('/api/fetch-resource', { eshidis_id: selectedId() }, 'Fetching official detail...'));
 $('downloadBtn').addEventListener('click', () => runAction('/api/download-all', { eshidis_id: selectedId() }, 'Downloading attachments...'));
 $('analyzeBtn').addEventListener('click', () => runAction('/api/analyze', { eshidis_id: selectedId() }, 'Analyzing documents...'));

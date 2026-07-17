@@ -173,8 +173,16 @@ That URL is temporary and should not be treated as stable infrastructure.
   `focus_open_proc_candidates` alongside ESHIDIS/discovery/SQLite rows. KIMDIS
   rows are shown as `SUBMISSION_OPEN_CANDIDATE` with source label `ΚΗΜΔΗΣ`,
   ADAM official ids and attachment links; ESHIDIS preview/download actions stay
-  disabled for KIMDIS rows. Current focus UI count is 12 rows: 11 KIMDIS open
-  PROC candidates plus ESHIDIS `221744`.
+  disabled for KIMDIS rows.
+- The `Νέα αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ` button now runs a real refresh sequence:
+  ESHIDIS `sources discover-active`, then KIMDIS/ESHIDIS
+  `sources expanded-report`, then dashboard reload.
+- Latest live UI search found 15 ESHIDIS discovery candidates and refreshed the
+  expanded report to 765 total candidates, 51 focus candidates and 12 KIMDIS
+  `SUBMISSION_OPEN_CANDIDATE` PROC notices. The dashboard currently shows 14
+  focus rows: 12 KIMDIS rows plus 2 ESHIDIS rows.
+- `Γλυφάδα` was tightened to `Γλυφάδα Δωρίδος` to avoid false positives from
+  Δήμος Γλυφάδας Αττικής.
 
 ## Current Verification
 
@@ -187,7 +195,7 @@ Latest confirmed command:
 Result:
 
 ```text
-54 passed in 1.11s
+56 passed in 1.44s
 ```
 
 Latest whitelist audit command:

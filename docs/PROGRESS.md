@@ -312,6 +312,19 @@
   ESHIDIS-only preview/download actions remain disabled for those rows.
 - After the KIMDIS dashboard merge, the focus UI shows 12 rows: 11 KIMDIS open
   PROC candidates plus the existing ESHIDIS `221744` row.
+- Connected the first-screen `Νέα αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ` button to a real
+  discovery sequence: `sources discover-active`, then `sources
+  expanded-report`, then dashboard reload from the newly written reports.
+- Tightened the Δωρίδα alias `Γλυφάδα` to `Γλυφάδα Δωρίδος` after a live run
+  showed a false positive from Δήμος Γλυφάδας Αττικής.
+- Re-ran the real UI discovery sequence after the alias fix:
+  - ESHIDIS discovery candidates: 15
+  - expanded total candidates: 765
+  - expanded focus candidates: 51
+  - KIMDIS focus open PROC candidates: 12
+  - focus historical AWRD/SYMV records: 37
+  - expanded runtime errors: 0
+  - UI focus rows: 14, made of 12 KIMDIS rows and 2 ESHIDIS rows.
 
 ## Tests Last Run
 - `.venv/bin/python -m pytest tests/test_status.py tests/test_cli.py`
@@ -380,6 +393,23 @@
 - Result: `200 text/html; charset=utf-8`.
 - `.venv/bin/python -m pytest`
 - Result: 54 passed in 1.11s.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m pytest tests/test_ui_server.py`
+- Result: 11 passed in 0.35s.
+- Real UI search endpoint:
+  `curl -s -X POST http://127.0.0.1:8765/api/discover -H 'Content-Type: application/json' --data '{"limit":25}'`
+- Result before alias tightening: `ok: true`; `eshidis_discover` returncode 0; `expanded_report` returncode 0; expanded summary `total_candidates: 765`, `focus_candidates: 53`, `focus_open_proc_candidates: 13`.
+- `.venv/bin/python -m pytest tests/test_ui_server.py tests/test_expanded_report.py`
+- Result: 17 passed in 0.41s.
+- Real UI search endpoint re-run after replacing `Γλυφάδα` with
+  `Γλυφάδα Δωρίδος`.
+- Result: `ok: true`; expanded summary `total_candidates: 765`,
+  `focus_candidates: 51`, `focus_open_proc_candidates: 12`,
+  `focus_historical_awrd_symv_records: 37`, `errors: 0`; dashboard summary
+  `total_known: 32`, `visible: 14`, `focus_matches: 14`.
+- `.venv/bin/python -m pytest`
+- Result: 56 passed in 1.44s.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
@@ -424,8 +454,8 @@ documents_classified: 17
 documents_with_text: 17
 content_matches: 60
 status_reports: 1
-ui_dashboard_scope_focus_rows: 12
-ui_dashboard_scope_all_rows: 31
+ui_dashboard_scope_focus_rows: 14
+ui_dashboard_scope_all_rows: 32
 source_whitelist_files: 2
 source_whitelist_entries_checked: 36
 source_whitelist_reachable: 29
@@ -434,15 +464,15 @@ source_whitelist_adapter_required: 0
 source_whitelist_templates: 4
 source_whitelist_failed_with_fallback: 2
 source_whitelist_unresolved_blockers: 0
-expanded_report_total_candidates: 750
-expanded_report_focus_candidates: 53
-expanded_report_focus_proc: 12
-expanded_report_focus_awrd: 22
-expanded_report_focus_symv: 19
-expanded_report_focus_open_proc: 11
+expanded_report_total_candidates: 765
+expanded_report_focus_candidates: 51
+expanded_report_focus_proc: 13
+expanded_report_focus_awrd: 20
+expanded_report_focus_symv: 17
+expanded_report_focus_open_proc: 12
 expanded_report_focus_expired_proc: 0
 expanded_report_focus_cancelled_proc: 1
-expanded_report_focus_historical_awrd_symv: 41
+expanded_report_focus_historical_awrd_symv: 37
 deduplication_protocols: 2
 discovered_active_candidates: 15
 verified_active_matches: 0
