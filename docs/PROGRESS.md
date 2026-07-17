@@ -247,6 +247,19 @@
   - templates requiring identifiers: 4
   - failed with fallback: 2
   - unresolved blockers: 0
+- Added `sources expanded-report` for a controlled expanded discovery pass. It
+  combines the latest ESHIDIS candidate report with KIMDIS Open Data
+  PROC/AWRD/SYMV pages, filters against configured source-scope aliases and
+  deduplicates only by official source id.
+- Ran a fresh expanded discovery pass:
+  - source whitelist: 31 checked, 24 reachable/ready, 0 unresolved blockers
+  - ESHIDIS active discovery: 0 candidates in this runtime run
+  - KIMDIS Open Data: 5 pages per PROC/AWRD/SYMV family, 750 records total
+  - focus-related KIMDIS records: 53
+  - focus breakdown: 12 PROC, 22 AWRD, 19 SYMV
+  - runtime errors: 0
+- Sent the Markdown expanded discovery report to the authenticated Gmail
+  account with attachment `work/reports/expanded_discovery_report.md`.
 
 ## Tests Last Run
 - `.venv/bin/python -m pytest tests/test_status.py tests/test_cli.py`
@@ -267,6 +280,12 @@
 - Result: 31 checked, 24 reachable, 3 failed, 0 adapter-required, 4 templates, 2 failed-with-fallback, 0 unresolved blockers.
 - `.venv/bin/python -m pytest`
 - Result: 46 passed.
+- `.venv/bin/python -m pytest tests/test_expanded_report.py tests/test_source_whitelist.py tests/test_cli.py tests/test_config.py`
+- Result: 15 passed.
+- `.venv/bin/python -m tender_radar sources expanded-report --allow-insecure-tls --kimdis-pages 5 --timeout 20 --eshidis-candidates work/reports/eshidis_active_candidates.json --report work/reports/expanded_discovery_report.json --markdown-report work/reports/expanded_discovery_report.md`
+- Result: 750 total candidates, 53 focus candidates, 0 errors.
+- `.venv/bin/python -m pytest`
+- Result: 49 passed.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
@@ -292,6 +311,9 @@
   availability, όχι ακόμη πλήρη συλλογή/εισαγωγή όλων των έργων στη βάση.
   Η Πάτρα έχει δύο προσωρινά timeout σελίδων, αλλά υπάρχουν reachable fallback
   πηγές για το ίδιο scope.
+- Το expanded report είναι discovery/candidate report. Τα KIMDIS PROC/AWRD/SYMV
+  records δεν είναι ισοδύναμα με `VERIFIED_ACTIVE` διαγωνισμούς και χρειάζονται
+  detail/status verification πριν παρουσιαστούν ως ενεργά έργα.
 
 ## Coverage
 
@@ -318,6 +340,11 @@ source_whitelist_adapter_required: 0
 source_whitelist_templates: 4
 source_whitelist_failed_with_fallback: 2
 source_whitelist_unresolved_blockers: 0
+expanded_report_total_candidates: 750
+expanded_report_focus_candidates: 53
+expanded_report_focus_proc: 12
+expanded_report_focus_awrd: 22
+expanded_report_focus_symv: 19
 deduplication_protocols: 2
 discovered_active_candidates: 15
 verified_active_matches: 0
@@ -327,9 +354,9 @@ unexplained_failures: 0
 
 ## Next Gate
 
-Expanded search follow-up: run the next controlled discovery/report pass using
-ESHIDIS, KIMDIS Open Data probes and reachable authority fallbacks, then prepare
-the email report artifact.
+Expanded report follow-up: verify and prioritize the 53 focus-related KIMDIS
+records, starting from PROC notices and records with exact authority/location
+evidence, then fetch official attachments for the selected shortlist.
 
 ## Handoff Discipline
 

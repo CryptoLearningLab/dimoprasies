@@ -37,6 +37,7 @@ from tender_radar.sources.eshidis_browser import (
     fetch_resource_audit,
     render_discovery_markdown,
 )
+from tender_radar.sources.expanded_report import build_expanded_report, write_expanded_report
 from tender_radar.sources.whitelist import audit_source_whitelist, write_source_audit_report
 from tender_radar.status import verify_tender_status, write_status_reports
 
@@ -140,6 +141,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     audit_whitelist.add_argument("--timeout", type=int, default=20, help="Per-source timeout in seconds.")
     audit_whitelist.add_argument("--allow-insecure-tls", action="store_true")
+    expanded_report = sources_sub.add_parser(
+        "expanded-report",
+        help="Build a controlled expanded discovery report from ESHIDIS candidates and KIMDIS Open Data.",
+    )
+    expanded_report.add_argument("--config", default="config/sources.yml", help="Source whitelist YAML path.")
+    expanded_report.add_argument(
+        "--eshidis-candidates",
+        default="work/reports/eshidis_active_candidates.json",
+        help="ESHIDIS candidates JSON path to include.",
+    )
+    expanded_report.add_argument("--kimdis-pages", type=int, default=5, help="KIMDIS pages per record family.")
+    expanded_report.add_argument("--timeout", type=int, default=20, help="Per-request timeout in seconds.")
+    expanded_report.add_argument("--allow-insecure-tls", action="store_true")
+    expanded_report.add_argument(
+        "--report",
+        default="work/reports/expanded_discovery_report.json",
+        help="JSON report output path.",
+    )
+    expanded_report.add_argument(
+        "--markdown-report",
+        default="work/reports/expanded_discovery_report.md",
+        help="Markdown report output path.",
+    )
     discover_active = sources_sub.add_parser(
         "discover-active",
         help="Audit the public ESHIDIS active-search grid and save active candidate rows.",
@@ -257,6 +281,8 @@ def main(argv: list[str] | None = None) -> int:
         return _sources_health(args.allow_insecure_tls)
     if args.command == "sources" and args.sources_command == "audit-whitelist":
         return _sources_audit_whitelist(args)
+    if args.command == "sources" and args.sources_command == "expanded-report":
+        return _sources_expanded_report(args)
     if args.command == "sources" and args.sources_command == "discover-active":
         return _sources_discover_active(args)
     if args.command == "sources" and args.sources_command == "import-resource-audit":
@@ -322,6 +348,27 @@ def _sources_audit_whitelist(args: argparse.Namespace) -> int:
         "summary": report.get("summary"),
     }
     _emit_json(output)
+    return 0
+
+
+def _sources_expanded_report(args: argparse.Namespace) -> int:
+    report_path = Path(args.report)
+    markdown_path = Path(args.markdown_report) if args.markdown_report else None
+    report = build_expanded_report(
+        sources_config_path=Path(args.config),
+        eshidis_candidates_path=Path(args.eshidis_candidates) if args.eshidis_candidates else None,
+        kimdis_pages=args.kimdis_pages,
+        timeout_seconds=args.timeout,
+        allow_insecure_tls=args.allow_insecure_tls,
+    )
+    write_expanded_report(report, report_path, markdown_path)
+    _emit_json(
+        {
+            "report_path": str(report_path),
+            "markdown_report_path": str(markdown_path) if markdown_path else None,
+            "summary": report.get("summary"),
+        }
+    )
     return 0
 
 

@@ -147,6 +147,11 @@ That URL is temporary and should not be treated as stable infrastructure.
   short-timeout retry and two Patras municipal pages that timed out; Patras has
   reachable Diavgeia/DEYAP fallbacks. KIMDIS PROC/AWRD/SYMV POST probes now
   return HTTP 200 with documented `contractType: "10"` request bodies.
+- `sources expanded-report` builds a controlled discovery report from ESHIDIS
+  candidates and KIMDIS Open Data. Latest run checked 5 KIMDIS pages per
+  PROC/AWRD/SYMV family: 750 total KIMDIS records, 53 focus-related records,
+  0 runtime errors. The report was emailed to the authenticated Gmail account
+  as `work/reports/expanded_discovery_report.md`.
 
 ## Current Verification
 
@@ -159,7 +164,7 @@ Latest confirmed command:
 Result:
 
 ```text
-46 passed in 1.60s
+49 passed in 1.45s
 ```
 
 Latest whitelist audit command:
@@ -223,6 +228,8 @@ The system `python` command is not present in the remote environment; use
   SQLite.
 - Runtime retry monitoring for Patras pages that timed out in the whitelist
   audit; reachable fallbacks exist for the same scope.
+- Verification/prioritization of expanded KIMDIS discovery records. The latest
+  53 focus-related records are candidates, not `VERIFIED_ACTIVE` tenders.
 
 ## Next Work
 
@@ -230,6 +237,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Run the next controlled expanded discovery/report pass using ESHIDIS, KIMDIS
-Open Data probes and reachable authority fallbacks, then prepare the email
-report artifact.
+Verify and prioritize the 53 focus-related KIMDIS records from the expanded
+report, starting from PROC notices and records with exact authority/location
+evidence, then fetch official attachments for the selected shortlist.
