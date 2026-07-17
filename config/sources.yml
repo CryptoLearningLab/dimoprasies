@@ -81,7 +81,7 @@ scopes:
   - id: amfilochia
     name: "Δήμος Αμφιλοχίας"
     nuts: ["EL631"]
-    aliases: ["Δήμος Αμφιλοχίας", "Αμφιλοχία", "Αμφιλοχίας", "Ινάχος", "Ίναχος", "Χαλκιόπουλο", "Αμβρακικός", "Λουτρό Αμφιλοχίας", "Μενίδι Αμφιλοχίας"]
+    aliases: ["Δήμος Αμφιλοχίας", "Αμφιλοχία", "Αμφιλοχίας", "Ινάχος", "Ίναχος", "Χαλκιόπουλο", "Αμβρακικός", "Λουτρό Αμφιλοχίας", "Μενίδι Αμφιλοχίας", "Θεριακήσι", "Θεριακήσιο", "Θεργιακήσι"]
     sources:
       - "https://www.dimosamfilochias.gr/category/dimos-amfilochias/prokiryxis/"
       - "https://www.dimosamfilochias.gr/category/dimos-amfilochias/prosklisis-ekdilosis-endiaferontos/"

@@ -30,6 +30,12 @@ def test_interest_reason_uses_locations_config() -> None:
     assert interest_reason("Έργο στον Δήμο Πατρέων EL632") == "Δήμος Πατρέων"
 
 
+def test_interest_reason_matches_amfilochia_alias_variants() -> None:
+    assert interest_reason("ΕΡΓΟ ΣΤΟ ΘΕΡΙΑΚΗΣΙ") == "Δήμος Αμφιλοχίας"
+    assert interest_reason("εργο στο Θεριακήσιο") == "Δήμος Αμφιλοχίας"
+    assert interest_reason("εργο στο Θεργιακησι") == "Δήμος Αμφιλοχίας"
+
+
 def test_short_alias_does_not_match_inside_larger_word() -> None:
     assert not focus_term_matches("κατασκευη κτηριου", "Ρίο")
     assert focus_term_matches("εργο στο ριο", "Ρίο")

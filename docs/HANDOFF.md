@@ -161,6 +161,10 @@ That URL is temporary and should not be treated as stable infrastructure.
   municipal council decisions and Diavgeia. Latest source whitelist audit after
   this addition checked 36 sources: 29 reachable/ready, 3 failed,
   0 adapter-required and 0 unresolved blockers.
+- Amfilochia aliases include `Θεριακήσι`, `Θεριακήσιο` and `Θεργιακήσι`.
+  Focus matching normalizes Greek text with Unicode casefold and
+  accent/diacritic removal so uppercase/lowercase and accented/unaccented
+  variants do not need to be duplicated in configuration.
 
 ## Current Verification
 
@@ -173,7 +177,7 @@ Latest confirmed command:
 Result:
 
 ```text
-50 passed in 1.87s
+52 passed in 1.35s
 ```
 
 Latest whitelist audit command:

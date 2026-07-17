@@ -8,6 +8,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import unicodedata
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -568,8 +569,10 @@ def focus_term_matches(normalized_text: str, term: str, *, prefix_ok: bool = Fal
 
 
 def normalize_greek(value: str) -> str:
-    translation = str.maketrans("άέήίόύώϊΐϋΰ", "αεηιουωιιυυ")
-    return re.sub(r"\s+", " ", value.lower().translate(translation)).strip()
+    decomposed = unicodedata.normalize("NFD", value.casefold())
+    without_accents = "".join(char for char in decomposed if unicodedata.category(char) != "Mn")
+    normalized = unicodedata.normalize("NFC", without_accents)
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def parse_budget_from_row_text(row_text: str) -> float | None:

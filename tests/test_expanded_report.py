@@ -52,6 +52,51 @@ scopes:
     assert report["focus_candidates"][0]["status_reason"]
 
 
+def test_expanded_report_matches_accent_and_case_variants(tmp_path) -> None:
+    config_path = tmp_path / "sources.yml"
+    config_path.write_text(
+        """
+version: 1
+global_sources: []
+collection_order: []
+rules: []
+scopes:
+  - id: amfilochia
+    name: "Δήμος Αμφιλοχίας"
+    aliases: ["Θεριακήσι", "Θεργιακήσι"]
+    sources: []
+""",
+        encoding="utf-8",
+    )
+    candidates_path = tmp_path / "candidates.json"
+    candidates_path.write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {
+                        "eshidis_id": "12345",
+                        "title": "ΑΝΑΠΛΑΣΗ ΣΤΟ ΘΕΡΙΑΚΗΣΙ",
+                    },
+                    {
+                        "eshidis_id": "12346",
+                        "title": "Οδοποιία Θεργιακησι",
+                    },
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_expanded_report(
+        sources_config_path=config_path,
+        eshidis_candidates_path=candidates_path,
+        kimdis_pages=0,
+    )
+
+    assert report["summary"]["focus_candidates"] == 2
+
+
 def test_render_expanded_report_markdown_mentions_no_title_merge() -> None:
     markdown = render_expanded_report_markdown(
         {

@@ -292,6 +292,11 @@
 - Re-ran the expanded report after adding Amfilochia; the current 5-page KIMDIS
   window remained 750 total records, 53 focus records and 11 open PROC
   candidates.
+- Added additional Δήμος Αμφιλοχίας aliases for `Θεριακήσι`, `Θεριακήσιο`
+  and `Θεργιακήσι`.
+- Strengthened UI focus matching normalization with Unicode casefold and
+  accent/diacritic removal, matching the expanded-report source matching
+  behavior for Greek uppercase/lowercase and accented/unaccented variants.
 
 ## Tests Last Run
 - `.venv/bin/python -m pytest tests/test_status.py tests/test_cli.py`
@@ -332,6 +337,12 @@
 - Result: 750 total candidates, 53 focus candidates, 11 focus open PROC candidates, 0 errors.
 - `.venv/bin/python -m pytest`
 - Result: 50 passed in 1.87s.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m pytest tests/test_ui_server.py tests/test_expanded_report.py`
+- Result: 13 passed in 0.36s.
+- `.venv/bin/python -m pytest`
+- Result: 52 passed in 1.35s.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
