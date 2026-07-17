@@ -152,6 +152,10 @@ That URL is temporary and should not be treated as stable infrastructure.
   PROC/AWRD/SYMV family: 750 total KIMDIS records, 53 focus-related records,
   0 runtime errors. The report was emailed to the authenticated Gmail account
   as `work/reports/expanded_discovery_report.md`.
+- Expanded-report records are now classified by submission stage using KIMDIS
+  `finalSubmissionDate` as of `2026-07-17`: 11 focus PROC records are
+  `SUBMISSION_OPEN_CANDIDATE`, 1 focus PROC is `CANCELLED_NOTICE`, and 41 focus
+  AWRD/SYMV records are historical award/contract records.
 
 ## Current Verification
 
@@ -164,7 +168,7 @@ Latest confirmed command:
 Result:
 
 ```text
-49 passed in 1.45s
+50 passed in 1.41s
 ```
 
 Latest whitelist audit command:
@@ -230,6 +234,8 @@ The system `python` command is not present in the remote environment; use
   audit; reachable fallbacks exist for the same scope.
 - Verification/prioritization of expanded KIMDIS discovery records. The latest
   53 focus-related records are candidates, not `VERIFIED_ACTIVE` tenders.
+- Official attachment fetch and exact place/authority verification for the 11
+  open PROC candidates.
 
 ## Next Work
 
@@ -237,6 +243,5 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Verify and prioritize the 53 focus-related KIMDIS records from the expanded
-report, starting from PROC notices and records with exact authority/location
-evidence, then fetch official attachments for the selected shortlist.
+Fetch official KIMDIS attachments for the 11 open PROC candidates, verify exact
+place/authority evidence and deduplicate related/cancelled notice pairs.

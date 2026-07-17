@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import json
 from pathlib import Path
 import ssl
@@ -46,6 +46,7 @@ class ExpandedTenderCandidate:
     attachment_url: str | None
     matched_scopes: list[str]
     status: str
+    status_reason: str
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -58,10 +59,12 @@ def build_expanded_report(
     kimdis_pages: int = 5,
     timeout_seconds: int = 20,
     allow_insecure_tls: bool = False,
+    as_of: date | None = None,
 ) -> dict[str, Any]:
     sources_config = load_config(sources_config_path)
     scope_aliases = _scope_aliases(sources_config)
     checked_at = datetime.now(timezone.utc).isoformat()
+    as_of_date = as_of or date.today()
     candidates: list[ExpandedTenderCandidate] = []
     errors: list[dict[str, object]] = []
 
@@ -82,14 +85,21 @@ def build_expanded_report(
         pages=kimdis_pages,
         timeout_seconds=timeout_seconds,
         allow_insecure_tls=allow_insecure_tls,
+        as_of=as_of_date,
     )
     candidates.extend(kimdis_candidates)
     errors.extend(kimdis_errors)
 
     unique_candidates = _dedupe_by_official_source_id(candidates)
     focus_candidates = [candidate for candidate in unique_candidates if candidate.matched_scopes]
+    focus_open_proc = [
+        candidate
+        for candidate in focus_candidates
+        if candidate.record_type == "PROC" and candidate.status == "SUBMISSION_OPEN_CANDIDATE"
+    ]
     return {
         "checked_at": checked_at,
+        "as_of_date": as_of_date.isoformat(),
         "sources_config_path": str(sources_config_path),
         "eshidis_candidates_path": str(eshidis_candidates_path) if eshidis_candidates_path else None,
         "kimdis_pages": kimdis_pages,
@@ -98,8 +108,18 @@ def build_expanded_report(
             "focus_candidates": len(focus_candidates),
             "eshidis_candidates": sum(1 for item in unique_candidates if item.source == "ESHIDIS"),
             "kimdis_candidates": sum(1 for item in unique_candidates if item.source == "KIMDIS"),
+            "focus_open_proc_candidates": len(focus_open_proc),
+            "focus_expired_proc_candidates": sum(
+                1
+                for item in focus_candidates
+                if item.record_type == "PROC" and item.status == "SUBMISSION_EXPIRED_CANDIDATE"
+            ),
+            "focus_historical_awrd_symv_records": sum(
+                1 for item in focus_candidates if item.record_type in {"AWRD", "SYMV"}
+            ),
             "errors": len(errors),
         },
+        "focus_open_proc_candidates": [candidate.to_dict() for candidate in focus_open_proc],
         "focus_candidates": [candidate.to_dict() for candidate in focus_candidates],
         "all_candidates": [candidate.to_dict() for candidate in unique_candidates],
         "errors": errors,
@@ -127,16 +147,30 @@ def render_expanded_report_markdown(report: dict[str, Any]) -> str:
         "# Expanded Tender Discovery Report",
         "",
         f"- Checked at: `{report.get('checked_at')}`",
+        f"- As-of date: `{report.get('as_of_date')}`",
         f"- Total candidates: `{summary.get('total_candidates', 0)}`",
         f"- Focus candidates: `{summary.get('focus_candidates', 0)}`",
+        f"- Focus open PROC candidates: `{summary.get('focus_open_proc_candidates', 0)}`",
+        f"- Focus expired PROC candidates: `{summary.get('focus_expired_proc_candidates', 0)}`",
+        f"- Focus historical AWRD/SYMV records: `{summary.get('focus_historical_awrd_symv_records', 0)}`",
         f"- ESHIDIS candidates: `{summary.get('eshidis_candidates', 0)}`",
         f"- KIMDIS candidates: `{summary.get('kimdis_candidates', 0)}`",
         f"- Errors: `{summary.get('errors', 0)}`",
         "- Deduplication: official source id only; title-only merge is disabled.",
         "",
-        "## Focus Area Candidates",
+        "## Focus Open PROC Candidates",
         "",
     ]
+    open_proc = report.get("focus_open_proc_candidates") if isinstance(report.get("focus_open_proc_candidates"), list) else []
+    if open_proc:
+        lines.extend(_candidate_table(open_proc))
+    else:
+        lines.append("No focus-area PROC candidates with a future final submission date were found.")
+    lines.extend([
+        "",
+        "## Focus Area Candidates",
+        "",
+    ])
     if focus:
         lines.extend(_candidate_table(focus))
     else:
@@ -156,6 +190,7 @@ def _fetch_kimdis_candidates(
     pages: int,
     timeout_seconds: int,
     allow_insecure_tls: bool,
+    as_of: date,
 ) -> tuple[list[ExpandedTenderCandidate], list[dict[str, object]]]:
     context = ssl._create_unverified_context() if allow_insecure_tls else None
     candidates: list[ExpandedTenderCandidate] = []
@@ -186,6 +221,7 @@ def _fetch_kimdis_candidates(
                 reference = str(item.get("referenceNumber") or "")
                 if not reference:
                     continue
+                status, status_reason = _kimdis_status(item, str(family["record_type"]), as_of)
                 candidates.append(
                     ExpandedTenderCandidate(
                         source="KIMDIS",
@@ -195,11 +231,12 @@ def _fetch_kimdis_candidates(
                         authority=_organization_name(item),
                         budget=_budget(item),
                         published_at=_none_or_str(item.get("submissionDate") or item.get("signedDate")),
-                        submission_deadline=None,
+                        submission_deadline=_none_or_str(item.get("finalSubmissionDate")),
                         source_url=url,
                         attachment_url=str(family["attachment_url"]).format(reference=reference),
                         matched_scopes=_matched_scopes(item, scope_aliases),
-                        status="DISCOVERED_KIMDIS_RECORD",
+                        status=status,
+                        status_reason=status_reason,
                     )
                 )
     return candidates, errors
@@ -227,6 +264,7 @@ def _eshidis_candidates(payload: dict[str, Any], scope_aliases: dict[str, list[s
                 attachment_url=None,
                 matched_scopes=_matched_scopes(item, scope_aliases),
                 status=str(item.get("status") or "DISCOVERED_ACTIVE_CANDIDATE"),
+                status_reason="ESHIDIS discovery candidate; detail/status verification remains separate.",
             )
         )
     return candidates
@@ -263,16 +301,17 @@ def _dedupe_by_official_source_id(candidates: list[ExpandedTenderCandidate]) -> 
 
 def _candidate_table(candidates: list[dict[str, Any]]) -> list[str]:
     lines = [
-        "| Source | Type | Official id | Title | Authority | Budget | Deadline | Scope | Link |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Source | Type | Official id | Status | Title | Authority | Budget | Deadline | Scope | Link |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for item in candidates:
         link = item.get("source_url") or item.get("attachment_url") or ""
         lines.append(
-            "| {source} | {kind} | `{official_id}` | {title} | {authority} | {budget} | {deadline} | {scope} | {link} |".format(
+            "| {source} | {kind} | `{official_id}` | `{status}` | {title} | {authority} | {budget} | {deadline} | {scope} | {link} |".format(
                 source=_cell(item.get("source") or ""),
                 kind=_cell(item.get("record_type") or ""),
                 official_id=_cell(item.get("official_id") or ""),
+                status=_cell(item.get("status") or ""),
                 title=_cell(item.get("title") or ""),
                 authority=_cell(item.get("authority") or ""),
                 budget=_cell(item.get("budget") or ""),
@@ -292,7 +331,7 @@ def _organization_name(item: dict[str, Any]) -> str | None:
 
 
 def _budget(item: dict[str, Any]) -> str | None:
-    for key in ("budget", "totalCost", "estimatedValue", "estTotalCost", "awardTotalCost"):
+    for key in ("budget", "totalCostWithVAT", "totalCostWithoutVAT", "totalCost", "estimatedValue", "estTotalCost", "awardTotalCost"):
         value = item.get(key)
         if value not in (None, ""):
             return str(value)
@@ -317,6 +356,30 @@ def _none_or_str(value: object) -> str | None:
 
 def _cell(value: object) -> str:
     return str(value).replace("|", "\\|").replace("\n", " ")[:180]
+
+
+def _kimdis_status(item: dict[str, Any], record_type: str, as_of: date) -> tuple[str, str]:
+    if record_type == "AWRD":
+        return "HISTORICAL_AWARD_RECORD", "AWRD records are award/assignment stage, not submission stage."
+    if record_type == "SYMV":
+        return "HISTORICAL_CONTRACT_RECORD", "SYMV records are signed contract stage, not submission stage."
+    if item.get("cancelled") is True:
+        return "CANCELLED_NOTICE", "KIMDIS notice is marked cancelled."
+    deadline = _parse_iso_datetime(item.get("finalSubmissionDate"))
+    if deadline is None:
+        return "UNKNOWN_DEADLINE_CANDIDATE", "KIMDIS PROC notice has no parsable finalSubmissionDate."
+    if deadline.date() > as_of:
+        return "SUBMISSION_OPEN_CANDIDATE", f"finalSubmissionDate {deadline.isoformat()} is after {as_of.isoformat()}."
+    return "SUBMISSION_EXPIRED_CANDIDATE", f"finalSubmissionDate {deadline.isoformat()} is on or before {as_of.isoformat()}."
+
+
+def _parse_iso_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def _alias_matches(alias: str, haystack: str, tokens: set[str]) -> bool:

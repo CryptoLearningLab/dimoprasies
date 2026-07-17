@@ -1,7 +1,7 @@
 # NEXT TASK
 
 Execute:
-`Verify expanded KIMDIS focus records`
+`Fetch and verify open KIMDIS PROC candidates`
 
 ## Instruction
 
@@ -26,25 +26,29 @@ work/reports/expanded_discovery_report.json
 work/reports/expanded_discovery_report.md
 ```
 
-Latest result:
+Latest result as of `2026-07-17`:
 
 ```text
-750 total KIMDIS records, 53 focus-related records, 0 runtime errors
+750 total KIMDIS records
+53 focus-related records
+11 SUBMISSION_OPEN_CANDIDATE PROC notices
+1 CANCELLED_NOTICE PROC notice
+41 historical AWRD/SYMV records
+0 runtime errors
 ```
 
-Verify and prioritize the focus records:
+Fetch and verify the open PROC records:
 
-1. Treat all 53 records as discovery candidates, not `VERIFIED_ACTIVE`.
-2. Start from PROC notices because they are most relevant for new/open tender
-   discovery.
-3. Prefer records with exact authority/location evidence over broad regional or
-   alias-only matches.
-4. Fetch official KIMDIS attachment URLs for the selected shortlist.
-5. Compare repeated titles through `docs/DEDUPLICATION.md`; never merge by title
-   alone.
-6. Produce a shortlist report with official id, title, authority, budget,
-   source URL, attachment URL and verification status.
-7. Keep ESHIDIS status verification separate.
+1. Treat the 11 open PROC records as `SUBMISSION_OPEN_CANDIDATE`, not
+   `VERIFIED_ACTIVE`.
+2. Fetch official KIMDIS attachment URLs for those 11 PROC ids.
+3. Extract or inspect the attachments for exact place/authority evidence.
+4. Compare related/cancelled notice pairs through `docs/DEDUPLICATION.md`;
+   never merge by title alone.
+5. Produce a shortlist report with official id, title, authority, budget,
+   final submission date, source URL, attachment URL, local file metadata and
+   verification status.
+6. Keep ESHIDIS status verification separate.
 
 Do not store TEE subscription credentials in the repository. Treat TEE as a
 future authenticated adapter.

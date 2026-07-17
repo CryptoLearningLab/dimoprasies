@@ -260,6 +260,19 @@
   - runtime errors: 0
 - Sent the Markdown expanded discovery report to the authenticated Gmail
   account with attachment `work/reports/expanded_discovery_report.md`.
+- Added submission-stage classification for KIMDIS records:
+  - PROC with `finalSubmissionDate` after the as-of date and not cancelled is
+    `SUBMISSION_OPEN_CANDIDATE`.
+  - PROC with expired `finalSubmissionDate` is
+    `SUBMISSION_EXPIRED_CANDIDATE`.
+  - Cancelled PROC is `CANCELLED_NOTICE`.
+  - AWRD/SYMV are historical award/contract records, not submission-stage
+    tenders.
+- Re-ran the expanded report with `--as-of-date 2026-07-17`:
+  - focus open PROC candidates: 11
+  - focus expired PROC candidates: 0
+  - cancelled PROC notices: 1
+  - focus historical AWRD/SYMV records: 41
 
 ## Tests Last Run
 - `.venv/bin/python -m pytest tests/test_status.py tests/test_cli.py`
@@ -286,6 +299,12 @@
 - Result: 750 total candidates, 53 focus candidates, 0 errors.
 - `.venv/bin/python -m pytest`
 - Result: 49 passed.
+- `.venv/bin/python -m pytest tests/test_expanded_report.py tests/test_cli.py tests/test_config.py`
+- Result: 14 passed.
+- `.venv/bin/python -m tender_radar sources expanded-report --allow-insecure-tls --kimdis-pages 5 --timeout 20 --as-of-date 2026-07-17 --eshidis-candidates work/reports/eshidis_active_candidates.json --report work/reports/expanded_discovery_report.json --markdown-report work/reports/expanded_discovery_report.md`
+- Result: 750 total candidates, 53 focus candidates, 11 focus open PROC candidates, 0 focus expired PROC candidates, 41 historical AWRD/SYMV records, 0 errors.
+- `.venv/bin/python -m pytest`
+- Result: 50 passed.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
@@ -345,6 +364,10 @@ expanded_report_focus_candidates: 53
 expanded_report_focus_proc: 12
 expanded_report_focus_awrd: 22
 expanded_report_focus_symv: 19
+expanded_report_focus_open_proc: 11
+expanded_report_focus_expired_proc: 0
+expanded_report_focus_cancelled_proc: 1
+expanded_report_focus_historical_awrd_symv: 41
 deduplication_protocols: 2
 discovered_active_candidates: 15
 verified_active_matches: 0
@@ -354,9 +377,9 @@ unexplained_failures: 0
 
 ## Next Gate
 
-Expanded report follow-up: verify and prioritize the 53 focus-related KIMDIS
-records, starting from PROC notices and records with exact authority/location
-evidence, then fetch official attachments for the selected shortlist.
+Expanded report follow-up: fetch official KIMDIS attachments for the 11 open
+PROC candidates, then verify exact place/authority evidence and deduplicate
+related/cancelled notice pairs.
 
 ## Handoff Discipline
 

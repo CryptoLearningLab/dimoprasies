@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import date
 import json
 import logging
 import sys
@@ -153,6 +154,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     expanded_report.add_argument("--kimdis-pages", type=int, default=5, help="KIMDIS pages per record family.")
     expanded_report.add_argument("--timeout", type=int, default=20, help="Per-request timeout in seconds.")
+    expanded_report.add_argument(
+        "--as-of-date",
+        default=None,
+        help="Submission-status cutoff date in YYYY-MM-DD format; defaults to today.",
+    )
     expanded_report.add_argument("--allow-insecure-tls", action="store_true")
     expanded_report.add_argument(
         "--report",
@@ -360,6 +366,7 @@ def _sources_expanded_report(args: argparse.Namespace) -> int:
         kimdis_pages=args.kimdis_pages,
         timeout_seconds=args.timeout,
         allow_insecure_tls=args.allow_insecure_tls,
+        as_of=date.fromisoformat(args.as_of_date) if args.as_of_date else None,
     )
     write_expanded_report(report, report_path, markdown_path)
     _emit_json(
