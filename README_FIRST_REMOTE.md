@@ -44,6 +44,8 @@ Known remote state:
 - `.venv/bin/python -m tender_radar --help` works.
 - `.venv/bin/python -m pytest` passed with `32 passed`.
 - GitHub repo `CryptoLearningLab/dimoprasies` has branch `main`.
+- Latest confirmed pushed commit is
+  `e5bcef5 Document project handoff and remote status`.
 - Codex push access uses the dedicated deploy key `dimoprasies-codex`.
 
 Set up the environment:

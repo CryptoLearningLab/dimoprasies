@@ -83,6 +83,10 @@ listing χωρίς login για τον διαγωνισμό `221744`.
 ## D-013 - Attachment downloads are audited before bulk use
 **Status:** Accepted
 
+Το `Λήψη` του ΕΣΗΔΗΣ περνά πρώτα από single-row browser audit πριν γίνει
+παραγωγική εντολή download. Κάθε αποθηκευμένο αρχείο πρέπει να κρατά local path,
+μέγεθος, SHA-256 και χρόνο ανάκτησης στη SQLite βάση.
+
 ## D-014 - ESHIDIS grid discovery stays candidate-only
 **Status:** Accepted
 
@@ -91,10 +95,6 @@ Oracle ADF XML responses, not as stable visible DOM rows. `sources
 discover-active` may parse those rows as `DISCOVERED_ACTIVE_CANDIDATE`, but
 each id must still be verified through `resources/search/{eshidis_id}` before
 the project uses `VERIFIED_ACTIVE`.
-
-Το `Λήψη` του ΕΣΗΔΗΣ περνά πρώτα από single-row browser audit πριν γίνει
-παραγωγική εντολή download. Κάθε αποθηκευμένο αρχείο πρέπει να κρατά local path,
-μέγεθος, SHA-256 και χρόνο ανάκτησης στη SQLite βάση.
 
 ## D-015 - ESHIDIS resource import may be metadata-only
 **Status:** Accepted
