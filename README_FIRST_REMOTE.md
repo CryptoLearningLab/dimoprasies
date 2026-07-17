@@ -42,7 +42,7 @@ Known remote state:
 - Python 3.12.3 exists.
 - `.venv` exists.
 - `.venv/bin/python -m tender_radar --help` works.
-- `.venv/bin/python -m pytest` passed with `32 passed`.
+- `.venv/bin/python -m pytest` passed with `35 passed`.
 - GitHub repo `CryptoLearningLab/dimoprasies` has branch `main`.
 - Codex push access uses the dedicated deploy key `dimoprasies-codex`.
 
@@ -94,7 +94,7 @@ python -m pytest
 Expected current remote result:
 
 ```text
-32 passed
+35 passed
 ```
 
 Then verify the existing sample evaluation:
@@ -173,9 +173,10 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next work:
 
-Investigate why official detail fetches for `221380`, `221629` and `221675`
-captured metadata but no attachment table rows. Keep them candidate-only or
-`UNKNOWN` unless separate official status evidence supports a stronger state.
+Download and analyze one high-priority candidate attachment set, starting with
+`221675` or `221629`, then run the existing dynamic evaluation profile. Keep
+the tender candidate-only or `UNKNOWN` unless separate official status evidence
+supports a stronger state.
 
 ## 7. Update Discipline
 

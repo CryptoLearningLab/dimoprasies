@@ -394,14 +394,14 @@ def fetch_resource_audit(
             }
             responses.append(entry)
             content_type = entry["content_type"] or ""
-            if len(response_bodies) < 20 and (
+            if len(response_bodies) < 30 and (
                 "text" in content_type or "html" in content_type or "xml" in content_type or "json" in content_type
             ):
                 try:
                     body = response.text()
                 except Exception as exc:  # pragma: no cover - diagnostic payload only
                     body = f"<body read failed: {exc!r}>"
-                response_bodies.append({**entry, "body_sample": body[:50000]})
+                response_bodies.append({**entry, "body_sample": body[:100000]})
 
         page.on("response", record_response)
 
@@ -592,7 +592,27 @@ def try_open_attachments(page: Any) -> dict[str, Any]:
             page.wait_for_load_state("networkidle", timeout=10_000)
         except PlaywrightTimeoutError:
             pass
-        return {"clicked": True, "tab_id": "sdi2::disAcr"}
+        table_attached = False
+        buttons_seen = 0
+        rows_seen = 0
+        try:
+            page.locator("#t1\\:\\:db").wait_for(state="attached", timeout=15_000)
+            table_attached = True
+        except PlaywrightTimeoutError:
+            pass
+        try:
+            page.locator('[id^="t1:"][id$=":cb1"]').first.wait_for(state="attached", timeout=5_000)
+        except PlaywrightTimeoutError:
+            pass
+        buttons_seen = page.locator('[id^="t1:"][id$=":cb1"]').count()
+        rows_seen = page.locator("#t1\\:\\:db tr").count()
+        return {
+            "clicked": True,
+            "tab_id": "sdi2::disAcr",
+            "table_attached": table_attached,
+            "buttons_seen": buttons_seen,
+            "rows_seen": rows_seen,
+        }
     except Exception as exc:
         return {"clicked": False, "error": repr(exc)}
 

@@ -54,6 +54,10 @@ and editable YAML/UI evaluation rules.
   - Official attachment rows: `8`
   - Downloaded attachments in local `work/download_audit/`
   - Analyzed documents and extracted text in local `work/extracted_text/`
+- Additional official candidate detail imports with attachment rows:
+  - `221380`: 24 latest attachment rows
+  - `221629`: 10 latest attachment rows
+  - `221675`: 9 latest attachment rows
 - Discovery command for public active-candidate grid:
   `sources discover-active`.
 - Detail import command:
@@ -103,6 +107,12 @@ https://b608b69a6b7e08.lhr.life
 ```
 
 That URL is temporary and should not be treated as stable infrastructure.
+- The delayed ESHIDIS attachment table issue for `221380`, `221629` and
+  `221675` was traced to snapshotting before the Oracle ADF streamed table
+  loaded. `fetch_resource_audit` now waits for `#t1::db` and download controls.
+- The UI report endpoint for candidate JSON now sends
+  `application/json; charset=utf-8`, fixing Greek text rendered as symbols in
+  browser tabs.
 
 ## Current Verification
 
@@ -115,7 +125,7 @@ Latest confirmed command:
 Result:
 
 ```text
-32 passed in 0.91s
+35 passed in 0.92s
 ```
 
 The system `python` command is not present in the remote environment; use
@@ -139,8 +149,8 @@ The system `python` command is not present in the remote environment; use
 ## What Is Missing
 
 - Production-grade source adapter coverage beyond the proven sample flow.
-- Reliable explanation/fix for metadata-only official detail fetches where
-  no attachment table rows are captured.
+- Controlled download/analyze coverage for newly listed candidate attachment
+  sets beyond `221744`.
 - Strong active-status verification model. Discovery rows remain
   `DISCOVERED_ACTIVE_CANDIDATE` until verified by official evidence.
 - OCR for scanned PDFs.
@@ -159,7 +169,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Investigate why selected official ESHIDIS detail fetches for `221380`,
-`221629` and `221675` imported metadata but no attachment table rows. Keep
-those tenders `UNKNOWN` or candidate-only unless a separate official status
+Download and analyze one high-priority candidate attachment set, starting with
+`221675` or `221629`, then run the existing dynamic evaluation profile. Keep
+the tender `UNKNOWN` or candidate-only unless a separate official status
 verification step supports a stronger state.

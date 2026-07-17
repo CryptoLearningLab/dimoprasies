@@ -154,10 +154,23 @@
 - `curl -L -s https://b608b69a6b7e08.lhr.life` returned the Tender Radar UI
   HTML through a temporary tunnel.
 - The temporary tunnel URL is not permanent infrastructure.
+- Live Playwright diagnostics showed that `221380`, `221629` and `221675`
+  do expose public attachment rows after the ESHIDIS ADF streamed table loads.
+- `fetch_resource_audit` now waits for `#t1::db` and download button controls
+  after opening the attachments tab, instead of snapshotting too early.
+- `python -m tender_radar sources fetch-resource 221380 --allow-insecure-tls`
+  re-ran after the wait fix and imported `24` latest attachment rows.
+- `python -m tender_radar sources fetch-resource 221629 --allow-insecure-tls`
+  re-ran after the wait fix and imported `10` latest attachment rows.
+- `python -m tender_radar sources fetch-resource 221675 --allow-insecure-tls`
+  re-ran after the wait fix and imported `9` latest attachment rows.
+- The UI report endpoint `/api/report?path=candidates.json` now serves
+  `application/json; charset=utf-8`; a curl smoke test confirmed Greek text
+  such as `ΥΠΟΒΟΛΗ ΠΡΟΣΦΟΡΩΝ` renders as UTF-8 in the JSON body.
 
 ## Tests Last Run
 - `.venv/bin/python -m pytest`
-- Result: 32 passed.
+- Result: 35 passed.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
@@ -172,10 +185,6 @@
   HTTPS πηγές· χρειάζεται CA bundle/trust-store fix πριν από production fetches.
 - Δεν υπάρχει ακόμη full source adapter, document parser, database migration
   runner ή export generator.
-- Τα candidate detail fetches `221380`, `221629` και `221675` ανέκτησαν
-  official detail metadata, αλλά δεν έδωσαν parsable attachment table response.
-  Χρειάζεται ξεχωριστή διερεύνηση αν αυτό σημαίνει μη διαθέσιμα συνημμένα,
-  διαφορετικό ADF rendering ή ανεπαρκές wait/click στον adapter.
 - Η συνδρομητική πλατφόρμα ΤΕΕ είναι πιθανή authenticated source, αλλά δεν
   πρέπει να αποθηκευτούν κωδικοί στο repo.
 - Το fallback YAML parser καλύπτει τα τρέχοντα config shapes· για πλήρη YAML
@@ -189,9 +198,9 @@
 sources_checked: 3
 tenders_discovered: 15
 candidate_detail_fetches_imported_this_task: 3
-attachments_listed: 23
-sqlite_tenders: 5
-sqlite_latest_attachments: 23
+attachments_listed: 66
+sqlite_tenders: 6
+sqlite_latest_attachments: 66
 attachments_downloaded: 8
 documents_parsed: 8
 documents_classified: 8
@@ -199,16 +208,16 @@ documents_with_text: 8
 content_matches: 60
 discovered_active_candidates: 15
 verified_active_matches: 0
-unknown_statuses: 5
+unknown_statuses: 6
 unexplained_failures: 0
 ```
 
 ## Next Gate
 
-Discovery gate follow-up: investigate why selected official detail fetches
-(`221380`, `221629`, `221675`) captured metadata but no attachment table rows,
-then either improve attachment listing capture or continue candidate
-verification with the limitation explicitly reported.
+Discovery gate follow-up: run controlled download and document analysis for a
+small high-priority candidate with official attachment rows, starting with
+`221675` or `221629`, then run the existing evaluation profile and report
+candidate-only findings without claiming `VERIFIED_ACTIVE`.
 
 ## Handoff Discipline
 

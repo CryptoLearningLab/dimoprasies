@@ -5,6 +5,7 @@ from tender_radar.sources.eshidis import (
     parse_eshidis_resource_text,
 )
 from tender_radar.sources.eshidis_browser import parse_discovery_candidates, render_discovery_markdown
+from tender_radar.sources.eshidis_browser import try_open_attachments
 
 
 def test_eshidis_loopback_html_is_detected() -> None:
@@ -68,3 +69,47 @@ def test_eshidis_attachment_xml_extracts_listing() -> None:
     result = parse_eshidis_attachment_xml(xml)
     assert result.row_count == 2
     assert result.filenames == ("ΤΕΧΝΙΚΗ signed.pdf", "espd-request.xml")
+
+
+class _FakeLocator:
+    def __init__(self, count_value: int) -> None:
+        self._count_value = count_value
+        self.clicked = False
+
+    def count(self) -> int:
+        return self._count_value
+
+    def click(self, timeout: int) -> None:
+        self.clicked = True
+
+    def wait_for(self, state: str, timeout: int) -> None:
+        return None
+
+    @property
+    def first(self) -> "_FakeLocator":
+        return self
+
+
+class _FakePage:
+    def __init__(self) -> None:
+        self.locators = {
+            "#sdi2\\:\\:disAcr": _FakeLocator(1),
+            "#t1\\:\\:db": _FakeLocator(1),
+            '[id^="t1:"][id$=":cb1"]': _FakeLocator(3),
+            "#t1\\:\\:db tr": _FakeLocator(3),
+        }
+
+    def locator(self, selector: str) -> _FakeLocator:
+        return self.locators[selector]
+
+    def wait_for_load_state(self, state: str, timeout: int) -> None:
+        return None
+
+
+def test_try_open_attachments_waits_for_loaded_table() -> None:
+    result = try_open_attachments(_FakePage())
+
+    assert result["clicked"] is True
+    assert result["table_attached"] is True
+    assert result["buttons_seen"] == 3
+    assert result["rows_seen"] == 3

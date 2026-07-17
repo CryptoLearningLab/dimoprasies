@@ -213,7 +213,7 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
 
     def _send_file(self, path: Path) -> None:
         body = path.read_bytes()
-        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        content_type = content_type_for_path(path)
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -304,6 +304,18 @@ def report_path(value: str) -> Path | None:
     if reports_dir not in path.parents or not path.exists():
         return None
     return path
+
+
+def content_type_for_path(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        return "application/json; charset=utf-8"
+    if suffix in {".md", ".markdown"}:
+        return "text/markdown; charset=utf-8"
+    content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    if content_type.startswith("text/") or content_type in {"application/javascript", "application/xml"}:
+        return f"{content_type}; charset=utf-8"
+    return content_type
 
 
 def safe_evaluation_profile_path(value: str) -> Path:

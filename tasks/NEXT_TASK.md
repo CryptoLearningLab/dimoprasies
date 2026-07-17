@@ -1,26 +1,43 @@
 # NEXT TASK
 
 Execute:
-`Investigate metadata-only ESHIDIS attachment listing`
+`Download and analyze one candidate attachment set`
 
 ## Instruction
 
 Keep the discovery/status separation:
 
-1. Use the existing official audit JSON files:
-   - `work/source_audit/eshidis_resource_audit_221380.json`
-   - `work/source_audit/eshidis_resource_audit_221629.json`
-   - `work/source_audit/eshidis_resource_audit_221675.json`
-2. Determine whether the missing attachment rows are caused by:
-   - no public attachments for these tenders,
-   - a different Oracle ADF attachment table shape,
-   - insufficient wait/click behavior in `fetch_resource_audit`.
-3. If there is a public, non-authenticated attachment table shape, update the
-   parser/importer with tests and re-run `sources fetch-resource` for the same
-   three IDs.
-4. Keep `221380`, `221629` and `221675` as `UNKNOWN` or candidate-only unless
-   a status verification step explicitly supports a stronger state.
-5. Download/analyze attachments only after official attachment rows are listed.
+1. Select one high-priority candidate with official attachment rows:
+   - preferred: `221675` because it is road-maintenance relevant and has
+     `9` official latest attachment rows,
+   - alternative: `221629` with `10` official latest attachment rows.
+2. Run controlled attachment download:
+
+```bash
+.venv/bin/python -m tender_radar sources download-attachment 221675 --all --limit 20 --allow-insecure-tls
+```
+
+3. Analyze downloaded documents:
+
+```bash
+.venv/bin/python -m tender_radar documents analyze \
+  --eshidis-id 221675 \
+  --report work/reports/document_analysis_221675.json \
+  --markdown-report work/reports/document_analysis_221675.md
+```
+
+4. Run the existing dynamic evaluation profile:
+
+```bash
+.venv/bin/python -m tender_radar evaluate run \
+  --profile config/evaluation_profiles/public_works_dynamic.yml \
+  --eshidis-id 221675 \
+  --report work/reports/evaluation_public_works_dynamic_221675.json \
+  --markdown-report work/reports/evaluation_public_works_dynamic_221675.md
+```
+
+5. Keep the tender `UNKNOWN` or candidate-only unless a separate status
+   verification step explicitly supports a stronger state.
 
 Do not store TEE subscription credentials in the repository. Treat TEE as a
 future authenticated adapter.

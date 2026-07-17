@@ -11,14 +11,13 @@
    ανεξήγητες αποτυχίες.
 7. Τα subscription sources, όπως η πλατφόρμα ΤΕΕ, απαιτούν ξεχωριστή πολιτική
    credentials και έλεγχο όρων χρήσης πριν μπουν σε παραγωγική ροή.
-8. Το official attachment listing και controlled bulk `Λήψη` έχουν αποδειχθεί
-   για τον διαγωνισμό `221744`, αλλά θέλουν περισσότερα δείγματα πριν θεωρηθούν
-   πανελλαδικά αξιόπιστα.
+8. Το official attachment listing έχει αποδειχθεί για τους διαγωνισμούς
+   `221744`, `221380`, `221629` και `221675`, αλλά το controlled bulk `Λήψη`
+   έχει αποδειχθεί πλήρως μόνο για το δείγμα `221744`.
 9. Η εξαγωγή κειμένου PDF γίνεται με `pypdf` και δεν καλύπτει OCR για
    σκαναρισμένα έγγραφα.
 10. Το πρώτο search profile matching είναι phrase/term matching με βασικό
     dedup, αλλά δεν κάνει ακόμα stemming, aliases expansion ή semantic scoring.
-11. Τα official detail fetches για `221380`, `221629` και `221675` ανέκτησαν
-    metadata και deadline, αλλά δεν παρήγαγαν parsable attachment table
-    response. Το σύστημα τα εισάγει metadata-only με μηδενικά συνημμένα μέχρι
-    να διερευνηθεί αν πρόκειται για απουσία συνημμένων ή διαφορετική ADF ροή.
+11. Τα attachment rows του ΕΣΗΔΗΣ μπορεί να φτάνουν με καθυστερημένο Oracle
+    ADF stream μετά το click στην καρτέλα `Συνημμένα Αρχεία`. Ο adapter πρέπει
+    να περιμένει το `t1::db` table και τα download controls πριν κάνει snapshot.
