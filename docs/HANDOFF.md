@@ -57,7 +57,7 @@ and editable YAML/UI evaluation rules.
 - Additional official candidate detail imports with attachment rows:
   - `221380`: 24 latest attachment rows
   - `221629`: 10 latest attachment rows
-  - `221675`: 9 latest attachment rows
+  - `221675`: 9 latest attachment rows, all downloaded and analyzed
 - Discovery command for public active-candidate grid:
   `sources discover-active`.
 - Detail import command:
@@ -113,6 +113,11 @@ That URL is temporary and should not be treated as stable infrastructure.
 - The UI report endpoint for candidate JSON now sends
   `application/json; charset=utf-8`, fixing Greek text rendered as symbols in
   browser tabs.
+- Candidate `221675` completed controlled download and analysis:
+  - 9 official attachments downloaded
+  - 9 documents analyzed with extracted text
+  - dynamic evaluation matched 1 tender with score `14.0` and 6 hits
+  - status remains `UNKNOWN`, not `VERIFIED_ACTIVE`
 
 ## Current Verification
 
@@ -149,8 +154,7 @@ The system `python` command is not present in the remote environment; use
 ## What Is Missing
 
 - Production-grade source adapter coverage beyond the proven sample flow.
-- Controlled download/analyze coverage for newly listed candidate attachment
-  sets beyond `221744`.
+- Strong active-status verification model for analyzed candidates.
 - Strong active-status verification model. Discovery rows remain
   `DISCOVERED_ACTIVE_CANDIDATE` until verified by official evidence.
 - OCR for scanned PDFs.
@@ -169,7 +173,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Download and analyze one high-priority candidate attachment set, starting with
-`221675` or `221629`, then run the existing dynamic evaluation profile. Keep
-the tender `UNKNOWN` or candidate-only unless a separate official status
-verification step supports a stronger state.
+Implement and run a focused status-verification pass for analyzed candidate
+`221675`, checking the official detail deadline and newer official
+acts/attachments before considering any state stronger than `UNKNOWN` or
+candidate-only.

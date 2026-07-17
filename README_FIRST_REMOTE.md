@@ -173,10 +173,10 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next work:
 
-Download and analyze one high-priority candidate attachment set, starting with
-`221675` or `221629`, then run the existing dynamic evaluation profile. Keep
-the tender candidate-only or `UNKNOWN` unless separate official status evidence
-supports a stronger state.
+Implement and run a focused status-verification pass for analyzed candidate
+`221675`, checking the official detail deadline and newer official
+acts/attachments before considering any state stronger than `UNKNOWN` or
+candidate-only.
 
 ## 7. Update Discipline
 

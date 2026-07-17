@@ -1,43 +1,31 @@
 # NEXT TASK
 
 Execute:
-`Download and analyze one candidate attachment set`
+`Status verification pass for analyzed candidate 221675`
 
 ## Instruction
 
 Keep the discovery/status separation:
 
-1. Select one high-priority candidate with official attachment rows:
-   - preferred: `221675` because it is road-maintenance relevant and has
-     `9` official latest attachment rows,
-   - alternative: `221629` with `10` official latest attachment rows.
-2. Run controlled attachment download:
-
-```bash
-.venv/bin/python -m tender_radar sources download-attachment 221675 --all --limit 20 --allow-insecure-tls
-```
-
-3. Analyze downloaded documents:
-
-```bash
-.venv/bin/python -m tender_radar documents analyze \
-  --eshidis-id 221675 \
-  --report work/reports/document_analysis_221675.json \
-  --markdown-report work/reports/document_analysis_221675.md
-```
-
-4. Run the existing dynamic evaluation profile:
-
-```bash
-.venv/bin/python -m tender_radar evaluate run \
-  --profile config/evaluation_profiles/public_works_dynamic.yml \
-  --eshidis-id 221675 \
-  --report work/reports/evaluation_public_works_dynamic_221675.json \
-  --markdown-report work/reports/evaluation_public_works_dynamic_221675.md
-```
-
-5. Keep the tender `UNKNOWN` or candidate-only unless a separate status
-   verification step explicitly supports a stronger state.
+1. Use existing evidence for `221675`:
+   - `work/source_audit/eshidis_resource_audit_221675.json`
+   - `work/reports/document_analysis_221675.json`
+   - `work/reports/evaluation_public_works_dynamic_221675.json`
+   - downloaded attachments under `work/download_audit/`
+   - extracted text under `work/extracted_text/`
+2. Check the official detail deadline and attachment/document evidence for
+   newer acts that could affect status:
+   - extension,
+   - amendment/correction,
+   - cancellation,
+   - award/provisional contractor,
+   - contract signing,
+   - opening/evaluation evidence.
+3. Keep `221675` as `UNKNOWN` or candidate-only unless the latest official
+   evidence is sufficient for a stronger status.
+4. If code is added, keep status verification separate from content matching
+   and record provenance for every status finding.
+5. Write a JSON/Markdown status-verification report under `work/reports/`.
 
 Do not store TEE subscription credentials in the repository. Treat TEE as a
 future authenticated adapter.

@@ -167,6 +167,17 @@
 - The UI report endpoint `/api/report?path=candidates.json` now serves
   `application/json; charset=utf-8`; a curl smoke test confirmed Greek text
   such as `ΥΠΟΒΟΛΗ ΠΡΟΣΦΟΡΩΝ` renders as UTF-8 in the JSON body.
+- `.venv/bin/python -m tender_radar sources download-attachment 221675 --all --limit 20 --allow-insecure-tls`
+  downloaded all 9 official latest attachment rows for `221675` with zero
+  failures and stored local path, size and SHA-256 in SQLite.
+- `.venv/bin/python -m tender_radar documents analyze --eshidis-id 221675 --report work/reports/document_analysis_221675.json --markdown-report work/reports/document_analysis_221675.md`
+  analyzed 9 downloaded documents for `221675`; all 9 produced text artifacts
+  under `work/extracted_text/`.
+- `.venv/bin/python -m tender_radar evaluate run --profile config/evaluation_profiles/public_works_dynamic.yml --eshidis-id 221675 --report work/reports/evaluation_public_works_dynamic_221675.json --markdown-report work/reports/evaluation_public_works_dynamic_221675.md`
+  scanned 9 documents, matched 1 tender, and produced score `14.0` with 6
+  evidence hits.
+- `221675` remains `UNKNOWN` with `status_confidence = 0.0`; the candidate was
+  not promoted to `VERIFIED_ACTIVE`.
 
 ## Tests Last Run
 - `.venv/bin/python -m pytest`
@@ -175,8 +186,9 @@
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
   `resources/search/{id}` αποδείχθηκε καλύτερο πρώτο adapter target.
-- Το κουμπί `Λήψη` έχει αποδειχθεί για όλα τα 8 συνημμένα του δείγματος, αλλά
-  η κάλυψη άλλων διαγωνισμών θέλει περισσότερα δείγματα.
+- Το κουμπί `Λήψη` έχει αποδειχθεί για όλα τα 8 συνημμένα του `221744` και
+  όλα τα 9 συνημμένα του `221675`, αλλά η κάλυψη άλλων διαγωνισμών θέλει
+  περισσότερα δείγματα.
 - Η εξαγωγή κειμένου PDF βασίζεται σε `pypdf` και δεν είναι OCR· σκαναρισμένα
   PDF μπορεί να θέλουν ξεχωριστή OCR φάση.
 - Το πρώτο search κάνει phrase/term matching με βασικό dedup. Δεν έχει ακόμη
@@ -201,10 +213,10 @@ candidate_detail_fetches_imported_this_task: 3
 attachments_listed: 66
 sqlite_tenders: 6
 sqlite_latest_attachments: 66
-attachments_downloaded: 8
-documents_parsed: 8
-documents_classified: 8
-documents_with_text: 8
+attachments_downloaded: 17
+documents_parsed: 17
+documents_classified: 17
+documents_with_text: 17
 content_matches: 60
 discovered_active_candidates: 15
 verified_active_matches: 0
@@ -214,10 +226,10 @@ unexplained_failures: 0
 
 ## Next Gate
 
-Discovery gate follow-up: run controlled download and document analysis for a
-small high-priority candidate with official attachment rows, starting with
-`221675` or `221629`, then run the existing evaluation profile and report
-candidate-only findings without claiming `VERIFIED_ACTIVE`.
+Discovery gate follow-up: implement and run a focused status-verification pass
+for analyzed candidate `221675`, checking the official detail deadline and
+newer official acts/attachments before considering any state stronger than
+`UNKNOWN` or candidate-only.
 
 ## Handoff Discipline
 
