@@ -215,6 +215,13 @@ That URL is temporary and should not be treated as stable infrastructure.
 - The UI shows a modal progress overlay while long-running fetch/download
   actions are active. Commands remain serialized because they write shared
   runtime reports and document indexes.
+- Discovery defaults are safer for non-daily use: ESHIDIS active discovery
+  now defaults to `100` rows and KIMDIS expanded report to `20` pages per
+  record family. The UI displays that depth. This reduces miss risk but is
+  still bounded scanning, not a formal no-miss guarantee. The next reliability
+  gate should add persisted discovery watermarks/backfill so a run after a
+  week scans until it covers the previous successful window or source
+  exhaustion.
 - Ambiguous place aliases are recall-first. `Γλυφάδα` and `Γλυφάδας` are
   configured as ambiguous aliases for Δήμος Δωρίδος: positive context such as
   `Δωρίδος`, `Φωκίδα` or `EL645` confirms the match; negative context such as
@@ -233,7 +240,7 @@ Latest confirmed command:
 Result:
 
 ```text
-69 passed in 1.67s
+71 passed in 1.57s
 ```
 
 Latest KIMDIS PROC attachment fetch command:
@@ -302,6 +309,8 @@ The system `python` command is not present in the remote environment; use
 - Export generator for daily reports.
 - Scheduling/background daily run.
 - Deduplicated change detection across repeated scans.
+- Persisted discovery watermarks/backfill. Current discovery scans are deeper
+  than before but still bounded by row/page depth.
 - Authentication-safe adapter for TEE subscription sources.
 - Production access model for UI beyond local/LAN/Tailscale/private tunnel.
 - Manual browser review of the redesigned first UI screen.
@@ -321,6 +330,5 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Add a repeatable alias-risk audit report for short, common or ambiguous place
-names, then optionally expose ambiguous retained matches with a distinct UI
-badge.
+Add persisted discovery watermarks/backfill so weekly checks scan back to the
+last successful window before returning complete.

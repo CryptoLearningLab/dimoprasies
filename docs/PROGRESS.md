@@ -558,6 +558,25 @@
   επέστρεψε `22 passed in 0.65s`.
 - Full test suite:
   `.venv/bin/python -m pytest` επέστρεψε `69 passed in 1.67s`.
+- Discovery depth defaults were raised for safer weekly use:
+  - ESHIDIS active discovery default limit is now `100` rows instead of `25`.
+  - KIMDIS expanded report default/UI depth is now `20` pages per record family
+    instead of `5`.
+  - The UI shows this depth next to the search controls.
+- The UI discovery action now treats runtime `summary.errors` from the expanded
+  report as warnings/failure instead of reporting a clean success when one
+  source family failed silently.
+- This improves recall but is not a mathematical guarantee. A no-miss weekly
+  guarantee requires a persisted watermark/backfill gate that scans until it
+  reaches the last successful run window, or until each source is exhausted.
+- Verification for discovery-depth update:
+  `.venv/bin/python -m tender_radar config validate` passed for all config
+  files.
+- Targeted tests:
+  `.venv/bin/python -m pytest tests/test_ui_server.py tests/test_cli.py`
+  returned `27 passed in 0.76s`.
+- Full test suite:
+  `.venv/bin/python -m pytest` returned `71 passed in 1.57s`.
 
 ## Coverage
 
@@ -590,6 +609,8 @@ ui_kimdis_tools: true
 ui_dashboard_row_fetch: true
 ui_dashboard_zip_download: true
 kimdis_fetch_single_official_id: true
+eshidis_discovery_default_limit: 100
+kimdis_discovery_default_pages_per_family: 20
 source_whitelist_files: 2
 source_whitelist_entries_checked: 36
 source_whitelist_reachable: 29

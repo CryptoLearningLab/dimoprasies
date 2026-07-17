@@ -196,3 +196,15 @@ remain available for maintenance, but they should not be the main user path.
 Long-running commands remain serialized because they write shared runtime
 reports and document indexes; the UI must show explicit progress instead of
 appearing idle.
+
+## D-026 - Bounded discovery is not a no-miss guarantee
+**Status:** Accepted
+
+Higher row/page limits reduce miss risk, but they do not prove complete
+coverage after a multi-day gap. A no-miss discovery workflow needs persisted
+run metadata and backfill logic that scans each source until it reaches the
+last successful discovery window or a documented source exhaustion condition.
+
+The UI may expose bounded scans for speed, but reports must make partial
+source failures visible and must not imply formal completeness from a fixed
+limit alone.

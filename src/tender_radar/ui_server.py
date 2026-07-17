@@ -25,6 +25,8 @@ from tender_radar.evaluation import normalize_evaluation_config, save_evaluation
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+DEFAULT_ESHIDIS_DISCOVERY_LIMIT = 100
+DEFAULT_KIMDIS_DISCOVERY_PAGES = 20
 COMMAND_LOCK = threading.Lock()
 
 
@@ -383,9 +385,13 @@ def run_discovery_search(*, limit: int) -> dict[str, Any]:
             result["name"] = step["name"]
             results.append(result)
         expanded_result = next((item for item in results if item.get("name") == "expanded_report"), {})
-        warnings = [item for item in results if item.get("returncode") not in (0, None)]
+        warnings = [
+            item
+            for item in results
+            if item.get("returncode") not in (0, None) or command_summary_errors(item) > 0
+        ]
         return {
-            "ok": expanded_result.get("returncode") == 0,
+            "ok": expanded_result.get("returncode") == 0 and not warnings,
             "command": " && ".join(item["command"] for item in results),
             "steps": results,
             "warnings": warnings,
@@ -424,7 +430,7 @@ def discovery_search_steps(*, limit: int, as_of_date: str) -> list[dict[str, Any
                 "expanded-report",
                 "--allow-insecure-tls",
                 "--kimdis-pages",
-                "5",
+                str(DEFAULT_KIMDIS_DISCOVERY_PAGES),
                 "--timeout",
                 "20",
                 "--as-of-date",
@@ -458,6 +464,20 @@ def run_cli_process(args: list[str], *, timeout: int) -> dict[str, Any]:
         "stdout": completed.stdout,
         "stderr": completed.stderr,
     }
+
+
+def command_summary_errors(result: dict[str, Any]) -> int:
+    try:
+        payload = json.loads(str(result.get("stdout") or "{}"))
+    except json.JSONDecodeError:
+        return 0
+    summary = payload.get("summary") if isinstance(payload, dict) else None
+    if not isinstance(summary, dict):
+        return 0
+    try:
+        return int(summary.get("errors") or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def require_eshidis_id(payload: dict[str, Any]) -> str:
@@ -1206,13 +1226,14 @@ INDEX_HTML = """<!doctype html>
           <p class="eyebrow">Περιοχή αναζήτησης</p>
           <h3>Ναυπακτία, Δωρίδα, Θέρμο, Μεσολόγγι, Πάτρα και σχετικές Π.Ε.</h3>
           <p id="scopeText" class="mutedLine">Προεπιλογή: τοπική περιοχή ενδιαφέροντος από το config.</p>
+          <p class="mutedLine">Η αναζήτηση ελέγχει έως 100 ενεργές γραμμές ΕΣΗΔΗΣ και 20 σελίδες ΚΗΜΔΗΣ ανά οικογένεια εγγράφων.</p>
         </div>
         <label class="switchLine">
           <input id="allGreeceToggle" type="checkbox">
           <span>Λήψη έργων από όλη την Ελλάδα</span>
         </label>
         <div class="toolbar inlineToolbar">
-          <label>Πλήθος αναζήτησης <input id="limitInput" type="number" min="1" max="100" value="25"></label>
+          <label>Βάθος ΕΣΗΔΗΣ <input id="limitInput" type="number" min="1" max="500" value="100"></label>
           <button id="discoverBtn">Νέα αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ</button>
         </div>
       </div>

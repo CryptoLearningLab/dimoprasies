@@ -3,6 +3,7 @@ from pathlib import Path
 import tender_radar.ui_server as ui_server
 from tender_radar.ui_server import (
     APP_JS,
+    DEFAULT_KIMDIS_DISCOVERY_PAGES,
     INDEX_HTML,
     content_type_for_path,
     dashboard_payload,
@@ -33,6 +34,14 @@ def test_ui_has_separate_id_source_columns_and_kimdis_tool_input() -> None:
     assert "Α/Α / Πηγή" not in INDEX_HTML
     assert 'id="kimdisInput"' in INDEX_HTML
     assert 'id="kimdisFetchBtn"' in INDEX_HTML
+
+
+def test_ui_uses_safer_discovery_defaults() -> None:
+    assert 'value="100"' in INDEX_HTML
+    steps = discovery_search_steps(limit=100, as_of_date="2026-07-17")
+    expanded_args = steps[1]["args"]
+    assert expanded_args[expanded_args.index("--kimdis-pages") + 1] == str(DEFAULT_KIMDIS_DISCOVERY_PAGES)
+    assert DEFAULT_KIMDIS_DISCOVERY_PAGES == 20
 
 
 def test_dashboard_actions_use_fetch_and_zip_not_preview_buttons() -> None:
@@ -250,6 +259,7 @@ def test_discovery_search_steps_run_eshidis_then_expanded_kimdis() -> None:
     assert "--eshidis-candidates" in steps[1]["args"]
     assert "work/reports/expanded_discovery_report.json" in steps[1]["args"]
     assert "2026-07-17" in steps[1]["args"]
+    assert steps[1]["args"][steps[1]["args"].index("--kimdis-pages") + 1] == "20"
 
 
 def test_interest_reason_uses_locations_config() -> None:

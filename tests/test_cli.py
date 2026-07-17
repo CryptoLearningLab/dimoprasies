@@ -2,7 +2,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 import unittest
 
-from tender_radar.cli import _import_resource_payload, _parse_row_indexes, main
+from tender_radar.cli import _import_resource_payload, _parse_row_indexes, build_parser, main
 
 
 class CliTests(unittest.TestCase):
@@ -38,6 +38,15 @@ class CliTests(unittest.TestCase):
         self.assertIn("discover-active", output.getvalue())
         self.assertIn("fetch-resource", output.getvalue())
         self.assertIn("download-attachment", output.getvalue())
+
+    def test_discovery_cli_defaults_are_week_safe_depths(self) -> None:
+        parser = build_parser()
+
+        discover = parser.parse_args(["sources", "discover-active"])
+        expanded = parser.parse_args(["sources", "expanded-report"])
+
+        self.assertEqual(100, discover.limit)
+        self.assertEqual(20, expanded.kimdis_pages)
 
     def test_documents_help_lists_analyze(self) -> None:
         output = StringIO()

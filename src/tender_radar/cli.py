@@ -157,7 +157,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="work/reports/eshidis_active_candidates.json",
         help="ESHIDIS candidates JSON path to include.",
     )
-    expanded_report.add_argument("--kimdis-pages", type=int, default=5, help="KIMDIS pages per record family.")
+    expanded_report.add_argument("--kimdis-pages", type=int, default=20, help="KIMDIS pages per record family.")
     expanded_report.add_argument("--timeout", type=int, default=20, help="Per-request timeout in seconds.")
     expanded_report.add_argument(
         "--as-of-date",
@@ -241,7 +241,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="2",
         help="ESHIDIS status select value; 2 is ΥΠΟΒΟΛΗ ΠΡΟΣΦΟΡΩΝ in the audited form.",
     )
-    discover_active.add_argument("--limit", type=int, default=25, help="Maximum candidate rows to extract.")
+    discover_active.add_argument("--limit", type=int, default=100, help="Maximum candidate rows to extract.")
     discover_active.add_argument(
         "--report",
         default="work/reports/eshidis_active_candidates.json",

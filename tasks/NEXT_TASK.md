@@ -1,25 +1,26 @@
 # NEXT TASK
 
 Execute:
-`Build alias risk audit report`
+`Build discovery watermark and backfill safety`
 
 ## Current Input
 
-Use the configured focus geography:
+Use the current discovery flows:
 
 ```text
-config/sources.yml
-config/locations.yml
+sources discover-active
+sources expanded-report
+work/reports/eshidis_active_candidates.json
+work/reports/expanded_discovery_report.json
 ```
 
-Latest recall-safety update as of `2026-07-17`:
+Latest discovery-depth update as of `2026-07-17`:
 
 ```text
-Γλυφάδα / Γλυφάδας configured as ambiguous Δήμος Δωρίδος aliases
-positive context confirms the match
-negative context blocks Attica/Glyfada municipality false positives
-context-free ambiguous matches are retained for review
-current live expanded report has 0 ambiguous retained matches
+ESHIDIS active discovery default limit is 100 rows
+KIMDIS expanded report default depth is 20 pages per record family
+expanded-report runtime summary.errors are surfaced as warnings/failure in UI
+these are safer bounded scans, not a formal no-miss weekly guarantee
 ```
 
 Recent UI workflow update as of `2026-07-17`:
@@ -31,16 +32,16 @@ KIMDIS fetch supports --official-id for one ADAM at a time
 
 ## Instruction
 
-Build the next smallest recall-safety step:
+Build the next smallest no-miss reliability step:
 
-1. Add a repeatable alias-risk audit that reads source/location configs and
-   reports short, common, duplicated or ambiguous place aliases.
-2. Keep the audit informational unless a rule is structurally invalid.
-3. Produce JSON and Markdown reports with scope, alias, risk reason and
-   recommended handling.
-4. Do not remove aliases only because they are noisy; prefer ambiguous review
-   buckets over recall loss.
-5. Keep status verification and search/evaluation separate.
+1. Persist discovery run metadata: started_at, completed_at, source family,
+   row/page depth, candidate ids, errors and success/failure.
+2. Add a backfill mode that scans until it reaches the previous successful
+   run window or a documented source exhaustion condition.
+3. Keep bounded demo scans available, but label them as bounded.
+4. Surface partial source failures in the UI and reports.
+5. Do not promote candidates to `VERIFIED_ACTIVE`; keep status verification
+   separate.
 
 Do not store TEE subscription credentials in the repository. Treat TEE as a
 future authenticated adapter.
