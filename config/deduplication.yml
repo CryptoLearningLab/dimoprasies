@@ -1,0 +1,52 @@
+version: 1
+identity_keys:
+  exact:
+    - eshidis_id
+    - proc_adam
+    - awrd_adam
+    - symv_adam
+    - diavgeia_ada
+    - ted_notice_id
+    - normalized_official_url
+    - attachment_sha256
+  source_families:
+    proc_adam: declaration
+    awrd_adam: award
+    symv_adam: signed_contract
+
+merge_levels:
+  - id: level_0_same_source_record
+    automatic: true
+    required:
+      - same_source_type
+      - same_source_identifier
+      - same_document_family
+
+  - id: level_1_official_cross_reference
+    automatic: true
+    required:
+      - official_cross_reference
+      - provenance_text_or_location
+
+  - id: level_2_strong_composite_match
+    automatic: false
+    minimum_independent_fields: 4
+    allowed_fields:
+      - contracting_authority
+      - execution_place_or_nuts
+      - budget_within_1_percent
+      - cpv_overlap
+      - deadline_or_publication_date
+      - funding_or_program_code
+      - title_similarity
+
+  - id: level_3_possible_relation
+    automatic: false
+    relation: POSSIBLY_RELATED
+
+rules:
+  - "Never merge records by title alone."
+  - "Repeated generic titles reduce confidence."
+  - "Different ESHIDIS ids require official cross-reference or manual review."
+  - "PROC, AWRD and SYMV remain distinct source record families."
+  - "Ambiguous cases stay separate and are linked as POSSIBLY_RELATED."

@@ -1,23 +1,24 @@
 # NEXT TASK
 
 Execute:
-`Manual review of redesigned UI, then candidate 221629 document gate`
+`Audit source whitelist, then candidate 221629 document gate`
 
 ## Instruction
 
-First manually review the redesigned UI first screen:
+First audit the imported source whitelist without starting a full crawl:
 
-1. Start the UI:
-   - `.venv/bin/tender-radar-ui --host 0.0.0.0 --port 8765`
-2. Open the UI from a browser and check:
-   - default local-interest scope,
-   - all-Greece toggle,
-   - essential tender table,
-   - official ESHIDIS links,
-   - `Download files`,
-   - preview for declaration, technical description and budget.
-3. Confirm that the UI does not claim `VERIFIED_ACTIVE` or national
-   completeness.
+1. Use `config/sources.yml` and `docs/SOURCE_WHITELIST.md`.
+2. Check every source family for:
+   - reachability,
+   - browser requirement,
+   - pagination,
+   - returned metadata/files,
+   - blockers/rate limits,
+   - fallback behavior.
+3. Update `docs/SOURCE_AUDIT.md` with per-source evidence.
+4. Do not claim complete coverage while priority sources are unaudited or
+   failing.
+5. Keep deduplication aligned with `docs/DEDUPLICATION.md`.
 
 Then continue the document gate for `221629`:
 

@@ -173,8 +173,8 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next work:
 
-Manually review the redesigned UI first screen from a browser, then run the
-controlled attachment download and document analysis gate for candidate
+Build or run a source-whitelist audit report for `config/sources.yml`, then run
+the controlled attachment download and document analysis gate for candidate
 `221629`.
 
 ## 7. Update Discipline

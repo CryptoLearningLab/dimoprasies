@@ -130,6 +130,15 @@ That URL is temporary and should not be treated as stable infrastructure.
   - preview of declaration, technical description and budget where available
 - `docs/AVAILABLE_MECHANISMS.md` records the mechanisms available behind the
   UI so future UI work composes them instead of replacing them.
+- Uploaded source whitelist is integrated as:
+  - `docs/SOURCE_WHITELIST.md`
+  - `config/sources.yml`
+- Deduplication protocol is integrated as:
+  - `docs/DEDUPLICATION.md`
+  - `config/deduplication.yml`
+- Title-only deduplication is forbidden. Ambiguous repeated-title cases stay
+  separate or become `POSSIBLY_RELATED` until official identifiers or strong
+  composite evidence prove identity.
 
 ## Current Verification
 
@@ -142,7 +151,7 @@ Latest confirmed command:
 Result:
 
 ```text
-44 passed in 1.62s
+44 passed in 1.74s
 ```
 
 Latest status verification command:
@@ -188,6 +197,8 @@ The system `python` command is not present in the remote environment; use
 - Authentication-safe adapter for TEE subscription sources.
 - Production access model for UI beyond local/LAN/Tailscale/private tunnel.
 - Manual browser review of the redesigned first UI screen.
+- Per-source whitelist audit for `config/sources.yml` before claiming broader
+  coverage.
 
 ## Next Work
 
@@ -195,6 +206,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Manually review the redesigned UI first screen from a browser, then run the
-controlled attachment download and document analysis gate for candidate
+Build or run a source-whitelist audit report for `config/sources.yml`, then run
+the controlled attachment download and document analysis gate for candidate
 `221629`.

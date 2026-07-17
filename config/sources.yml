@@ -1,0 +1,143 @@
+version: 1
+name: public_works_tender_radar_sources
+timezone: Europe/Athens
+
+global_sources:
+  - id: eshidis_active_search
+    name: "ΕΣΗΔΗΣ Δημόσια Αναζήτηση Έργων"
+    type: web_app
+    url: "https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/faces/active_search_main.jspx"
+    priority: 1
+    requires_browser_possible: true
+
+  - id: eshidis_tender_page
+    name: "ΕΣΗΔΗΣ Δημόσια Καρτέλα Έργου"
+    type: url_template
+    url: "https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/{ESHIDIS_ID}"
+    priority: 2
+
+  - id: khmdhs_notice
+    name: "ΚΗΜΔΗΣ Διακηρύξεις"
+    type: api_post
+    url: "https://cerpp.eprocurement.gov.gr/khmdhs-opendata/notice?page={PAGE}"
+    contract_type: "10"
+    priority: 3
+
+  - id: khmdhs_notice_attachment
+    name: "ΚΗΜΔΗΣ PDF Διακήρυξης"
+    type: url_template
+    url: "https://cerpp.eprocurement.gov.gr/khmdhs-opendata/notice/attachment/{PROC_ADAM}"
+
+  - id: khmdhs_auction
+    name: "ΚΗΜΔΗΣ Αναθέσεις / Κατακυρώσεις"
+    type: api_post
+    url: "https://cerpp.eprocurement.gov.gr/khmdhs-opendata/auction?page={PAGE}"
+
+  - id: khmdhs_auction_attachment
+    name: "ΚΗΜΔΗΣ PDF Ανάθεσης"
+    type: url_template
+    url: "https://cerpp.eprocurement.gov.gr/khmdhs-opendata/auction/attachment/{AWRD_ADAM}"
+
+  - id: khmdhs_contract
+    name: "ΚΗΜΔΗΣ Συμβάσεις"
+    type: api_post
+    url: "https://cerpp.eprocurement.gov.gr/khmdhs-opendata/contract?page={PAGE}"
+
+  - id: khmdhs_contract_attachment
+    name: "ΚΗΜΔΗΣ Υπογεγραμμένη Σύμβαση"
+    type: url_template
+    url: "https://cerpp.eprocurement.gov.gr/khmdhs-opendata/contract/attachment/{SYMV_ADAM}"
+
+  - id: diavgeia
+    name: "Διαύγεια"
+    type: web
+    url: "https://diavgeia.gov.gr/"
+    priority: 4
+
+  - id: ted
+    name: "TED"
+    type: web
+    url: "https://ted.europa.eu/en/search/result"
+    priority: 8
+
+scopes:
+  - id: nafpaktia
+    name: "Δήμος Ναυπακτίας"
+    nuts: ["EL631"]
+    aliases: ["Δήμος Ναυπακτίας", "Ναυπακτία", "Ναύπακτος", "Ναυπάκτου", "Αντίρριο", "Χάλκεια", "Αποδοτία", "Πλάτανος", "Πυλλήνη"]
+    sources:
+      - "https://www.nafpaktos.gr/el/prokirixeis-diagonismoi"
+      - "https://diavgeia.gov.gr/f/nafpaktia"
+      - "https://diavgeia.gov.gr/f/deya_nafpaktias"
+
+  - id: thermos
+    name: "Δήμος Θέρμου"
+    nuts: ["EL631"]
+    aliases: ["Δήμος Θέρμου", "Θέρμο", "Θέρμου", "Δ.Ε. Θέρμου"]
+    sources:
+      - "https://www.dimos-thermou.gr/website/category/diakyrikseis-prokyrikseis/"
+      - "https://diavgeia.gov.gr/f/dimosthermo"
+
+  - id: messolonghi
+    name: "Δήμος Ιερής Πόλης Μεσολογγίου"
+    nuts: ["EL631"]
+    aliases: ["Δήμος Ιερής Πόλης Μεσολογγίου", "Δήμος Ι.Π. Μεσολογγίου", "Ι.Π. Μεσολογγίου", "Μεσολόγγι", "Μεσολογγίου", "Αιτωλικό", "Οινιάδες", "Νεοχώρι", "Κατοχή"]
+    sources:
+      - "https://messolonghi.gov.gr/diagonismoi-2/"
+      - "https://diavgeia.gov.gr/f/dimos_i_p_mesolonghiou"
+
+  - id: dorida_eupalio
+    name: "Δήμος Δωρίδος / Ευπάλιο"
+    nuts: ["EL645"]
+    aliases: ["Δήμος Δωρίδος", "Δωρίδα", "Δωρίδος", "Ευπάλιο", "Ευπαλίου", "Δ.Ε. Ευπαλίου", "Μοναστηράκι", "Χιλιαδού", "Σεργούλα", "Γλυφάδα", "Μαραθιάς", "Τολοφώνα", "Ερατεινή", "Λιδωρίκι"]
+    sources:
+      - "https://www.dorida.gr/blog/category/%CF%84%CE%B5%CE%BB%CE%B5%CF%85%CF%84%CE%B1%CE%AF%CE%B1-%CE%BD%CE%AD%CE%B1/%CF%80%CF%81%CE%BF%CE%BA%CE%B7%CF%81%CF%8D%CE%BE%CE%B5%CE%B9%CF%82"
+      - "https://www.dorida.gr/dimotiko-symvoulio/apofaseis-epitropon"
+      - "https://diavgeia.gov.gr/f/DHMOSDORIDOS"
+      - "https://diavgeia.gov.gr/f/D.L.T.DORIDOS"
+
+  - id: patras
+    name: "Δήμος Πατρέων"
+    nuts: ["EL632"]
+    aliases: ["Δήμος Πατρέων", "Πάτρα", "Πατρών", "Ρίο", "Παραλία Πατρών", "Βραχναίικα", "Μεσσάτιδα"]
+    sources:
+      - "https://e-patras.gr/el/tenders"
+      - "https://e-patras.gr/el/e-democracy/decisions/municipal-committee-decisions"
+      - "https://diavgeia.gov.gr/f/dimospatras"
+      - "https://deyap.gr/category/news/shmantikes_anakoinwseis_prokurhxeis/prokurhxeis/"
+
+  - id: western_greece_aitoloakarnania
+    name: "Περιφέρεια Δυτικής Ελλάδας / Π.Ε. Αιτωλοακαρνανίας"
+    nuts: ["EL63", "EL631"]
+    aliases: ["Περιφέρεια Δυτικής Ελλάδας", "Π.Ε. Αιτωλοακαρνανίας", "Περιφερειακή Ενότητα Αιτωλοακαρνανίας", "Αιτωλοακαρνανία"]
+    sources:
+      - "https://pde.gov.gr/el/diafaneia/prokirikseis/"
+      - "https://pde.gov.gr/el/perifereia/perifereiaki_epitropi/"
+      - "https://pde.gov.gr/el/perifereia/organotiki-domi/genikes-dieuthinseis/dieuthinsi-anapt-progr/dtepea/"
+      - "https://diavgeia.gov.gr/f/pde"
+
+  - id: central_greece_fokida
+    name: "Περιφέρεια Στερεάς Ελλάδας / Π.Ε. Φωκίδας"
+    nuts: ["EL64", "EL645"]
+    aliases: ["Περιφέρεια Στερεάς Ελλάδας", "Π.Ε. Φωκίδας", "Περιφερειακή Ενότητα Φωκίδας", "Φωκίδα", "Φωκίδος", "Άμφισσα", "Δελφοί", "Ιτέα", "Δωρίδα", "Ευπάλιο"]
+    sources:
+      - "https://diafania.pste.gov.gr/?cat=3"
+      - "https://diavgeia.gov.gr/f/pste"
+
+collection_order:
+  - eshidis_active_search
+  - khmdhs_notice
+  - geographic_classification
+  - eshidis_tender_page
+  - authority_websites
+  - diavgeia
+  - khmdhs_auction
+  - khmdhs_contract
+  - ted
+
+rules:
+  - "Do not filter only by authority headquarters."
+  - "Use NUTS, execution place, title, tender documents, technical description and aliases."
+  - "Record source URL and retrieval timestamp for every datum."
+  - "Do not declare complete coverage when a priority source fails."
+  - "Treat PROC, AWRD and SYMV as distinct record types."

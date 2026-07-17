@@ -180,7 +180,11 @@ http://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/{eshidis_
 
 - Public data only.
 - No authentication or CAPTCHA bypass.
+- Source families and local authority pages are listed in
+  `config/sources.yml` and `docs/SOURCE_WHITELIST.md`.
 - Search-specific terms live in runtime requests or YAML profiles, not in the
   core package.
 - Content matches and verified active tenders are separate states.
+- Deduplication must follow `docs/DEDUPLICATION.md`; title-only matching is
+  never enough to merge tender records.
 - Unknown values remain `null`, `UNKNOWN`, or explicitly uncertain.

@@ -148,3 +148,19 @@ it remains a composition layer over the existing CLI/source/database
 mechanisms. Geographic focus is loaded from `config/locations.yml`. The
 all-Greece toggle changes presentation scope only and must not imply national
 coverage completeness.
+
+## D-021 - Source whitelist is configuration, not coverage proof
+**Status:** Accepted
+
+The uploaded source whitelist is stored in `config/sources.yml` and
+`docs/SOURCE_WHITELIST.md`. It defines source families and priority order, but
+it is not treated as completed coverage until each source has a documented
+accessibility and behavior audit with visible failures.
+
+## D-022 - Deduplication requires official identifiers or strong evidence
+**Status:** Accepted
+
+Tender records must not be merged by title alone. Deduplication follows
+`docs/DEDUPLICATION.md`: exact source identifiers and official
+cross-references are strongest; ambiguous cases stay separate and may be linked
+as `POSSIBLY_RELATED`.

@@ -36,6 +36,8 @@ def validate_repository_configs(root: Path | None = None) -> list[ValidationResu
     repo = root or repository_root()
     paths = [
         repo / "config" / "locations.yml",
+        repo / "config" / "sources.yml",
+        repo / "config" / "deduplication.yml",
         repo / "config" / "document_types.yml",
         repo / "config" / "search_request.template.yml",
         *sorted((repo / "config" / "search_profiles").glob("*.yml")),
@@ -61,6 +63,32 @@ def _validate_shape(path: Path, data: Any) -> None:
         _require(data, "timezone", str)
         _require(data, "municipalities", list)
         _require(data, "regions", list)
+    elif name == "sources.yml":
+        _require(data, "version", int)
+        _require(data, "global_sources", list)
+        _require(data, "scopes", list)
+        _require(data, "collection_order", list)
+        _require(data, "rules", list)
+        for item in data["global_sources"]:
+            if not isinstance(item, dict):
+                raise ConfigValidationError("global_sources entries must be mappings")
+            for key in ("id", "name", "type", "url"):
+                if key not in item:
+                    raise ConfigValidationError(f"global source missing required key: {key}")
+        for item in data["scopes"]:
+            if not isinstance(item, dict):
+                raise ConfigValidationError("scopes entries must be mappings")
+            for key in ("id", "name", "aliases", "sources"):
+                if key not in item:
+                    raise ConfigValidationError(f"scope missing required key: {key}")
+            if not isinstance(item["aliases"], list) or not isinstance(item["sources"], list):
+                raise ConfigValidationError("scope aliases and sources must be lists")
+    elif name == "deduplication.yml":
+        _require(data, "version", int)
+        identity_keys = _require(data, "identity_keys", dict)
+        _require(identity_keys, "exact", list)
+        _require(data, "merge_levels", list)
+        _require(data, "rules", list)
     elif name == "document_types.yml":
         document_types = _require(data, "document_types", dict)
         for key, value in document_types.items():

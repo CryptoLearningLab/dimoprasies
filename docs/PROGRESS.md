@@ -209,12 +209,24 @@
   - `/api/dashboard?scope=all` returned 20 visible rows.
   - `/api/document-preview?eshidis_id=221675` returned 9 documents and featured
     declaration, technical description and budget.
+- Imported the uploaded source whitelist into `docs/SOURCE_WHITELIST.md` and
+  `config/sources.yml`.
+- Added `config/deduplication.yml` and `docs/DEDUPLICATION.md`. Title-only
+  matching is explicitly forbidden for merges; repeated titles such as
+  `Αναπλάσεις ΔΕ Ναυπάκτου` stay separate unless official identifiers,
+  official cross-references or strong composite evidence prove identity.
+- Updated `config/locations.yml` with additional whitelist aliases for
+  Δωρίδα/Ευπάλιο, Μεσολόγγι, Θέρμο and Πάτρα.
+- Updated `AGENTS.md` and `docs/SOURCE_AUDIT.md` so source adapter failures,
+  priority-source coverage and provenance remain explicit.
 
 ## Tests Last Run
 - `.venv/bin/python -m pytest tests/test_status.py tests/test_cli.py`
 - Result: 12 passed.
 - `.venv/bin/python -m pytest`
 - Result: 44 passed.
+- `.venv/bin/python -m pytest tests/test_config.py`
+- Result: 1 passed.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
@@ -254,6 +266,8 @@ content_matches: 60
 status_reports: 1
 ui_dashboard_scope_focus_rows: 1
 ui_dashboard_scope_all_rows: 20
+source_whitelist_files: 2
+deduplication_protocols: 2
 discovered_active_candidates: 15
 verified_active_matches: 0
 unknown_statuses: 6
@@ -262,9 +276,9 @@ unexplained_failures: 0
 
 ## Next Gate
 
-UI review follow-up: manually review the redesigned first screen from a browser,
-then continue with the controlled attachment download and document analysis
-gate for candidate `221629`.
+Source audit follow-up: build or run a whitelist source-audit report for
+`config/sources.yml` before enabling additional adapters, then continue the
+candidate `221629` document gate.
 
 ## Handoff Discipline
 

@@ -11,7 +11,9 @@
 7. `docs/DECISIONS.md`
 8. `docs/KNOWN_LIMITATIONS.md`
 9. `docs/AVAILABLE_MECHANISMS.md`
-10. `tasks/NEXT_TASK.md`
+10. `docs/SOURCE_WHITELIST.md`
+11. `docs/DEDUPLICATION.md`
+12. `tasks/NEXT_TASK.md`
 
 ## Προτεραιότητα κανόνων
 

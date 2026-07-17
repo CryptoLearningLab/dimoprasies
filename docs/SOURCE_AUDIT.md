@@ -235,3 +235,42 @@ Continue with a read-only adapter task:
 3. Keep file downloads disabled until the `Λήψη` action is audited.
 4. Add TEE subscription platform as a future authenticated source candidate,
    with credentials handled outside repository files.
+
+## Source Whitelist Import - 2026-07-17
+
+The uploaded source whitelist was imported into:
+
+- `docs/SOURCE_WHITELIST.md`
+- `config/sources.yml`
+
+It adds the following source families for future source-adapter work:
+
+- ESHIDIS public active search and public tender detail page.
+- KIMDIS Open Data notices (`PROC`), awards (`AWRD`) and contracts (`SYMV`).
+- Diavgeia central and direct agency pages.
+- Municipality and regional authority websites for:
+  - Δήμος Ναυπακτίας,
+  - Δήμος Θέρμου,
+  - Δήμος Ιερής Πόλης Μεσολογγίου,
+  - Δήμος Δωρίδος / Ευπάλιο,
+  - Δήμος Πατρέων,
+  - Περιφέρεια Δυτικής Ελλάδας / Π.Ε. Αιτωλοακαρνανίας,
+  - Περιφέρεια Στερεάς Ελλάδας / Π.Ε. Φωκίδας.
+- TED as a supplemental source for larger European notices.
+
+Current status:
+
+- The whitelist is configuration, not a completed production crawl.
+- Each source still requires an adapter-specific accessibility/behavior audit:
+  reachability, browser requirement, pagination, returned metadata/files,
+  blockers, rate limits and fallback behavior.
+- A source failure must be visible in coverage reports.
+- National or local completeness must not be claimed until the priority sources
+  have measured coverage and no unexplained failures.
+
+Next source-audit gate:
+
+1. Implement a `sources audit-whitelist` style report or equivalent tool.
+2. Check every `config/sources.yml` URL without authentication bypass.
+3. Record per-source status in `docs/SOURCE_AUDIT.md`.
+4. Only then enable additional adapters beyond the proven ESHIDIS flow.
