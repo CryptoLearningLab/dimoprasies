@@ -1,6 +1,7 @@
-Διάβασε πλήρως τα AGENTS.md, PLANS.md, docs/INDEX.md,
+Διάβασε πλήρως τα AGENTS.md, PLANS.md, docs/INDEX.md, docs/HANDOFF.md,
 docs/PRODUCT_SPECIFICATION.md, docs/IMPLEMENTATION_PHASES.md,
-docs/PROGRESS.md και tasks/00_BOOTSTRAP.md.
+docs/PROGRESS.md, docs/DECISIONS.md, docs/KNOWN_LIMITATIONS.md
+και tasks/00_BOOTSTRAP.md.
 
 Εκτέλεσε μόνο το tasks/00_BOOTSTRAP.md.
 Μην ξεκινήσεις επόμενη φάση.
@@ -8,6 +9,7 @@ docs/PROGRESS.md και tasks/00_BOOTSTRAP.md.
 Στο τέλος:
 1. ενημέρωσε το docs/PROGRESS.md,
 2. κατέγραψε αποφάσεις στο docs/DECISIONS.md,
-3. γράψε το επόμενο εκτελέσιμο βήμα στο tasks/NEXT_TASK.md,
-4. παρουσίασε τι ολοκληρώθηκε, τι απέτυχε, ποια tests έτρεξαν
+3. ενημέρωσε το docs/HANDOFF.md αν άλλαξε η συνολική κατάσταση,
+4. γράψε το επόμενο εκτελέσιμο βήμα στο tasks/NEXT_TASK.md,
+5. παρουσίασε τι ολοκληρώθηκε, τι απέτυχε, ποια tests έτρεξαν
    και αν πέρασε το acceptance gate.

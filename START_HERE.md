@@ -11,9 +11,10 @@
 3. Το `docs/IMPLEMENTATION_PHASES.md` ορίζει φάσεις και acceptance gates.
 4. Το `PLANS.md` ορίζει πώς γράφεται και συντηρείται ένα ExecPlan.
 5. Τα `tasks/*.md` είναι εκτελέσιμες εργασίες, μία ανά Codex task.
-6. Το `docs/PROGRESS.md` είναι η μόνιμη μνήμη του έργου.
-7. Το `tasks/NEXT_TASK.md` ενεργοποιεί το επόμενο βήμα.
-8. Οι ειδικές αναζητήσεις μπαίνουν σε YAML profiles, όχι στον πυρήνα.
+6. Το `docs/HANDOFF.md` είναι η σύντομη συνολική αναφορά για νέο chat.
+7. Το `docs/PROGRESS.md` είναι η μόνιμη μνήμη του έργου.
+8. Το `tasks/NEXT_TASK.md` ενεργοποιεί το επόμενο βήμα.
+9. Οι ειδικές αναζητήσεις μπαίνουν σε YAML profiles, όχι στον πυρήνα.
 
 ## Πρώτη χρήση
 
@@ -38,9 +39,10 @@ docs/PROGRESS.md και tasks/00_BOOTSTRAP.md.
 ## Κάθε επόμενη χρήση
 
 ```text
-Διάβασε ξανά τα AGENTS.md, PLANS.md, docs/INDEX.md,
+Διάβασε ξανά τα AGENTS.md, PLANS.md, docs/INDEX.md, docs/HANDOFF.md,
 docs/PRODUCT_SPECIFICATION.md, docs/IMPLEMENTATION_PHASES.md,
-docs/PROGRESS.md και tasks/NEXT_TASK.md.
+docs/PROGRESS.md, docs/DECISIONS.md, docs/KNOWN_LIMITATIONS.md
+και tasks/NEXT_TASK.md.
 
 Επιβεβαίωσε πρώτα ότι το acceptance gate της προηγούμενης φάσης
 έχει περάσει με πραγματικά αποδεικτικά.
@@ -55,6 +57,9 @@ docs/PROGRESS.md και tasks/NEXT_TASK.md.
 
 και ανέφερε tests, πραγματικά ευρήματα, αποτυχίες, περιορισμούς
 και το αποτέλεσμα του acceptance gate.
+
+Αν το task αλλάζει ουσιαστικά την κατάσταση του έργου, ενημέρωσε και
+το docs/HANDOFF.md ώστε το επόμενο chat να ξεκινά από καθαρή εικόνα.
 ```
 
 ## Νέα αντίστροφη αναζήτηση

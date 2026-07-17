@@ -104,3 +104,29 @@ metadata but no parsable attachment table response, the CLI imports the tender
 metadata and records `attachment_rows: null` with zero imported attachments.
 This is not treated as successful attachment listing and must remain visible in
 progress reports before any download/analyze step.
+
+## D-016 - GitHub is the shared project snapshot
+**Status:** Accepted
+
+Tracked code, configuration, docs, task files and tests are pushed to
+`CryptoLearningLab/dimoprasies` so the user can inspect the current project
+state from GitHub. Runtime artifacts remain out of git unless deliberately
+curated into docs or fixtures.
+
+Ignored runtime artifacts include `.venv/`, caches, `data/`, `work/`,
+`archive/`, generated reports and zip snapshots.
+
+## D-017 - Dedicated deploy key per repository
+**Status:** Accepted
+
+Codex access to `CryptoLearningLab/dimoprasies` uses the repository-specific
+deploy key `dimoprasies-codex`. Keys from other projects must not be reused.
+If the GitHub repo becomes private, this key should remain installed with
+write access when Codex is expected to push updates.
+
+## D-018 - Temporary UI tunnels are preview-only
+**Status:** Accepted
+
+Public tunnel links may be used for short manual UI previews, but they are not
+stable deployment. Daily operation should use local access, LAN/Tailscale, or
+the documented Synology/container path.

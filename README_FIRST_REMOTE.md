@@ -17,10 +17,11 @@ Read these files in order:
 2. `README.md`
 3. `docs/PRODUCT_SPECIFICATION.md`
 4. `docs/IMPLEMENTATION_PHASES.md`
-5. `docs/PROGRESS.md`
-6. `docs/DECISIONS.md`
-7. `docs/KNOWN_LIMITATIONS.md`
-8. `tasks/NEXT_TASK.md`
+5. `docs/HANDOFF.md`
+6. `docs/PROGRESS.md`
+7. `docs/DECISIONS.md`
+8. `docs/KNOWN_LIMITATIONS.md`
+9. `tasks/NEXT_TASK.md`
 
 Then inspect:
 
@@ -39,9 +40,11 @@ The project has already been copied to `/root/dimoprasies`.
 Known remote state:
 
 - Python 3.12.3 exists.
-- `PYTHONPATH=src python3 -m compileall -q src tests` passed.
-- `PYTHONPATH=src python3 -m tender_radar --help` worked.
-- Full pytest has not run yet because `python3.12-venv` is missing.
+- `.venv` exists.
+- `.venv/bin/python -m tender_radar --help` works.
+- `.venv/bin/python -m pytest` passed with `32 passed`.
+- GitHub repo `CryptoLearningLab/dimoprasies` has branch `main`.
+- Codex push access uses the dedicated deploy key `dimoprasies-codex`.
 
 Set up the environment:
 
@@ -88,10 +91,10 @@ python -m tender_radar config validate
 python -m pytest
 ```
 
-Expected result from the Windows workspace before transfer:
+Expected current remote result:
 
 ```text
-31 passed
+32 passed
 ```
 
 Then verify the existing sample evaluation:
@@ -170,24 +173,9 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next work:
 
-1. Read `work/reports/eshidis_active_candidates.json`.
-2. Select a small batch of candidate ESHIDIS ids.
-3. Fetch official detail for each:
-
-```bash
-python -m tender_radar sources fetch-resource <ESHIDIS_ID> --allow-insecure-tls
-```
-
-4. Keep them candidate-only unless official evidence supports verified status.
-5. Download/analyze attachments only for high-priority tenders.
-
-Example:
-
-```bash
-python -m tender_radar sources download-attachment <ESHIDIS_ID> --all --limit 50 --allow-insecure-tls
-python -m tender_radar documents analyze --eshidis-id <ESHIDIS_ID>
-python -m tender_radar evaluate run --profile config/evaluation_profiles/public_works_dynamic.yml --eshidis-id <ESHIDIS_ID>
-```
+Investigate why official detail fetches for `221380`, `221629` and `221675`
+captured metadata but no attachment table rows. Keep them candidate-only or
+`UNKNOWN` unless separate official status evidence supports a stronger state.
 
 ## 7. Update Discipline
 
@@ -217,6 +205,11 @@ Example:
 Evaluation rules remain YAML-backed but can be edited through the local UI.
 The Python core validates and normalizes the profile before saving.
 ```
+
+### `docs/HANDOFF.md`
+
+Record overall project state, repo/GitHub access, current verification, what
+exists, what is missing and the next gate for a new chat.
 
 ### `tasks/NEXT_TASK.md`
 

@@ -69,6 +69,11 @@
   `attachment_rows: null` and import zero attachments.
 - `docs/EXECPLAN_SOURCE_AUDIT.md`.
 - `docs/SOURCE_AUDIT.md`.
+- Remote workspace confirmed at `/root/dimoprasies`.
+- GitHub repository `CryptoLearningLab/dimoprasies` initialized and pushed.
+- Dedicated deploy key `dimoprasies-codex` created for this repository.
+- Project handoff document added at `docs/HANDOFF.md`.
+- Temporary UI preview proven through a `localhost.run` tunnel.
 
 ## Evidence
 - Clean local venv created at `.venv`.
@@ -140,9 +145,18 @@
 - `python -m tender_radar evaluate run --profile config/evaluation_profiles/public_works_dynamic.yml --eshidis-id 221744 --report work/reports/evaluation_public_works_dynamic_221744_remote.json --markdown-report work/reports/evaluation_public_works_dynamic_221744_remote.md`
   scanned 8 documents, matched 1 tender and wrote the remote sample evaluation
   reports.
+- `git push git@github.com:CryptoLearningLab/dimoprasies.git main:main`
+  using the dedicated `dimoprasies-codex` key created remote branch `main`.
+- `git ls-remote --heads git@github.com:CryptoLearningLab/dimoprasies.git`
+  returned `9f556be067913af12a6e3c479c7f7f508ec7ac66 refs/heads/main`.
+- `.venv/bin/tender-radar-ui --host 0.0.0.0 --port 8765` started the local UI
+  server.
+- `curl -L -s https://b608b69a6b7e08.lhr.life` returned the Tender Radar UI
+  HTML through a temporary tunnel.
+- The temporary tunnel URL is not permanent infrastructure.
 
 ## Tests Last Run
-- `python -m pytest`
+- `.venv/bin/python -m pytest`
 - Result: 32 passed.
 
 ## Open Problems
@@ -166,6 +180,8 @@
   πρέπει να αποθηκευτούν κωδικοί στο repo.
 - Το fallback YAML parser καλύπτει τα τρέχοντα config shapes· για πλήρη YAML
   συνιστάται το dev/yaml extra με PyYAML.
+- Το public tunnel για UI είναι προσωρινό και ακατάλληλο για μόνιμη χρήση.
+  Για καθημερινή χρήση προτιμώνται local, LAN, Tailscale ή Synology deployment.
 
 ## Coverage
 
@@ -193,3 +209,16 @@ Discovery gate follow-up: investigate why selected official detail fetches
 (`221380`, `221629`, `221675`) captured metadata but no attachment table rows,
 then either improve attachment listing capture or continue candidate
 verification with the limitation explicitly reported.
+
+## Handoff Discipline
+
+Every future substantial Codex task should:
+
+1. Read `docs/HANDOFF.md` after `docs/INDEX.md`.
+2. Update `docs/PROGRESS.md` with commands, evidence, failures and tests.
+3. Update `docs/DECISIONS.md` only for real architectural/product decisions.
+4. Update `tasks/NEXT_TASK.md` with one executable next gate.
+5. Update `docs/HANDOFF.md` when the overall project state, repo access,
+   deployment path, or next gate changes.
+6. Commit and push tracked documentation/code changes to GitHub unless the
+   user explicitly requests local-only work.

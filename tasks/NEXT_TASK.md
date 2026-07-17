@@ -24,3 +24,15 @@ Keep the discovery/status separation:
 
 Do not store TEE subscription credentials in the repository. Treat TEE as a
 future authenticated adapter.
+
+## Required Closeout
+
+At the end of the task:
+
+1. Run the relevant targeted tests and `.venv/bin/python -m pytest` if code
+   changed.
+2. Update `docs/PROGRESS.md` with exact commands and evidence.
+3. Update `docs/DECISIONS.md` only if a real decision was made.
+4. Update this file with the next single executable gate.
+5. Update `docs/HANDOFF.md` if the project state or next gate changed.
+6. Commit and push tracked changes to GitHub unless explicitly told not to.
