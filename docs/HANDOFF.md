@@ -169,6 +169,12 @@ That URL is temporary and should not be treated as stable infrastructure.
   regional constraint when present. Broad NUTS prefix matching is only used
   for regions without explicit included units, preventing `EL644 - Φθιώτιδα`
   from being shown as `Περιφέρεια Στερεάς Ελλάδας - Φωκίδα`.
+- The UI first-screen dashboard now includes KIMDIS expanded-report
+  `focus_open_proc_candidates` alongside ESHIDIS/discovery/SQLite rows. KIMDIS
+  rows are shown as `SUBMISSION_OPEN_CANDIDATE` with source label `ΚΗΜΔΗΣ`,
+  ADAM official ids and attachment links; ESHIDIS preview/download actions stay
+  disabled for KIMDIS rows. Current focus UI count is 12 rows: 11 KIMDIS open
+  PROC candidates plus ESHIDIS `221744`.
 
 ## Current Verification
 
@@ -181,7 +187,7 @@ Latest confirmed command:
 Result:
 
 ```text
-53 passed in 1.54s
+54 passed in 1.11s
 ```
 
 Latest whitelist audit command:

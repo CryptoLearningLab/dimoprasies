@@ -305,6 +305,13 @@
   and shows 1 focus match after the fix. This is separate from the emailed
   expanded KIMDIS report, which had 11 `SUBMISSION_OPEN_CANDIDATE` PROC
   notices.
+- Integrated `work/reports/expanded_discovery_report.json`
+  `focus_open_proc_candidates` into the first-screen UI dashboard. KIMDIS
+  PROC rows are displayed as `SUBMISSION_OPEN_CANDIDATE` with `ΚΗΜΔΗΣ` source
+  labels, official ADAM ids, budgets, deadlines and attachment links, while
+  ESHIDIS-only preview/download actions remain disabled for those rows.
+- After the KIMDIS dashboard merge, the focus UI shows 12 rows: 11 KIMDIS open
+  PROC candidates plus the existing ESHIDIS `221744` row.
 
 ## Tests Last Run
 - `.venv/bin/python -m pytest tests/test_status.py tests/test_cli.py`
@@ -361,6 +368,18 @@
 - Result: `200 text/html; charset=utf-8`.
 - `.venv/bin/python -m pytest`
 - Result: 53 passed in 1.54s.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m pytest tests/test_ui_server.py`
+- Result: 10 passed in 0.25s.
+- Dashboard payload smoke test through `dashboard_payload("focus")`
+- Result: `total_known: 31`, `visible: 12`, `focus_matches: 12`.
+- UI API smoke test: `curl -s http://127.0.0.1:8765/api/dashboard?scope=focus`
+- Result: `total_known: 31`, `visible: 12`, `focus_matches: 12`; first rows include 11 `ΚΗΜΔΗΣ:*` items and `ΕΣΗΔΗΣ:221744`.
+- Tunnel smoke test: `curl -L -s -o /dev/null -w "%{http_code} %{content_type}\n" https://baaf8660f7fa87.lhr.life`
+- Result: `200 text/html; charset=utf-8`.
+- `.venv/bin/python -m pytest`
+- Result: 54 passed in 1.11s.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
@@ -405,8 +424,8 @@ documents_classified: 17
 documents_with_text: 17
 content_matches: 60
 status_reports: 1
-ui_dashboard_scope_focus_rows: 1
-ui_dashboard_scope_all_rows: 20
+ui_dashboard_scope_focus_rows: 12
+ui_dashboard_scope_all_rows: 31
 source_whitelist_files: 2
 source_whitelist_entries_checked: 36
 source_whitelist_reachable: 29

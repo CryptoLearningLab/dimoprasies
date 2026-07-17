@@ -1,7 +1,9 @@
 from pathlib import Path
 
+import tender_radar.ui_server as ui_server
 from tender_radar.ui_server import (
     content_type_for_path,
+    dashboard_payload,
     format_budget,
     interest_reason,
     parse_budget_from_row_text,
@@ -24,6 +26,71 @@ def test_budget_parser_extracts_candidate_row_budget() -> None:
 
     assert parse_budget_from_row_text(row_text) == 2500000.0
     assert format_budget(2500000) == "2.500.000,00 EUR"
+
+
+def test_dashboard_includes_kimdis_expanded_open_proc_candidates(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Πάτρα", "Πατρών"]
+    nuts: ["EL632"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        """
+{
+  "summary": {"focus_open_proc_candidates": 2},
+  "focus_open_proc_candidates": [
+    {
+      "source": "KIMDIS",
+      "record_type": "PROC",
+      "official_id": "26PROC000000001",
+      "title": "Έργο στην Πάτρα",
+      "authority": "ΔΗΜΟΣ ΠΑΤΡΕΩΝ",
+      "budget": "1240.0",
+      "submission_deadline": "2026-07-24T13:00:00",
+      "source_url": "https://example.test/notice",
+      "attachment_url": "https://example.test/attachment/26PROC000000001",
+      "matched_scopes": ["Δήμος Πατρέων"],
+      "status": "SUBMISSION_OPEN_CANDIDATE"
+    },
+    {
+      "source": "KIMDIS",
+      "record_type": "PROC",
+      "official_id": "26PROC000000002",
+      "title": "Άλλο έργο Πατρών",
+      "authority": "ΔΗΜΟΣ ΠΑΤΡΕΩΝ",
+      "budget": "2000.0",
+      "submission_deadline": "2026-07-25T10:00:00",
+      "source_url": "https://example.test/notice",
+      "attachment_url": "https://example.test/attachment/26PROC000000002",
+      "matched_scopes": ["Δήμος Πατρέων"],
+      "status": "SUBMISSION_OPEN_CANDIDATE"
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+
+    payload = dashboard_payload(scope="focus")
+
+    assert payload["summary"]["total_known"] == 2
+    assert payload["summary"]["visible"] == 2
+    assert payload["summary"]["focus_matches"] == 2
+    assert payload["tenders"][0]["source_label"] == "ΚΗΜΔΗΣ"
+    assert payload["tenders"][0]["display_id"] == "26PROC000000001"
+    assert payload["tenders"][0]["download_url"] == "https://example.test/attachment/26PROC000000001"
+    assert payload["tenders"][0]["supports_eshidis_actions"] is False
+    assert payload["tenders"][0]["deadline_display"] == "24-07-2026 13:00"
 
 
 def test_interest_reason_uses_locations_config() -> None:

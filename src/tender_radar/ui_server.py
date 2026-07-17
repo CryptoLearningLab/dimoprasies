@@ -360,6 +360,10 @@ def location_focus_profile() -> dict[str, Any]:
 
 def merged_tender_rows() -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
+    for candidate in kimdis_open_proc_rows():
+        official_id = str(candidate.get("official_id") or "")
+        if official_id:
+            merged[f"KIMDIS:{official_id}"] = candidate
     for candidate in discovery_candidate_rows():
         eshidis_id = str(candidate.get("eshidis_id") or "")
         if eshidis_id:
@@ -370,7 +374,58 @@ def merged_tender_rows() -> list[dict[str, Any]]:
             existing = merged.get(eshidis_id, {})
             merged[eshidis_id] = {**existing, **{key: value for key, value in tender.items() if value not in (None, "")}}
     rows = [decorate_tender_row(row) for row in merged.values()]
-    return sorted(rows, key=lambda row: (row.get("deadline_sort") or "9999", row.get("eshidis_id") or ""))
+    return sorted(rows, key=lambda row: (row.get("deadline_sort") or "9999", row.get("display_id") or ""))
+
+
+def expanded_report_payload() -> dict[str, Any]:
+    path = REPO_ROOT / "work/reports/expanded_discovery_report.json"
+    if not path.exists():
+        return {"exists": False, "path": str(path), "focus_open_proc_candidates": []}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        "exists": True,
+        "path": str(path),
+        "markdown_path": str(REPO_ROOT / "work/reports/expanded_discovery_report.md"),
+        "summary": payload.get("summary") or {},
+        "focus_open_proc_candidates": payload.get("focus_open_proc_candidates") or [],
+    }
+
+
+def kimdis_open_proc_rows() -> list[dict[str, Any]]:
+    payload = expanded_report_payload()
+    rows = []
+    for candidate in payload.get("focus_open_proc_candidates", []):
+        if not isinstance(candidate, dict):
+            continue
+        official_id = str(candidate.get("official_id") or "").strip()
+        if not official_id:
+            continue
+        deadline = str(candidate.get("submission_deadline") or "")
+        rows.append(
+            {
+                "source": "kimdis",
+                "source_label": "ΚΗΜΔΗΣ",
+                "row_key": f"KIMDIS:{official_id}",
+                "official_id": official_id,
+                "display_id": official_id,
+                "title": candidate.get("title"),
+                "authority_name": candidate.get("authority"),
+                "region": ", ".join(candidate.get("matched_scopes") or []),
+                "budget_with_vat": candidate.get("budget"),
+                "current_deadline_at": deadline,
+                "status": candidate.get("status"),
+                "status_confidence": 0.65,
+                "row_text": " ".join(
+                    str(candidate.get(key) or "")
+                    for key in ("title", "authority", "budget", "submission_deadline", "matched_scopes", "status")
+                ),
+                "official_url": candidate.get("source_url"),
+                "attachment_url": candidate.get("attachment_url"),
+                "download_url": candidate.get("attachment_url"),
+                "supports_eshidis_actions": False,
+            }
+        )
+    return rows
 
 
 def discovery_candidate_rows() -> list[dict[str, Any]]:
@@ -434,18 +489,23 @@ def sqlite_tender_rows() -> list[dict[str, Any]]:
 
 def decorate_tender_row(row: dict[str, Any]) -> dict[str, Any]:
     eshidis_id = str(row.get("eshidis_id") or "")
+    row_key = str(row.get("row_key") or eshidis_id or row.get("display_id") or "")
     text = " ".join(
         str(row.get(key) or "")
         for key in ("title", "authority_name", "region", "row_text")
     )
     return {
         **row,
+        "row_key": row_key,
+        "display_id": row.get("display_id") or eshidis_id,
+        "source_label": row.get("source_label") or ("ΕΣΗΔΗΣ" if eshidis_id else row.get("source") or ""),
         "interest_match": is_interest_match(text),
         "interest_reason": interest_reason(text),
         "budget_display": format_budget(row.get("budget_with_vat")),
-        "deadline_display": row.get("current_deadline_at") or row.get("submission_deadline") or "",
+        "deadline_display": deadline_display(str(row.get("current_deadline_at") or row.get("submission_deadline") or "")),
         "deadline_sort": deadline_sort_key(str(row.get("current_deadline_at") or "")),
-        "official_url": official_resource_url(eshidis_id) if eshidis_id else None,
+        "official_url": row.get("official_url") or (official_resource_url(eshidis_id) if eshidis_id else None),
+        "supports_eshidis_actions": bool(row.get("supports_eshidis_actions", True) and eshidis_id),
         "verified_active": False,
     }
 
@@ -609,10 +669,22 @@ def extract_region(row_text: str) -> str | None:
 
 def deadline_sort_key(value: str) -> str:
     match = re.match(r"(\d{2})-(\d{2})-(\d{4})(.*)", value or "")
-    if not match:
-        return "9999"
-    day, month, year, rest = match.groups()
-    return f"{year}-{month}-{day}{rest}"
+    if match:
+        day, month, year, rest = match.groups()
+        return f"{year}-{month}-{day}{rest}"
+    iso_match = re.match(r"(\d{4})-(\d{2})-(\d{2})T?(.*)", value or "")
+    if iso_match:
+        year, month, day, rest = iso_match.groups()
+        return f"{year}-{month}-{day} {rest}".strip()
+    return "9999"
+
+
+def deadline_display(value: str) -> str:
+    iso_match = re.match(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?", value or "")
+    if iso_match:
+        year, month, day, time = iso_match.groups()
+        return f"{day}-{month}-{year} {time}"
+    return value
 
 
 def official_resource_url(eshidis_id: str) -> str:
@@ -760,7 +832,7 @@ INDEX_HTML = """<!doctype html>
           <table class="tenderTable">
             <thead>
               <tr>
-                <th>Α/Α ΕΣΗΔΗΣ</th>
+                <th>Α/Α / Πηγή</th>
                 <th>Έργο</th>
                 <th>Φορέας</th>
                 <th>Προϋπολογισμός</th>
@@ -1369,31 +1441,34 @@ function renderDashboard(payload) {
     return;
   }
   for (const tender of payload.tenders) {
+    const rowKey = tender.row_key || tender.eshidis_id || tender.display_id || '';
+    const isEshidis = Boolean(tender.supports_eshidis_actions);
+    const linkLabel = tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : 'ΕΣΗΔΗΣ';
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${escapeHtml(tender.eshidis_id || '')}</td>
+      <td><strong>${escapeHtml(tender.display_id || tender.eshidis_id || '')}</strong><span class="mutedLine">${escapeHtml(tender.source_label || '')}</span></td>
       <td class="tenderTitle">${escapeHtml(tender.title || '')}${tender.interest_reason ? `<span class="pill">${escapeHtml(tender.interest_reason)}</span>` : ''}</td>
       <td class="authorityCell">${escapeHtml(tender.authority_name || '')}</td>
       <td class="budgetCell">${escapeHtml(tender.budget_display || '')}</td>
       <td class="deadlineCell">${escapeHtml(tender.deadline_display || '')}</td>
       <td>
         <div class="actionStack">
-          <a class="button secondary tinyButton" href="${escapeHtml(tender.official_url || '#')}" target="_blank" rel="noreferrer">ΕΣΗΔΗΣ</a>
-          <button class="secondary tinyButton previewTender" data-id="${escapeHtml(tender.eshidis_id)}">Preview</button>
-          <button class="tinyButton downloadTender" data-id="${escapeHtml(tender.eshidis_id)}">Download files</button>
+          <a class="button secondary tinyButton" href="${escapeHtml(tender.download_url || tender.official_url || '#')}" target="_blank" rel="noreferrer">${linkLabel}</a>
+          ${isEshidis ? `<button class="secondary tinyButton previewTender" data-key="${escapeHtml(rowKey)}">Preview</button>` : ''}
+          ${isEshidis ? `<button class="tinyButton downloadTender" data-key="${escapeHtml(rowKey)}">Download files</button>` : ''}
         </div>
       </td>
     `;
     rows.appendChild(tr);
   }
   document.querySelectorAll('.previewTender').forEach((button) => {
-    button.addEventListener('click', () => selectTender(button.dataset.id, false));
+    button.addEventListener('click', () => selectTender(button.dataset.key, false));
   });
   document.querySelectorAll('.downloadTender').forEach((button) => {
-    button.addEventListener('click', () => selectTender(button.dataset.id, true));
+    button.addEventListener('click', () => selectTender(button.dataset.key, true));
   });
-  if (!state.selected || !payload.tenders.some((item) => item.eshidis_id === state.selected)) {
-    selectTender(payload.tenders[0].eshidis_id, false);
+  if (!state.selected || !payload.tenders.some((item) => (item.row_key || item.eshidis_id) === state.selected)) {
+    selectTender(payload.tenders[0].row_key || payload.tenders[0].eshidis_id, false);
   }
 }
 
@@ -1406,15 +1481,27 @@ function resetPreview() {
 async function selectTender(eshidisId, downloadFirst) {
   if (!eshidisId) return;
   state.selected = eshidisId;
-  $('eshidisInput').value = eshidisId;
-  const tender = (state.dashboard?.tenders || []).find((item) => item.eshidis_id === eshidisId) || {};
-  $('previewTitle').textContent = `${eshidisId} · ${tender.title || ''}`;
-  $('officialLink').href = tender.official_url || `/api/document-preview?eshidis_id=${encodeURIComponent(eshidisId)}`;
+  const tender = (state.dashboard?.tenders || []).find((item) => (item.row_key || item.eshidis_id) === eshidisId) || {};
+  const supportsEshidis = Boolean(tender.supports_eshidis_actions);
+  const actualEshidisId = tender.eshidis_id || '';
+  $('eshidisInput').value = supportsEshidis ? actualEshidisId : '';
+  $('previewTitle').textContent = `${tender.display_id || actualEshidisId || eshidisId} · ${tender.title || ''}`;
+  $('officialLink').textContent = tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : 'ΕΣΗΔΗΣ';
+  $('officialLink').href = tender.download_url || tender.official_url || '#';
+  if (!supportsEshidis) {
+    $('previewBody').innerHTML = `
+      <div class="emptyState">
+        Η γραμμή είναι ΚΗΜΔΗΣ ${escapeHtml(tender.status || 'candidate')} από το expanded report.
+        Χρησιμοποίησε το link ΚΗΜΔΗΣ για το διαθέσιμο επίσημο συνημμένο. Το ESHIDIS preview/download δεν εφαρμόζεται σε ΑΔΑΜ.
+      </div>
+    `;
+    return;
+  }
   if (downloadFirst) {
-    await runAction('/api/download-all', { eshidis_id: eshidisId }, `Downloading files for ${eshidisId}...`);
+    await runAction('/api/download-all', { eshidis_id: actualEshidisId }, `Downloading files for ${actualEshidisId}...`);
     await loadDashboard();
   }
-  await renderPreview(eshidisId);
+  await renderPreview(actualEshidisId);
 }
 
 async function renderPreview(eshidisId) {
@@ -1453,7 +1540,7 @@ async function runAction(path, body, label) {
 }
 
 function selectedId() {
-  return $('eshidisInput').value.trim() || state.selected || '';
+  return $('eshidisInput').value.trim();
 }
 
 async function loadRules() {
