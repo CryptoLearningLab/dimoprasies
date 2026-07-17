@@ -78,6 +78,17 @@ scopes:
       - "https://www.dimos-thermou.gr/website/category/diakyrikseis-prokyrikseis/"
       - "https://diavgeia.gov.gr/f/dimosthermo"
 
+  - id: amfilochia
+    name: "Δήμος Αμφιλοχίας"
+    nuts: ["EL631"]
+    aliases: ["Δήμος Αμφιλοχίας", "Αμφιλοχία", "Αμφιλοχίας", "Ινάχος", "Ίναχος", "Χαλκιόπουλο", "Αμβρακικός", "Λουτρό Αμφιλοχίας", "Μενίδι Αμφιλοχίας"]
+    sources:
+      - "https://www.dimosamfilochias.gr/category/dimos-amfilochias/prokiryxis/"
+      - "https://www.dimosamfilochias.gr/category/dimos-amfilochias/prosklisis-ekdilosis-endiaferontos/"
+      - "https://www.dimosamfilochias.gr/category/dimos-amfilochias/apofaseis-dimarchoy/"
+      - "https://www.dimosamfilochias.gr/category/dimos-amfilochias/apofaseis-dimotikou-sumvouliou/"
+      - "https://diavgeia.gov.gr/f/dimosamfiloxias_ota"
+
   - id: messolonghi
     name: "Δήμος Ιερής Πόλης Μεσολογγίου"
     nuts: ["EL631"]

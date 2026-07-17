@@ -5,6 +5,7 @@
 
 - Δήμος Ναυπακτίας
 - Δήμος Θέρμου
+- Δήμος Αμφιλοχίας
 - Δήμος Ιερής Πόλης Μεσολογγίου
 - Δήμος Δωρίδος / Ευπάλιο
 - Δήμος Πατρέων / Πάτρα
@@ -107,6 +108,7 @@ https://diavgeia.gov.gr/
 
 - Δήμος Ναυπακτίας: https://diavgeia.gov.gr/f/nafpaktia
 - Δήμος Θέρμου: https://diavgeia.gov.gr/f/dimosthermo
+- Δήμος Αμφιλοχίας: https://diavgeia.gov.gr/f/dimosamfiloxias_ota
 - Δήμος Ι.Π. Μεσολογγίου: https://diavgeia.gov.gr/f/dimos_i_p_mesolonghiou
 - Δήμος Δωρίδος: https://diavgeia.gov.gr/f/DHMOSDORIDOS
 - Δήμος Πατρέων: https://diavgeia.gov.gr/f/dimospatras
@@ -169,7 +171,35 @@ https://diavgeia.gov.gr/
 
 ---
 
-# 6. Δήμος Ιερής Πόλης Μεσολογγίου
+# 6. Δήμος Αμφιλοχίας
+
+## Πηγές
+
+- Προκηρύξεις: https://www.dimosamfilochias.gr/category/dimos-amfilochias/prokiryxis/
+- Προσκλήσεις Εκδήλωσης Ενδιαφέροντος: https://www.dimosamfilochias.gr/category/dimos-amfilochias/prosklisis-ekdilosis-endiaferontos/
+- Αποφάσεις Δημάρχου: https://www.dimosamfilochias.gr/category/dimos-amfilochias/apofaseis-dimarchoy/
+- Αποφάσεις Δημοτικού Συμβουλίου: https://www.dimosamfilochias.gr/category/dimos-amfilochias/apofaseis-dimotikou-sumvouliou/
+- Διαύγεια Δήμου: https://diavgeia.gov.gr/f/dimosamfiloxias_ota
+
+## Όροι αναζήτησης
+
+- Δήμος Αμφιλοχίας
+- Αμφιλοχία
+- Αμφιλοχίας
+- Ινάχος
+- Χαλκιόπουλο
+- Αμβρακικός
+- Λουτρό Αμφιλοχίας
+- Μενίδι Αμφιλοχίας
+- EL631
+
+Προσοχή στα σύντομα/κοινά τοπωνύμια. Το `Μενίδι` χρησιμοποιείται μόνο με
+γεωγραφικό προσδιορισμό `Αμφιλοχίας` για να αποφεύγεται σύγχυση με άλλες
+περιοχές.
+
+---
+
+# 7. Δήμος Ιερής Πόλης Μεσολογγίου
 
 ## Πηγές
 
@@ -194,7 +224,7 @@ https://diavgeia.gov.gr/
 
 ---
 
-# 7. Δήμος Δωρίδος / Ευπάλιο
+# 8. Δήμος Δωρίδος / Ευπάλιο
 
 ## Πηγές
 
@@ -223,7 +253,7 @@ https://diavgeia.gov.gr/
 
 ---
 
-# 8. Δήμος Πατρέων / Πάτρα
+# 9. Δήμος Πατρέων / Πάτρα
 
 ## Πηγές
 
@@ -245,7 +275,7 @@ https://diavgeia.gov.gr/
 
 ---
 
-# 9. Περιφέρεια Δυτικής Ελλάδας / Π.Ε. Αιτωλοακαρνανίας
+# 10. Περιφέρεια Δυτικής Ελλάδας / Π.Ε. Αιτωλοακαρνανίας
 
 ## Πηγές
 
@@ -268,7 +298,7 @@ https://diavgeia.gov.gr/
 
 ---
 
-# 10. Περιφέρεια Στερεάς Ελλάδας / Π.Ε. Φωκίδας
+# 11. Περιφέρεια Στερεάς Ελλάδας / Π.Ε. Φωκίδας
 
 ## Πηγές
 
@@ -292,7 +322,7 @@ https://diavgeia.gov.gr/
 
 ---
 
-# 11. TED — Ευρωπαϊκοί διαγωνισμοί
+# 12. TED — Ευρωπαϊκοί διαγωνισμοί
 
 https://ted.europa.eu/en/search/result
 
@@ -300,7 +330,7 @@ https://ted.europa.eu/en/search/result
 
 ---
 
-# 12. Προτεινόμενη σειρά συλλογής
+# 13. Προτεινόμενη σειρά συλλογής
 
 1. ΕΣΗΔΗΣ πανελλαδική συλλογή ενεργών έργων.
 2. ΚΗΜΔΗΣ διακηρύξεις τύπου PROC.
@@ -314,7 +344,7 @@ https://ted.europa.eu/en/search/result
 
 ---
 
-# 13. Κανόνας γεωγραφικής αντιστοίχισης
+# 14. Κανόνας γεωγραφικής αντιστοίχισης
 
 Να μη γίνεται φιλτράρισμα μόνο με βάση την έδρα του φορέα.
 
@@ -333,7 +363,7 @@ https://ted.europa.eu/en/search/result
 
 ---
 
-# 14. Ενσωμάτωση στο repository
+# 15. Ενσωμάτωση στο repository
 
 Αποθήκευσε το παρόν ως:
 

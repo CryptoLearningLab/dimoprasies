@@ -15,7 +15,7 @@ work/reports/source_whitelist_audit.md
 Current source-readiness result:
 
 ```text
-31 checked, 24 reachable, 3 failed, 0 adapter-required, 4 templates,
+36 checked, 29 reachable/ready, 3 failed, 0 adapter-required, 4 templates,
 2 failed-with-fallback, 0 unresolved blockers
 ```
 

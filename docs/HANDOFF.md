@@ -156,6 +156,11 @@ That URL is temporary and should not be treated as stable infrastructure.
   `finalSubmissionDate` as of `2026-07-17`: 11 focus PROC records are
   `SUBMISSION_OPEN_CANDIDATE`, 1 focus PROC is `CANCELLED_NOTICE`, and 41 focus
   AWRD/SYMV records are historical award/contract records.
+- Δήμος Αμφιλοχίας has been added as a focus geography with 5 public sources:
+  official prokiryxis, official invitations of interest, mayor decisions,
+  municipal council decisions and Diavgeia. Latest source whitelist audit after
+  this addition checked 36 sources: 29 reachable/ready, 3 failed,
+  0 adapter-required and 0 unresolved blockers.
 
 ## Current Verification
 
@@ -168,7 +173,7 @@ Latest confirmed command:
 Result:
 
 ```text
-50 passed in 1.41s
+50 passed in 1.87s
 ```
 
 Latest whitelist audit command:
@@ -180,7 +185,7 @@ Latest whitelist audit command:
 Result:
 
 ```text
-31 checked, 24 reachable, 3 failed, 0 adapter-required, 4 templates,
+36 checked, 29 reachable/ready, 3 failed, 0 adapter-required, 4 templates,
 2 failed-with-fallback, 0 unresolved blockers
 ```
 

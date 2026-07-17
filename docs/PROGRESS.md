@@ -273,6 +273,25 @@
   - focus expired PROC candidates: 0
   - cancelled PROC notices: 1
   - focus historical AWRD/SYMV records: 41
+- Added Δήμος Αμφιλοχίας as a focus geography in `config/locations.yml`,
+  `config/sources.yml` and `docs/SOURCE_WHITELIST.md`.
+- Added 5 public Δήμος Αμφιλοχίας sources:
+  - official prokiryxis/procurements category,
+  - official invitations of interest category,
+  - mayor decisions,
+  - municipal council decisions,
+  - Diavgeia authority page.
+- Re-ran source whitelist audit after adding Amfilochia:
+  - total sources: 36
+  - reachable/ready: 29
+  - failed: 3
+  - adapter-required: 0
+  - templates: 4
+  - failed with fallback: 2
+  - unresolved blockers: 0
+- Re-ran the expanded report after adding Amfilochia; the current 5-page KIMDIS
+  window remained 750 total records, 53 focus records and 11 open PROC
+  candidates.
 
 ## Tests Last Run
 - `.venv/bin/python -m pytest tests/test_status.py tests/test_cli.py`
@@ -304,7 +323,15 @@
 - `.venv/bin/python -m tender_radar sources expanded-report --allow-insecure-tls --kimdis-pages 5 --timeout 20 --as-of-date 2026-07-17 --eshidis-candidates work/reports/eshidis_active_candidates.json --report work/reports/expanded_discovery_report.json --markdown-report work/reports/expanded_discovery_report.md`
 - Result: 750 total candidates, 53 focus candidates, 11 focus open PROC candidates, 0 focus expired PROC candidates, 41 historical AWRD/SYMV records, 0 errors.
 - `.venv/bin/python -m pytest`
-- Result: 50 passed.
+- Result: 50 passed in 1.87s.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m tender_radar sources audit-whitelist --allow-insecure-tls --timeout 8 --report work/reports/source_whitelist_audit.json --markdown-report work/reports/source_whitelist_audit.md`
+- Result: 36 checked, 29 reachable/ready, 3 failed, 0 adapter-required, 4 templates, 2 failed-with-fallback, 0 unresolved blockers.
+- `.venv/bin/python -m tender_radar sources expanded-report --allow-insecure-tls --kimdis-pages 5 --timeout 20 --as-of-date 2026-07-17 --eshidis-candidates work/reports/eshidis_active_candidates.json --report work/reports/expanded_discovery_report.json --markdown-report work/reports/expanded_discovery_report.md`
+- Result: 750 total candidates, 53 focus candidates, 11 focus open PROC candidates, 0 errors.
+- `.venv/bin/python -m pytest`
+- Result: 50 passed in 1.87s.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
@@ -352,8 +379,8 @@ status_reports: 1
 ui_dashboard_scope_focus_rows: 1
 ui_dashboard_scope_all_rows: 20
 source_whitelist_files: 2
-source_whitelist_entries_checked: 31
-source_whitelist_reachable: 24
+source_whitelist_entries_checked: 36
+source_whitelist_reachable: 29
 source_whitelist_failed: 3
 source_whitelist_adapter_required: 0
 source_whitelist_templates: 4
@@ -373,6 +400,7 @@ discovered_active_candidates: 15
 verified_active_matches: 0
 unknown_statuses: 6
 unexplained_failures: 0
+focus_municipalities: 6
 ```
 
 ## Next Gate
