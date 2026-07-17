@@ -91,6 +91,8 @@ python -m tender_radar config validate
 - `db schema` prints the SQLite schema draft.
 - `db init` initializes the SQLite database.
 - `sources health` checks the audited public ESHIDIS entry point.
+- `sources audit-whitelist` checks `config/sources.yml` reachability and
+  adapter readiness without starting a full crawl.
 - `sources discover-active` audits the public ESHIDIS search grid for rows
   under the `ΥΠΟΒΟΛΗ ΠΡΟΣΦΟΡΩΝ` status and writes active-candidate reports.
 - `sources fetch-resource` fetches one official ESHIDIS resource URL, saves

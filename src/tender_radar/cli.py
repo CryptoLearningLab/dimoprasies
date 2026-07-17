@@ -37,6 +37,7 @@ from tender_radar.sources.eshidis_browser import (
     fetch_resource_audit,
     render_discovery_markdown,
 )
+from tender_radar.sources.whitelist import audit_source_whitelist, write_source_audit_report
 from tender_radar.status import verify_tender_status, write_status_reports
 
 LOGGER = logging.getLogger(__name__)
@@ -122,6 +123,23 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable TLS verification for source-audit diagnosis only.",
     )
+    audit_whitelist = sources_sub.add_parser(
+        "audit-whitelist",
+        help="Check configured source whitelist reachability and adapter readiness.",
+    )
+    audit_whitelist.add_argument("--config", default="config/sources.yml", help="Source whitelist YAML path.")
+    audit_whitelist.add_argument(
+        "--report",
+        default="work/reports/source_whitelist_audit.json",
+        help="JSON report output path.",
+    )
+    audit_whitelist.add_argument(
+        "--markdown-report",
+        default="work/reports/source_whitelist_audit.md",
+        help="Markdown report output path.",
+    )
+    audit_whitelist.add_argument("--timeout", type=int, default=20, help="Per-source timeout in seconds.")
+    audit_whitelist.add_argument("--allow-insecure-tls", action="store_true")
     discover_active = sources_sub.add_parser(
         "discover-active",
         help="Audit the public ESHIDIS active-search grid and save active candidate rows.",
@@ -237,6 +255,8 @@ def main(argv: list[str] | None = None) -> int:
         return _status_verify(args)
     if args.command == "sources" and args.sources_command == "health":
         return _sources_health(args.allow_insecure_tls)
+    if args.command == "sources" and args.sources_command == "audit-whitelist":
+        return _sources_audit_whitelist(args)
     if args.command == "sources" and args.sources_command == "discover-active":
         return _sources_discover_active(args)
     if args.command == "sources" and args.sources_command == "import-resource-audit":
@@ -284,6 +304,25 @@ def _sources_health(allow_insecure_tls: bool = False) -> int:
     health = health_check(allow_insecure_tls=allow_insecure_tls)
     _emit_json(health.__dict__)
     return 0 if health.reachable else 1
+
+
+def _sources_audit_whitelist(args: argparse.Namespace) -> int:
+    report_path = Path(args.report)
+    markdown_path = Path(args.markdown_report) if args.markdown_report else None
+    report = audit_source_whitelist(
+        Path(args.config),
+        timeout_seconds=args.timeout,
+        allow_insecure_tls=args.allow_insecure_tls,
+    )
+    write_source_audit_report(report, report_path, markdown_path)
+    output = {
+        "config_path": args.config,
+        "report_path": str(report_path),
+        "markdown_report_path": str(markdown_path) if markdown_path else None,
+        "summary": report.get("summary"),
+    }
+    _emit_json(output)
+    return 0
 
 
 def _sources_discover_active(args: argparse.Namespace) -> int:

@@ -139,6 +139,11 @@ That URL is temporary and should not be treated as stable infrastructure.
 - Title-only deduplication is forbidden. Ambiguous repeated-title cases stay
   separate or become `POSSIBLY_RELATED` until official identifiers or strong
   composite evidence prove identity.
+- `sources audit-whitelist` checks configured source reachability and adapter
+  readiness without starting a crawl. Latest audit checked 31 entries:
+  22 reachable, 2 failed, 10 adapter-required, 4 URL templates requiring known
+  identifiers. The failed entries were two Patras municipal pages that timed
+  out; KIMDIS POST APIs still need documented adapter implementation.
 
 ## Current Verification
 
@@ -151,7 +156,19 @@ Latest confirmed command:
 Result:
 
 ```text
-44 passed in 1.74s
+45 passed in 1.06s
+```
+
+Latest whitelist audit command:
+
+```bash
+.venv/bin/python -m tender_radar sources audit-whitelist --allow-insecure-tls --timeout 8 --report work/reports/source_whitelist_audit.json --markdown-report work/reports/source_whitelist_audit.md
+```
+
+Result:
+
+```text
+31 checked, 22 reachable, 2 failed, 10 adapter-required, 4 templates
 ```
 
 Latest status verification command:
@@ -197,8 +214,9 @@ The system `python` command is not present in the remote environment; use
 - Authentication-safe adapter for TEE subscription sources.
 - Production access model for UI beyond local/LAN/Tailscale/private tunnel.
 - Manual browser review of the redesigned first UI screen.
-- Per-source whitelist audit for `config/sources.yml` before claiming broader
-  coverage.
+- KIMDIS POST request/pagination adapters before claiming KIMDIS coverage.
+- Browser/retry handling for Patras pages that timed out in the whitelist
+  audit.
 
 ## Next Work
 
@@ -206,6 +224,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Build or run a source-whitelist audit report for `config/sources.yml`, then run
-the controlled attachment download and document analysis gate for candidate
-`221629`.
+Implement the next source adapter gate for KIMDIS POST endpoints and Patras
+timeout/browser handling, then re-run the source whitelist audit before any
+expanded search/email report.

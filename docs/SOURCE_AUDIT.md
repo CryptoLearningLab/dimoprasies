@@ -238,6 +238,50 @@ Continue with a read-only adapter task:
 
 ## Source Whitelist Import - 2026-07-17
 
+The uploaded source whitelist is now represented in `config/sources.yml` and
+can be checked with:
+
+```bash
+.venv/bin/python -m tender_radar sources audit-whitelist --allow-insecure-tls --timeout 8 --report work/reports/source_whitelist_audit.json --markdown-report work/reports/source_whitelist_audit.md
+```
+
+Latest run:
+
+```json
+{
+  "total": 31,
+  "reachable": 22,
+  "failed": 2,
+  "adapter_required": 10,
+  "templates": 4
+}
+```
+
+Reachable public pages:
+- ESHIDIS active search entry page returned HTTP 200, but remains a browser/app
+  source and needs the existing ADF-aware adapter path.
+- Diavgeia and TED returned HTTP 200.
+- Municipality and regional pages for Nafpaktia, Thermo, Messolonghi,
+  Dorida/Efpalio, Western Greece/Aitoloakarnania and Central Greece/Fokida
+  returned HTTP 200 for the configured whitelist URLs.
+- Patras Diavgeia and DEYA Patras pages returned HTTP 200.
+
+Failures/blockers:
+- `https://e-patras.gr/el/tenders` timed out in the whitelist audit.
+- `https://e-patras.gr/el/e-democracy/decisions/municipal-committee-decisions`
+  timed out in the whitelist audit.
+- KIMDIS notice/award/contract POST endpoints are intentionally marked
+  `ADAPTER_REQUIRED`; they need a documented request body and pagination
+  adapter before live searching.
+- ESHIDIS and KIMDIS detail/download URL templates are intentionally marked
+  `TEMPLATE_REQUIRES_IDENTIFIER`; they require a known official id before
+  retrieval.
+
+Conclusion:
+- The source map is loaded and auditable, but this is not broad coverage yet.
+- A new expanded search/report should wait until at least the KIMDIS POST
+  adapters and the Patras timeout/browser behavior are handled.
+
 The uploaded source whitelist was imported into:
 
 - `docs/SOURCE_WHITELIST.md`

@@ -219,6 +219,19 @@
   Δωρίδα/Ευπάλιο, Μεσολόγγι, Θέρμο and Πάτρα.
 - Updated `AGENTS.md` and `docs/SOURCE_AUDIT.md` so source adapter failures,
   priority-source coverage and provenance remain explicit.
+- Added `sources audit-whitelist` for `config/sources.yml`. It writes JSON and
+  Markdown reports, checks simple GET reachability, marks POST APIs as
+  adapter-required and refuses to fetch URL templates without known official
+  identifiers.
+- Ran the source whitelist audit against 31 configured entries:
+  - reachable: 22
+  - failed: 2
+  - adapter-required: 10
+  - templates requiring identifiers: 4
+- The two failed whitelist entries were the Patras municipal tenders page and
+  municipal committee decisions page, both timing out during the audit.
+- KIMDIS POST sources are explicitly blocked behind adapter implementation
+  rather than being treated as searchable URLs.
 
 ## Tests Last Run
 - `.venv/bin/python -m pytest tests/test_status.py tests/test_cli.py`
@@ -227,6 +240,12 @@
 - Result: 44 passed.
 - `.venv/bin/python -m pytest tests/test_config.py`
 - Result: 1 passed.
+- `.venv/bin/python -m pytest tests/test_source_whitelist.py tests/test_cli.py tests/test_config.py`
+- Result: 11 passed.
+- `.venv/bin/python -m tender_radar sources audit-whitelist --allow-insecure-tls --timeout 8 --report work/reports/source_whitelist_audit.json --markdown-report work/reports/source_whitelist_audit.md`
+- Result: 31 checked, 22 reachable, 2 failed, 10 adapter-required, 4 templates.
+- `.venv/bin/python -m pytest`
+- Result: 45 passed.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
@@ -248,6 +267,9 @@
   συνιστάται το dev/yaml extra με PyYAML.
 - Το public tunnel για UI είναι προσωρινό και ακατάλληλο για μόνιμη χρήση.
   Για καθημερινή χρήση προτιμώνται local, LAN, Tailscale ή Synology deployment.
+- Το source whitelist audit αποδεικνύει reachability, όχι πλήρη συλλογή έργων.
+  ΚΗΜΔΗΣ POST adapters, pagination, parsing και Patras timeout/browser behavior
+  παραμένουν ανοιχτά πριν από διευρυμένη αναζήτηση και email report.
 
 ## Coverage
 
@@ -267,6 +289,11 @@ status_reports: 1
 ui_dashboard_scope_focus_rows: 1
 ui_dashboard_scope_all_rows: 20
 source_whitelist_files: 2
+source_whitelist_entries_checked: 31
+source_whitelist_reachable: 22
+source_whitelist_failed: 2
+source_whitelist_adapter_required: 10
+source_whitelist_templates: 4
 deduplication_protocols: 2
 discovered_active_candidates: 15
 verified_active_matches: 0
@@ -276,9 +303,9 @@ unexplained_failures: 0
 
 ## Next Gate
 
-Source audit follow-up: build or run a whitelist source-audit report for
-`config/sources.yml` before enabling additional adapters, then continue the
-candidate `221629` document gate.
+Source adapter follow-up: implement the next smallest KIMDIS POST adapter gate
+and Patras timeout/browser diagnostics, then re-run `sources audit-whitelist`
+before any expanded search/email report.
 
 ## Handoff Discipline
 

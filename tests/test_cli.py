@@ -32,6 +32,7 @@ class CliTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as exc:
                 main(["sources", "--help"])
         self.assertEqual(0, exc.exception.code)
+        self.assertIn("audit-whitelist", output.getvalue())
         self.assertIn("discover-active", output.getvalue())
         self.assertIn("fetch-resource", output.getvalue())
         self.assertIn("download-attachment", output.getvalue())

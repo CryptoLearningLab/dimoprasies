@@ -1,38 +1,31 @@
 # NEXT TASK
 
 Execute:
-`Audit source whitelist, then candidate 221629 document gate`
+`Implement source adapters required by whitelist audit`
 
 ## Instruction
 
-First audit the imported source whitelist without starting a full crawl:
+Use the latest whitelist audit report:
 
-1. Use `config/sources.yml` and `docs/SOURCE_WHITELIST.md`.
-2. Check every source family for:
-   - reachability,
-   - browser requirement,
-   - pagination,
-   - returned metadata/files,
-   - blockers/rate limits,
-   - fallback behavior.
-3. Update `docs/SOURCE_AUDIT.md` with per-source evidence.
-4. Do not claim complete coverage while priority sources are unaudited or
-   failing.
-5. Keep deduplication aligned with `docs/DEDUPLICATION.md`.
+```text
+work/reports/source_whitelist_audit.json
+work/reports/source_whitelist_audit.md
+```
 
-Then continue the document gate for `221629`:
+Build the next smallest adapter gate before any expanded search/email report:
 
-1. Use existing evidence for `221629`:
-   - `work/source_audit/eshidis_resource_audit_221629.json`
-   - SQLite latest attachment rows for ESHIDIS id `221629`
-2. Run controlled bulk download:
-   - `.venv/bin/python -m tender_radar sources download-attachment 221629 --all --limit 20 --allow-insecure-tls`
-3. Run document analysis with JSON/Markdown reports:
-   - `.venv/bin/python -m tender_radar documents analyze --eshidis-id 221629 --report work/reports/document_analysis_221629.json --markdown-report work/reports/document_analysis_221629.md`
-4. Run dynamic evaluation:
-   - `.venv/bin/python -m tender_radar evaluate run --profile config/evaluation_profiles/public_works_dynamic.yml --eshidis-id 221629 --report work/reports/evaluation_public_works_dynamic_221629.json --markdown-report work/reports/evaluation_public_works_dynamic_221629.md`
-5. Do not infer `VERIFIED_ACTIVE` from content matches. Status verification
-   remains a separate command/gate.
+1. Inspect `config/sources.yml` and identify the KIMDIS `api_post` entries.
+2. Document the required request body, pagination and response fields for one
+   KIMDIS family before issuing broad live searches.
+3. Implement a conservative audit/fetch adapter for that one family only.
+4. Add retry/browser diagnostics for the two failed Patras municipal pages:
+   - `https://e-patras.gr/el/tenders`
+   - `https://e-patras.gr/el/e-democracy/decisions/municipal-committee-decisions`
+5. Re-run `sources audit-whitelist` and record exact results.
+6. Keep deduplication aligned with `docs/DEDUPLICATION.md`; never merge records
+   by title alone.
+7. Do not infer `VERIFIED_ACTIVE` from source presence, content matches or
+   repeated titles.
 
 Do not store TEE subscription credentials in the repository. Treat TEE as a
 future authenticated adapter.
