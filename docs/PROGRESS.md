@@ -230,8 +230,23 @@
   - templates requiring identifiers: 4
 - The two failed whitelist entries were the Patras municipal tenders page and
   municipal committee decisions page, both timing out during the audit.
-- KIMDIS POST sources are explicitly blocked behind adapter implementation
-  rather than being treated as searchable URLs.
+- KIMDIS POST sources are now probed through documented request bodies instead
+  of being treated as plain searchable URLs.
+- Upgraded the whitelist audit to distinguish missing adapters from runtime
+  source availability:
+  - KIMDIS notice/auction/contract now run documented POST probes with
+    `contractType: "10"`.
+  - URL templates are marked ready once the official identifier is known.
+  - Known ESHIDIS browser flows are tied to existing CLI adapters.
+  - Failed municipal pages are marked with fallback when another source for the
+    same scope is reachable.
+- Latest whitelist audit summary after the adapter/fallback update:
+  - reachable: 24
+  - failed: 3
+  - adapter-required: 0
+  - templates requiring identifiers: 4
+  - failed with fallback: 2
+  - unresolved blockers: 0
 
 ## Tests Last Run
 - `.venv/bin/python -m pytest tests/test_status.py tests/test_cli.py`
@@ -246,6 +261,12 @@
 - Result: 31 checked, 22 reachable, 2 failed, 10 adapter-required, 4 templates.
 - `.venv/bin/python -m pytest`
 - Result: 45 passed.
+- `.venv/bin/python -m pytest tests/test_source_whitelist.py tests/test_cli.py tests/test_config.py`
+- Result: 12 passed.
+- `.venv/bin/python -m tender_radar sources audit-whitelist --allow-insecure-tls --timeout 8 --report work/reports/source_whitelist_audit.json --markdown-report work/reports/source_whitelist_audit.md`
+- Result: 31 checked, 24 reachable, 3 failed, 0 adapter-required, 4 templates, 2 failed-with-fallback, 0 unresolved blockers.
+- `.venv/bin/python -m pytest`
+- Result: 46 passed.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
@@ -267,9 +288,10 @@
   συνιστάται το dev/yaml extra με PyYAML.
 - Το public tunnel για UI είναι προσωρινό και ακατάλληλο για μόνιμη χρήση.
   Για καθημερινή χρήση προτιμώνται local, LAN, Tailscale ή Synology deployment.
-- Το source whitelist audit αποδεικνύει reachability, όχι πλήρη συλλογή έργων.
-  ΚΗΜΔΗΣ POST adapters, pagination, parsing και Patras timeout/browser behavior
-  παραμένουν ανοιχτά πριν από διευρυμένη αναζήτηση και email report.
+- Το source whitelist audit αποδεικνύει adapter/readiness και fallback
+  availability, όχι ακόμη πλήρη συλλογή/εισαγωγή όλων των έργων στη βάση.
+  Η Πάτρα έχει δύο προσωρινά timeout σελίδων, αλλά υπάρχουν reachable fallback
+  πηγές για το ίδιο scope.
 
 ## Coverage
 
@@ -290,10 +312,12 @@ ui_dashboard_scope_focus_rows: 1
 ui_dashboard_scope_all_rows: 20
 source_whitelist_files: 2
 source_whitelist_entries_checked: 31
-source_whitelist_reachable: 22
-source_whitelist_failed: 2
-source_whitelist_adapter_required: 10
+source_whitelist_reachable: 24
+source_whitelist_failed: 3
+source_whitelist_adapter_required: 0
 source_whitelist_templates: 4
+source_whitelist_failed_with_fallback: 2
+source_whitelist_unresolved_blockers: 0
 deduplication_protocols: 2
 discovered_active_candidates: 15
 verified_active_matches: 0
@@ -303,9 +327,9 @@ unexplained_failures: 0
 
 ## Next Gate
 
-Source adapter follow-up: implement the next smallest KIMDIS POST adapter gate
-and Patras timeout/browser diagnostics, then re-run `sources audit-whitelist`
-before any expanded search/email report.
+Expanded search follow-up: run the next controlled discovery/report pass using
+ESHIDIS, KIMDIS Open Data probes and reachable authority fallbacks, then prepare
+the email report artifact.
 
 ## Handoff Discipline
 

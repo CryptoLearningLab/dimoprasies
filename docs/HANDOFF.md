@@ -139,11 +139,14 @@ That URL is temporary and should not be treated as stable infrastructure.
 - Title-only deduplication is forbidden. Ambiguous repeated-title cases stay
   separate or become `POSSIBLY_RELATED` until official identifiers or strong
   composite evidence prove identity.
-- `sources audit-whitelist` checks configured source reachability and adapter
-  readiness without starting a crawl. Latest audit checked 31 entries:
-  22 reachable, 2 failed, 10 adapter-required, 4 URL templates requiring known
-  identifiers. The failed entries were two Patras municipal pages that timed
-  out; KIMDIS POST APIs still need documented adapter implementation.
+- `sources audit-whitelist` checks configured source reachability, known
+  adapters and fallback availability without starting a full crawl. Latest
+  audit checked 31 entries: 24 reachable, 3 failed, 0 adapter-required,
+  4 URL templates requiring known identifiers, 2 failed-with-fallback and
+  0 unresolved blockers. The failed entries are ESHIDIS active search
+  short-timeout retry and two Patras municipal pages that timed out; Patras has
+  reachable Diavgeia/DEYAP fallbacks. KIMDIS PROC/AWRD/SYMV POST probes now
+  return HTTP 200 with documented `contractType: "10"` request bodies.
 
 ## Current Verification
 
@@ -156,7 +159,7 @@ Latest confirmed command:
 Result:
 
 ```text
-45 passed in 1.06s
+46 passed in 1.60s
 ```
 
 Latest whitelist audit command:
@@ -168,7 +171,8 @@ Latest whitelist audit command:
 Result:
 
 ```text
-31 checked, 22 reachable, 2 failed, 10 adapter-required, 4 templates
+31 checked, 24 reachable, 3 failed, 0 adapter-required, 4 templates,
+2 failed-with-fallback, 0 unresolved blockers
 ```
 
 Latest status verification command:
@@ -214,9 +218,11 @@ The system `python` command is not present in the remote environment; use
 - Authentication-safe adapter for TEE subscription sources.
 - Production access model for UI beyond local/LAN/Tailscale/private tunnel.
 - Manual browser review of the redesigned first UI screen.
-- KIMDIS POST request/pagination adapters before claiming KIMDIS coverage.
-- Browser/retry handling for Patras pages that timed out in the whitelist
-  audit.
+- Full persistence/export path for KIMDIS Open Data results; current whitelist
+  audit proves POST readiness but does not yet import every KIMDIS result into
+  SQLite.
+- Runtime retry monitoring for Patras pages that timed out in the whitelist
+  audit; reachable fallbacks exist for the same scope.
 
 ## Next Work
 
@@ -224,6 +230,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Implement the next source adapter gate for KIMDIS POST endpoints and Patras
-timeout/browser handling, then re-run the source whitelist audit before any
-expanded search/email report.
+Run the next controlled expanded discovery/report pass using ESHIDIS, KIMDIS
+Open Data probes and reachable authority fallbacks, then prepare the email
+report artifact.

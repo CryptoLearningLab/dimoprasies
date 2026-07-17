@@ -250,16 +250,23 @@ Latest run:
 ```json
 {
   "total": 31,
-  "reachable": 22,
-  "failed": 2,
-  "adapter_required": 10,
-  "templates": 4
+  "reachable": 24,
+  "failed": 3,
+  "adapter_required": 0,
+  "templates": 4,
+  "failed_with_fallback": 2,
+  "unresolved_blockers": 0
 }
 ```
 
-Reachable public pages:
-- ESHIDIS active search entry page returned HTTP 200, but remains a browser/app
-  source and needs the existing ADF-aware adapter path.
+Ready or reachable sources:
+- ESHIDIS active search has an existing ADF-aware adapter:
+  `sources discover-active`. In the latest short-timeout audit the entry page
+  timed out, but this is a runtime retry condition, not a missing adapter.
+- KIMDIS notice, auction and contract Open Data POST probes returned HTTP 200
+  with documented JSON request body `{"contractType": "10"}` on page 0.
+  The latest samples found 17 PROC notice records, 21 AWRD award records and
+  16 SYMV contract records in the first response window.
 - Diavgeia and TED returned HTTP 200.
 - Municipality and regional pages for Nafpaktia, Thermo, Messolonghi,
   Dorida/Efpalio, Western Greece/Aitoloakarnania and Central Greece/Fokida
@@ -270,17 +277,18 @@ Failures/blockers:
 - `https://e-patras.gr/el/tenders` timed out in the whitelist audit.
 - `https://e-patras.gr/el/e-democracy/decisions/municipal-committee-decisions`
   timed out in the whitelist audit.
-- KIMDIS notice/award/contract POST endpoints are intentionally marked
-  `ADAPTER_REQUIRED`; they need a documented request body and pagination
-  adapter before live searching.
+- Both Patras failures have reachable scope fallbacks:
+  `https://diavgeia.gov.gr/f/dimospatras` and
+  `https://deyap.gr/category/news/shmantikes_anakoinwseis_prokurhxeis/prokurhxeis/`.
 - ESHIDIS and KIMDIS detail/download URL templates are intentionally marked
   `TEMPLATE_REQUIRES_IDENTIFIER`; they require a known official id before
   retrieval.
 
 Conclusion:
-- The source map is loaded and auditable, but this is not broad coverage yet.
-- A new expanded search/report should wait until at least the KIMDIS POST
-  adapters and the Patras timeout/browser behavior are handled.
+- The source map is loaded and auditable.
+- There are no unresolved adapter blockers in the current whitelist audit.
+- A new expanded search/report can proceed, while still recording live runtime
+  failures such as temporary ESHIDIS or Patras timeouts.
 
 The uploaded source whitelist was imported into:
 

@@ -164,3 +164,12 @@ Tender records must not be merged by title alone. Deduplication follows
 `docs/DEDUPLICATION.md`: exact source identifiers and official
 cross-references are strongest; ambiguous cases stay separate and may be linked
 as `POSSIBLY_RELATED`.
+
+## D-023 - Source failures are separated from adapter blockers
+**Status:** Accepted
+
+Whitelist audit results distinguish missing adapters from runtime source
+availability. A source timeout is recorded as a failure, but it is not an
+adapter blocker when a known adapter can retry it or when another configured
+source for the same scope is reachable. URL templates are treated as ready once
+their official identifier is known.

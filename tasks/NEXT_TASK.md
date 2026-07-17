@@ -1,7 +1,7 @@
 # NEXT TASK
 
 Execute:
-`Implement source adapters required by whitelist audit`
+`Run controlled expanded discovery and report pass`
 
 ## Instruction
 
@@ -12,20 +12,28 @@ work/reports/source_whitelist_audit.json
 work/reports/source_whitelist_audit.md
 ```
 
-Build the next smallest adapter gate before any expanded search/email report:
+Current source-readiness result:
 
-1. Inspect `config/sources.yml` and identify the KIMDIS `api_post` entries.
-2. Document the required request body, pagination and response fields for one
-   KIMDIS family before issuing broad live searches.
-3. Implement a conservative audit/fetch adapter for that one family only.
-4. Add retry/browser diagnostics for the two failed Patras municipal pages:
-   - `https://e-patras.gr/el/tenders`
-   - `https://e-patras.gr/el/e-democracy/decisions/municipal-committee-decisions`
-5. Re-run `sources audit-whitelist` and record exact results.
-6. Keep deduplication aligned with `docs/DEDUPLICATION.md`; never merge records
-   by title alone.
-7. Do not infer `VERIFIED_ACTIVE` from source presence, content matches or
+```text
+31 checked, 24 reachable, 3 failed, 0 adapter-required, 4 templates,
+2 failed-with-fallback, 0 unresolved blockers
+```
+
+Run the next controlled expanded discovery/report pass:
+
+1. Re-run `sources audit-whitelist` at the start and record exact runtime
+   failures.
+2. Use ESHIDIS `sources discover-active` for active candidates.
+3. Use KIMDIS Open Data page-0 probes for PROC/AWRD/SYMV public works
+   (`contractType: "10"`) as discovery evidence.
+4. Use reachable authority/Diavgeia/DEYAP fallbacks for Patras while the
+   municipal site times out.
+5. Deduplicate only through `docs/DEDUPLICATION.md`; never merge records by
+   title alone.
+6. Do not infer `VERIFIED_ACTIVE` from source presence, content matches or
    repeated titles.
+7. Produce a JSON/Markdown report artifact suitable for email review before
+   sending any email.
 
 Do not store TEE subscription credentials in the repository. Treat TEE as a
 future authenticated adapter.
