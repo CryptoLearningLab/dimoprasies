@@ -297,6 +297,14 @@
 - Strengthened UI focus matching normalization with Unicode casefold and
   accent/diacritic removal, matching the expanded-report source matching
   behavior for Greek uppercase/lowercase and accented/unaccented variants.
+- Fixed the UI focus filter so configured regions with explicit
+  `included_regional_units` match those regional units instead of the broad
+  NUTS prefix. This removed a false positive where `EL644 - Φθιώτιδα` was
+  counted as `Περιφέρεια Στερεάς Ελλάδας - Φωκίδα`.
+- Confirmed the UI dashboard currently reads 20 ESHIDIS/discovery/SQLite rows
+  and shows 1 focus match after the fix. This is separate from the emailed
+  expanded KIMDIS report, which had 11 `SUBMISSION_OPEN_CANDIDATE` PROC
+  notices.
 
 ## Tests Last Run
 - `.venv/bin/python -m pytest tests/test_status.py tests/test_cli.py`
@@ -343,6 +351,16 @@
 - Result: 13 passed in 0.36s.
 - `.venv/bin/python -m pytest`
 - Result: 52 passed in 1.35s.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m pytest tests/test_ui_server.py`
+- Result: 9 passed in 0.25s.
+- UI smoke test: `curl -s http://127.0.0.1:8765/api/dashboard?scope=all`
+- Result: `total_known: 20`, `visible: 20`, `focus_matches: 1`.
+- Tunnel smoke test: `curl -L -s -o /dev/null -w "%{http_code} %{content_type}\n" https://baaf8660f7fa87.lhr.life`
+- Result: `200 text/html; charset=utf-8`.
+- `.venv/bin/python -m pytest`
+- Result: 53 passed in 1.54s.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct

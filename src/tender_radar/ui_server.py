@@ -546,8 +546,9 @@ def interest_reason(text: str) -> str | None:
     for region in data.get("regions", []):
         if not isinstance(region, dict):
             continue
-        terms = [region.get("name"), *(region.get("included_regional_units") or []), *(region.get("nuts_prefixes") or [])]
-        if any(term and focus_term_matches(normalized, str(term), prefix_ok=True) for term in terms):
+        included_units = [str(unit) for unit in region.get("included_regional_units") or [] if str(unit).strip()]
+        terms = included_units or [region.get("name"), *(region.get("nuts_prefixes") or [])]
+        if any(term and focus_term_matches(normalized, str(term), prefix_ok=not included_units) for term in terms):
             units = ", ".join(region.get("included_regional_units") or [])
             return f"{region.get('name')} - {units}" if units else str(region.get("name"))
     return None

@@ -165,6 +165,10 @@ That URL is temporary and should not be treated as stable infrastructure.
   Focus matching normalizes Greek text with Unicode casefold and
   accent/diacritic removal so uppercase/lowercase and accented/unaccented
   variants do not need to be duplicated in configuration.
+- UI focus matching now treats configured `included_regional_units` as the
+  regional constraint when present. Broad NUTS prefix matching is only used
+  for regions without explicit included units, preventing `EL644 - Φθιώτιδα`
+  from being shown as `Περιφέρεια Στερεάς Ελλάδας - Φωκίδα`.
 
 ## Current Verification
 
@@ -177,7 +181,7 @@ Latest confirmed command:
 Result:
 
 ```text
-52 passed in 1.35s
+53 passed in 1.54s
 ```
 
 Latest whitelist audit command:

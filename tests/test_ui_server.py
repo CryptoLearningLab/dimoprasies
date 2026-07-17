@@ -30,6 +30,11 @@ def test_interest_reason_uses_locations_config() -> None:
     assert interest_reason("Έργο στον Δήμο Πατρέων EL632") == "Δήμος Πατρέων"
 
 
+def test_region_focus_uses_included_units_not_broad_nuts_prefix() -> None:
+    assert interest_reason("Έργο στην Περιφερειακή Ενότητα Φωκίδας EL645") == "Περιφέρεια Στερεάς Ελλάδας - Φωκίδα"
+    assert interest_reason("Έργο στη Φθιώτιδα EL644") is None
+
+
 def test_interest_reason_matches_amfilochia_alias_variants() -> None:
     assert interest_reason("ΕΡΓΟ ΣΤΟ ΘΕΡΙΑΚΗΣΙ") == "Δήμος Αμφιλοχίας"
     assert interest_reason("εργο στο Θεριακήσιο") == "Δήμος Αμφιλοχίας"
