@@ -194,6 +194,14 @@ That URL is temporary and should not be treated as stable infrastructure.
   fetches. The generated runtime reports are
   `work/reports/kimdis_open_proc_fetch_report.json` and
   `work/reports/kimdis_open_proc_fetch_report.md`.
+- KIMDIS PROC attachment metadata and extracted text are now persisted as
+  runtime artifacts:
+  - `work/derived/kimdis_open_proc_documents.json`
+  - `work/extracted_text/kimdis/*.txt`
+- The UI dashboard joins KIMDIS open PROC rows with that document index. Rows
+  with local files expose Preview and Download file actions through
+  `/api/kimdis-document-preview?official_id=...` and
+  `/api/kimdis-document-file?official_id=...`.
 
 ## Current Verification
 
@@ -206,20 +214,20 @@ Latest confirmed command:
 Result:
 
 ```text
-60 passed in 1.45s
+62 passed in 1.41s
 ```
 
 Latest KIMDIS PROC attachment fetch command:
 
 ```bash
-.venv/bin/python -m tender_radar sources fetch-kimdis-open-proc --expanded-report work/reports/expanded_discovery_report.json --config config/sources.yml --download-dir work/download_audit/kimdis --report work/reports/kimdis_open_proc_fetch_report.json --markdown-report work/reports/kimdis_open_proc_fetch_report.md --limit 12 --timeout 30 --allow-insecure-tls --retries 2 --retry-delay 30 --request-delay 5
+.venv/bin/python -m tender_radar sources fetch-kimdis-open-proc --expanded-report work/reports/expanded_discovery_report.json --config config/sources.yml --download-dir work/download_audit/kimdis --text-dir work/extracted_text/kimdis --document-index work/derived/kimdis_open_proc_documents.json --report work/reports/kimdis_open_proc_fetch_report.json --markdown-report work/reports/kimdis_open_proc_fetch_report.md --limit 12 --timeout 30 --allow-insecure-tls --retries 2 --retry-delay 30 --request-delay 5
 ```
 
 Result:
 
 ```text
 12 checked, 12 already present, 0 failed, 12 text extracted,
-12 document evidence found
+12 document evidence found, 12 text artifacts
 ```
 
 Latest whitelist audit command:
@@ -285,9 +293,8 @@ The system `python` command is not present in the remote environment; use
   audit; reachable fallbacks exist for the same scope.
 - Verification/prioritization of expanded KIMDIS discovery records. The latest
   53 focus-related records are candidates, not `VERIFIED_ACTIVE` tenders.
-- SQLite/document-artifact persistence and UI preview/download support for the
-  fetched KIMDIS PROC attachments. The current KIMDIS report is a runtime
-  artifact under `work/reports/`.
+- Search/evaluation over KIMDIS text artifacts. The current search/evaluation
+  pipeline still primarily uses SQLite ESHIDIS documents.
 
 ## Next Work
 
@@ -295,6 +302,5 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Persist fetched KIMDIS PROC attachment metadata/text in a structured model and
-expose KIMDIS preview/download actions in the UI with candidate-only status
-labels.
+Run search/evaluation profiles over KIMDIS text artifacts and produce a
+combined ESHIDIS/KIMDIS candidate shortlist with candidate-only status labels.

@@ -1,48 +1,39 @@
 # NEXT TASK
 
 Execute:
-`Persist and expose fetched KIMDIS PROC attachments`
+`Search and evaluate KIMDIS text artifacts`
 
 ## Current Input
 
-Use the latest expanded discovery report:
+Use the latest KIMDIS document index:
 
 ```text
-work/reports/expanded_discovery_report.json
-work/reports/expanded_discovery_report.md
+work/derived/kimdis_open_proc_documents.json
+work/extracted_text/kimdis/*.txt
 ```
 
-Use the latest KIMDIS attachment fetch report:
+Latest KIMDIS document-index result as of `2026-07-17`:
 
 ```text
-work/reports/kimdis_open_proc_fetch_report.json
-work/reports/kimdis_open_proc_fetch_report.md
-```
-
-Latest KIMDIS fetch result as of `2026-07-17`:
-
-```text
-12 SUBMISSION_OPEN_CANDIDATE PROC notices checked
-12 official KIMDIS PDFs present under work/download_audit/kimdis/
-0 failed fetches
-12 documents with text extracted for the shortlist report
-12 documents with authority/scope evidence found
+12 SUBMISSION_OPEN_CANDIDATE PROC notices
+12 official KIMDIS PDFs present
+12 extracted text artifacts
+12 records with authority/scope evidence
 0 records promoted to VERIFIED_ACTIVE
 ```
 
 ## Instruction
 
-Build the next smallest integration step:
+Build the next smallest scoring/search step:
 
-1. Persist fetched KIMDIS PROC attachment metadata and extracted text in a
-   structured model or durable artifact.
-2. Preserve official id, title, authority, budget, final submission date,
-   source URL, attachment URL, local file path, size, SHA-256 and retrieval
-   timestamp.
-3. Keep status labels candidate-only:
+1. Run existing YAML search/evaluation profiles over the KIMDIS extracted text
+   artifacts without hardcoding technical phrases in core code.
+2. Preserve provenance for every KIMDIS hit: official id, source URL,
+   attachment URL, local file path, text path, matched rule/profile and text
+   snippet location where available.
+3. Produce a combined ESHIDIS/KIMDIS candidate shortlist report.
+4. Keep status labels candidate-only:
    `SUBMISSION_OPEN_CANDIDATE` and `ATTACHMENT_*_PENDING_DOCUMENT_REVIEW`.
-4. Expose KIMDIS rows in the UI with preview/download actions equivalent to
-   ESHIDIS where local files exist.
 5. Do not merge repeated titles unless `docs/DEDUPLICATION.md` allows it by
    official identifiers or strong composite evidence.
 6. Keep ESHIDIS status verification separate.

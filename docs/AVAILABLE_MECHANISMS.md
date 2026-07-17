@@ -33,7 +33,9 @@ human-friendly UI should compose these mechanisms instead of replacing them.
   - Fetches official KIMDIS attachment URLs for `SUBMISSION_OPEN_CANDIDATE`
     PROC rows from `work/reports/expanded_discovery_report.json`.
   - Stores files under `work/download_audit/kimdis/` with size and SHA-256.
-  - Extracts supported PDF/XML text in-memory for the shortlist report.
+  - Stores extracted text artifacts under `work/extracted_text/kimdis/`.
+  - Writes a structured document index at
+    `work/derived/kimdis_open_proc_documents.json`.
   - Records whether document text contains authority/scope evidence from
     `config/sources.yml`.
   - Remains candidate-only and does not emit `VERIFIED_ACTIVE`.
@@ -72,6 +74,13 @@ human-friendly UI should compose these mechanisms instead of replacing them.
   - Serves short text samples only.
 - `/api/document-file?attachment_id=...`
   - Serves a downloaded local file only if it exists under `work/`.
+- `/api/kimdis-document-preview?official_id=...`
+  - Serves the structured KIMDIS preview from
+    `work/derived/kimdis_open_proc_documents.json`.
+  - Includes local availability, SHA-256, short text sample and document
+    authority/scope evidence.
+- `/api/kimdis-document-file?official_id=...`
+  - Serves a fetched KIMDIS local file only if it exists under `work/`.
 
 ## Current Presentation Rules
 

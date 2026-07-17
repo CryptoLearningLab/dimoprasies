@@ -7,6 +7,8 @@ from tender_radar.ui_server import (
     discovery_search_steps,
     format_budget,
     interest_reason,
+    kimdis_document_file_path,
+    kimdis_document_preview_payload,
     parse_budget_from_row_text,
     preview_kind,
     short_text_sample,
@@ -93,6 +95,82 @@ regions: []
     assert payload["tenders"][0]["download_url"] == "https://example.test/attachment/26PROC000000001"
     assert payload["tenders"][0]["supports_eshidis_actions"] is False
     assert payload["tenders"][0]["deadline_display"] == "24-07-2026 13:00"
+
+
+def test_dashboard_exposes_local_kimdis_preview_and_download(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "work/derived").mkdir(parents=True)
+    pdf_path = tmp_path / "work/download_audit/kimdis/26PROC000000001/26PROC000000001.pdf"
+    pdf_path.parent.mkdir(parents=True)
+    pdf_path.write_bytes(b"%PDF")
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: nafpaktia
+    name: "Δήμος Ναυπακτίας"
+    aliases: ["Ναυπακτία"]
+    nuts: ["EL631"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        """
+{
+  "focus_open_proc_candidates": [
+    {
+      "source": "KIMDIS",
+      "record_type": "PROC",
+      "official_id": "26PROC000000001",
+      "title": "Έργο Ναυπακτίας",
+      "authority": "ΔΗΜΟΣ ΝΑΥΠΑΚΤΙΑΣ",
+      "budget": "1000.0",
+      "submission_deadline": "2026-08-01T10:00:00",
+      "source_url": "https://example.test/notice",
+      "attachment_url": "https://example.test/attachment/26PROC000000001",
+      "matched_scopes": ["Δήμος Ναυπακτίας"],
+      "status": "SUBMISSION_OPEN_CANDIDATE"
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/derived/kimdis_open_proc_documents.json").write_text(
+        f"""
+{{
+  "documents": [
+    {{
+      "official_id": "26PROC000000001",
+      "candidate_status": "SUBMISSION_OPEN_CANDIDATE",
+      "verification_status": "ATTACHMENT_ALREADY_FETCHED_PENDING_DOCUMENT_REVIEW",
+      "local_path": "{pdf_path.relative_to(tmp_path)}",
+      "original_filename": "26PROC000000001.pdf",
+      "size_bytes": 4,
+      "sha256": "abc",
+      "attachment_url": "https://example.test/attachment/26PROC000000001",
+      "document_analysis": {{"document_type": "tender_declaration", "text_sample": "ΔΗΜΟΣ ΝΑΥΠΑΚΤΙΑΣ"}},
+      "document_evidence": {{"evidence_status": "DOCUMENT_EVIDENCE_FOUND", "authority_match": "ΔΗΜΟΣ ΝΑΥΠΑΚΤΙΑΣ", "scope_alias_matches": ["Δήμος Ναυπακτίας"]}}
+    }}
+  ]
+}}
+""",
+        encoding="utf-8",
+    )
+
+    payload = dashboard_payload(scope="focus")
+    preview = kimdis_document_preview_payload("26PROC000000001")
+    file_path = kimdis_document_file_path("26PROC000000001")
+
+    assert payload["tenders"][0]["supports_kimdis_actions"] is True
+    assert payload["tenders"][0]["download_url"] == "/api/kimdis-document-file?official_id=26PROC000000001"
+    assert payload["tenders"][0]["preview_url"] == "/api/kimdis-document-preview?official_id=26PROC000000001"
+    assert preview["documents"][0]["label"] == "Διακήρυξη"
+    assert preview["documents"][0]["view_url"] == "/api/kimdis-document-file?official_id=26PROC000000001"
+    assert file_path == pdf_path.resolve()
 
 
 def test_discovery_search_steps_run_eshidis_then_expanded_kimdis() -> None:

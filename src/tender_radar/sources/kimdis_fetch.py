@@ -43,6 +43,7 @@ class KimdisFetchResult:
     content_type: str | None
     size_bytes: int | None
     sha256: str | None
+    text_path: str | None
     document_analysis: dict[str, object] | None
     document_evidence: dict[str, object] | None
     zip_entries: list[dict[str, object]] | None
@@ -61,6 +62,7 @@ def fetch_kimdis_open_proc_candidates(
     limit: int | None = None,
     force: bool = False,
     sources_config_path: Path | None = None,
+    text_dir: Path | None = None,
     retry_count: int = 0,
     retry_delay_seconds: float = 10.0,
     request_delay_seconds: float = 0.0,
@@ -75,6 +77,8 @@ def fetch_kimdis_open_proc_candidates(
     context = ssl._create_unverified_context() if allow_insecure_tls else None
     results: list[KimdisFetchResult] = []
     download_dir.mkdir(parents=True, exist_ok=True)
+    if text_dir:
+        text_dir.mkdir(parents=True, exist_ok=True)
 
     for index, candidate in enumerate(candidates):
         result = _fetch_one_candidate(
@@ -85,6 +89,7 @@ def fetch_kimdis_open_proc_candidates(
             force=force,
             retrieved_at=checked_at,
             scope_aliases=scope_aliases,
+            text_dir=text_dir,
             retry_count=retry_count,
             retry_delay_seconds=retry_delay_seconds,
         )
@@ -123,6 +128,7 @@ def fetch_kimdis_open_proc_candidates(
         "checked_at": checked_at,
         "expanded_report_path": str(expanded_report_path),
         "download_dir": str(download_dir),
+        "text_dir": str(text_dir) if text_dir else None,
         "sources_config_path": str(sources_config_path) if sources_config_path else None,
         "summary": summary,
         "shortlist": result_dicts,
@@ -143,6 +149,55 @@ def write_kimdis_fetch_report(report: dict[str, Any], report_path: Path, markdow
     if markdown_path:
         markdown_path.parent.mkdir(parents=True, exist_ok=True)
         markdown_path.write_text(render_kimdis_fetch_markdown(report), encoding="utf-8")
+
+
+def write_kimdis_document_index(report: dict[str, Any], index_path: Path) -> dict[str, Any]:
+    index = kimdis_document_index(report)
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
+    return index
+
+
+def kimdis_document_index(report: dict[str, Any]) -> dict[str, Any]:
+    shortlist = report.get("shortlist") if isinstance(report.get("shortlist"), list) else []
+    documents = []
+    for item in shortlist:
+        if not isinstance(item, dict):
+            continue
+        documents.append(
+            {
+                "source": "KIMDIS",
+                "record_type": "PROC",
+                "official_id": item.get("official_id"),
+                "title": item.get("title"),
+                "authority": item.get("authority"),
+                "budget": item.get("budget"),
+                "submission_deadline": item.get("submission_deadline"),
+                "source_url": item.get("source_url"),
+                "attachment_url": item.get("attachment_url"),
+                "matched_scopes": item.get("matched_scopes") or [],
+                "candidate_status": item.get("candidate_status"),
+                "verification_status": item.get("verification_status"),
+                "retrieved_at": item.get("retrieved_at"),
+                "local_path": item.get("local_path"),
+                "original_filename": item.get("original_filename"),
+                "content_type": item.get("content_type"),
+                "size_bytes": item.get("size_bytes"),
+                "sha256": item.get("sha256"),
+                "text_path": item.get("text_path"),
+                "document_analysis": item.get("document_analysis"),
+                "document_evidence": item.get("document_evidence"),
+                "zip_entries": item.get("zip_entries"),
+            }
+        )
+    return {
+        "generated_at": report.get("checked_at"),
+        "source_report": report.get("expanded_report_path"),
+        "fetch_report_summary": report.get("summary") or {},
+        "status_note": report.get("status_note"),
+        "deduplication": report.get("deduplication") or {},
+        "documents": documents,
+    }
 
 
 def render_kimdis_fetch_markdown(report: dict[str, Any]) -> str:
@@ -253,6 +308,7 @@ def _fetch_one_candidate(
     force: bool,
     retrieved_at: str,
     scope_aliases: dict[str, list[str]],
+    text_dir: Path | None,
     retry_count: int,
     retry_delay_seconds: float,
 ) -> KimdisFetchResult:
@@ -265,7 +321,13 @@ def _fetch_one_candidate(
         if existing_files:
             target_path = existing_files[0]
             digest = _sha256(target_path.read_bytes())
-            analysis, evidence, zip_entries = _inspect_download(target_path, target_path.name, candidate, scope_aliases)
+            analysis, evidence, zip_entries, text_path = _inspect_download(
+                target_path,
+                target_path.name,
+                candidate,
+                scope_aliases,
+                text_dir,
+            )
             return _result_from_candidate(
                 candidate,
                 retrieved_at=retrieved_at,
@@ -275,6 +337,7 @@ def _fetch_one_candidate(
                 content_type=None,
                 size_bytes=target_path.stat().st_size,
                 sha256=digest,
+                text_path=text_path,
                 document_analysis=analysis,
                 document_evidence=evidence,
                 zip_entries=zip_entries,
@@ -295,6 +358,7 @@ def _fetch_one_candidate(
                 force=force,
                 retrieved_at=retrieved_at,
                 scope_aliases=scope_aliases,
+                text_dir=text_dir,
             )
         except HTTPError as exc:
             last_error = str(exc)
@@ -313,6 +377,7 @@ def _fetch_one_candidate(
         content_type=None,
         size_bytes=None,
         sha256=None,
+        text_path=None,
         document_analysis=None,
         document_evidence=None,
         zip_entries=None,
@@ -331,6 +396,7 @@ def _download_one_candidate(
     force: bool,
     retrieved_at: str,
     scope_aliases: dict[str, list[str]],
+    text_dir: Path | None,
 ) -> KimdisFetchResult:
     request = Request(
         attachment_url,
@@ -351,7 +417,7 @@ def _download_one_candidate(
         digest = _sha256(content)
         size = len(content)
         status = FETCHED_STATUS
-    analysis, evidence, zip_entries = _inspect_download(target_path, filename, candidate, scope_aliases)
+    analysis, evidence, zip_entries, text_path = _inspect_download(target_path, filename, candidate, scope_aliases, text_dir)
     return _result_from_candidate(
         candidate,
         retrieved_at=retrieved_at,
@@ -361,6 +427,7 @@ def _download_one_candidate(
         content_type=content_type,
         size_bytes=size,
         sha256=digest,
+        text_path=text_path,
         document_analysis=analysis,
         document_evidence=evidence,
         zip_entries=zip_entries,
@@ -378,6 +445,7 @@ def _result_from_candidate(
     content_type: str | None,
     size_bytes: int | None,
     sha256: str | None,
+    text_path: str | None,
     document_analysis: dict[str, object] | None,
     document_evidence: dict[str, object] | None,
     zip_entries: list[dict[str, object]] | None,
@@ -401,6 +469,7 @@ def _result_from_candidate(
         content_type=content_type,
         size_bytes=size_bytes,
         sha256=sha256,
+        text_path=text_path,
         document_analysis=document_analysis,
         document_evidence=document_evidence,
         zip_entries=zip_entries,
@@ -413,14 +482,26 @@ def _inspect_download(
     filename: str,
     candidate: dict[str, Any],
     scope_aliases: dict[str, list[str]],
-) -> tuple[dict[str, object] | None, dict[str, object] | None, list[dict[str, object]] | None]:
+    text_dir: Path | None,
+) -> tuple[dict[str, object] | None, dict[str, object] | None, list[dict[str, object]] | None, str | None]:
     if path.suffix.lower() == ".zip":
-        return None, None, _zip_entries(path)
+        return None, None, _zip_entries(path), None
     analysis = analyze_document(path, original_name=filename)
     payload = analysis.to_dict()
     evidence = _document_evidence(analysis.full_text, candidate, scope_aliases)
+    text_path = _write_text_artifact(analysis.full_text, candidate, text_dir)
     payload.pop("full_text", None)
-    return payload, evidence, None
+    return payload, evidence, None, text_path
+
+
+def _write_text_artifact(full_text: str | None, candidate: dict[str, Any], text_dir: Path | None) -> str | None:
+    if not full_text or not text_dir:
+        return None
+    official_id = _safe_path_part(str(candidate.get("official_id") or "unknown"))
+    path = text_dir / f"{official_id}.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(full_text, encoding="utf-8")
+    return str(path)
 
 
 def _document_evidence(

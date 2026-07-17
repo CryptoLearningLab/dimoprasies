@@ -438,6 +438,32 @@
 - Result: all repository configs OK.
 - `.venv/bin/python -m pytest`
 - Result: 60 passed in 1.45s.
+- `sources fetch-kimdis-open-proc` now also writes a durable KIMDIS document
+  index to `work/derived/kimdis_open_proc_documents.json` and full extracted
+  text artifacts to `work/extracted_text/kimdis/`.
+- The document index preserves official id, title, authority, budget,
+  final submission date, source URL, attachment URL, local file path, size,
+  SHA-256, retrieval timestamp, candidate-only status and document evidence.
+- The UI dashboard now joins KIMDIS open PROC rows with the document index.
+  KIMDIS rows with local files expose `Preview` and `Download file` actions
+  using `/api/kimdis-document-preview?official_id=...` and
+  `/api/kimdis-document-file?official_id=...`.
+- Live KIMDIS document-index refresh:
+  `.venv/bin/python -m tender_radar sources fetch-kimdis-open-proc --expanded-report work/reports/expanded_discovery_report.json --config config/sources.yml --download-dir work/download_audit/kimdis --text-dir work/extracted_text/kimdis --document-index work/derived/kimdis_open_proc_documents.json --report work/reports/kimdis_open_proc_fetch_report.json --markdown-report work/reports/kimdis_open_proc_fetch_report.md --limit 12 --timeout 30 --allow-insecure-tls --retries 2 --retry-delay 30 --request-delay 5`
+- Live KIMDIS document-index result: 12 checked, 12 already present, 0 failed,
+  12 text extracted, 12 document evidence found and 12 text artifact files.
+- UI payload smoke test through Python helpers:
+  `dashboard_payload("focus")` returned summary `total_known: 32`,
+  `visible: 14`, `focus_matches: 14`, with 12 KIMDIS rows exposing
+  local `/api/kimdis-document-file?...` download URLs.
+- `kimdis_document_preview_payload("26PROC019466646")` returned an available
+  local document with `DOCUMENT_EVIDENCE_FOUND` and a local file URL.
+- `.venv/bin/python -m pytest tests/test_kimdis_fetch.py tests/test_cli.py tests/test_ui_server.py`
+- Result: 26 passed in 0.82s.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m pytest`
+- Result: 62 passed in 1.41s.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
@@ -466,9 +492,9 @@
 - Το expanded report είναι discovery/candidate report. Τα KIMDIS PROC/AWRD/SYMV
   records δεν είναι ισοδύναμα με `VERIFIED_ACTIVE` διαγωνισμούς και χρειάζονται
   detail/status verification πριν παρουσιαστούν ως ενεργά έργα.
-- Τα 12 open KIMDIS PROC PDFs έχουν κατέβει και δίνουν text/evidence report,
-  αλλά δεν έχουν ακόμη persisted SQLite model, full text artifacts ή UI
-  preview/download ισοδύναμο με τα ESHIDIS attachments.
+- Τα KIMDIS PROC documents έχουν structured artifact και UI preview/download,
+  αλλά δεν έχουν ακόμη ενσωματωθεί στο SQLite search/evaluation pipeline όπως
+  τα ESHIDIS documents.
 
 ## Coverage
 
@@ -487,6 +513,9 @@ kimdis_open_proc_candidates: 12
 kimdis_open_proc_attachments_fetched: 12
 kimdis_open_proc_documents_with_text: 12
 kimdis_open_proc_document_evidence_found: 12
+kimdis_open_proc_document_index_rows: 12
+kimdis_open_proc_text_artifacts: 12
+kimdis_ui_preview_rows: 12
 content_matches: 60
 status_reports: 1
 ui_dashboard_scope_focus_rows: 14
@@ -518,9 +547,9 @@ focus_municipalities: 6
 
 ## Next Gate
 
-KIMDIS integration follow-up: persist KIMDIS PROC attachment metadata/text in
-the database or a structured artifact, then expose KIMDIS preview/download
-actions in the UI with candidate-only status labels.
+KIMDIS search/evaluation follow-up: run search/evaluation profiles over the
+KIMDIS text artifacts and produce a combined candidate shortlist across
+ESHIDIS and KIMDIS, still with candidate-only status labels.
 
 ## Handoff Discipline
 

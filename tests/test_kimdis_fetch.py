@@ -6,7 +6,9 @@ from unittest.mock import patch
 from tender_radar.sources.kimdis_fetch import (
     FETCHED_STATUS,
     fetch_kimdis_open_proc_candidates,
+    kimdis_document_index,
     render_kimdis_fetch_markdown,
+    write_kimdis_document_index,
 )
 
 
@@ -155,13 +157,58 @@ scopes:
             expanded_report_path=expanded_report,
             download_dir=tmp_path / "downloads",
             sources_config_path=config_path,
+            text_dir=tmp_path / "text",
         )
 
     evidence = report["shortlist"][0]["document_evidence"]
     assert report["summary"]["document_evidence_found"] == 1
+    assert report["shortlist"][0]["text_path"].endswith("26PROC000000001.txt")
     assert evidence["evidence_status"] == "DOCUMENT_EVIDENCE_FOUND"
     assert evidence["authority_match"] == "ΔΗΜΟΣ ΝΑΥΠΑΚΤΙΑΣ"
     assert evidence["scope_alias_matches"]
+
+
+def test_kimdis_document_index_preserves_required_metadata(tmp_path) -> None:
+    report = {
+        "checked_at": "2026-07-17T00:00:00+00:00",
+        "expanded_report_path": "work/reports/expanded_discovery_report.json",
+        "summary": {"candidates_checked": 1},
+        "deduplication": {"title_only_merge": False},
+        "status_note": "candidate-only",
+        "shortlist": [
+            {
+                "official_id": "26PROC000000001",
+                "title": "Έργο",
+                "authority": "ΔΗΜΟΣ ΝΑΥΠΑΚΤΙΑΣ",
+                "budget": "1000",
+                "submission_deadline": "2026-08-01T10:00:00",
+                "source_url": "https://example.test/source",
+                "attachment_url": "https://example.test/attachment",
+                "matched_scopes": ["Δήμος Ναυπακτίας"],
+                "candidate_status": "SUBMISSION_OPEN_CANDIDATE",
+                "verification_status": "ATTACHMENT_ALREADY_FETCHED_PENDING_DOCUMENT_REVIEW",
+                "retrieved_at": "2026-07-17T00:00:00+00:00",
+                "local_path": "work/download_audit/kimdis/26PROC000000001/26PROC000000001.pdf",
+                "original_filename": "26PROC000000001.pdf",
+                "content_type": "application/pdf",
+                "size_bytes": 123,
+                "sha256": "abc",
+                "text_path": "work/extracted_text/kimdis/26PROC000000001.txt",
+                "document_analysis": {"document_type": "other", "text_sample": "sample"},
+                "document_evidence": {"evidence_status": "DOCUMENT_EVIDENCE_FOUND"},
+            }
+        ],
+    }
+
+    index_path = tmp_path / "index.json"
+    index = write_kimdis_document_index(report, index_path)
+    reloaded = kimdis_document_index(report)
+
+    assert index_path.exists()
+    assert index["documents"][0]["official_id"] == "26PROC000000001"
+    assert index["documents"][0]["sha256"] == "abc"
+    assert index["documents"][0]["candidate_status"] == "SUBMISSION_OPEN_CANDIDATE"
+    assert reloaded["deduplication"]["title_only_merge"] is False
 
 
 def test_render_kimdis_fetch_markdown_states_candidate_only() -> None:

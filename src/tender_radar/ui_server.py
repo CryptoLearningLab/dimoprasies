@@ -77,12 +77,26 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             eshidis_id = require_eshidis_id({"eshidis_id": query.get("eshidis_id", [""])[0]})
             self._send_json(document_preview_payload(eshidis_id))
             return
+        if parsed.path == "/api/kimdis-document-preview":
+            query = parse_qs(parsed.query)
+            official_id = require_kimdis_id({"official_id": query.get("official_id", [""])[0]})
+            self._send_json(kimdis_document_preview_payload(official_id))
+            return
         if parsed.path == "/api/document-file":
             query = parse_qs(parsed.query)
             attachment_id = int(query.get("attachment_id", ["0"])[0])
             path = local_attachment_path(attachment_id)
             if not path:
                 self._send_json({"error": "Attachment file is not available."}, status=404)
+                return
+            self._send_file(path)
+            return
+        if parsed.path == "/api/kimdis-document-file":
+            query = parse_qs(parsed.query)
+            official_id = require_kimdis_id({"official_id": query.get("official_id", [""])[0]})
+            path = kimdis_document_file_path(official_id)
+            if not path:
+                self._send_json({"error": "KIMDIS document file is not available."}, status=404)
                 return
             self._send_file(path)
             return
@@ -341,6 +355,13 @@ def require_eshidis_id(payload: dict[str, Any]) -> str:
     return value
 
 
+def require_kimdis_id(payload: dict[str, Any]) -> str:
+    value = str(payload.get("official_id") or "").strip()
+    if not re.fullmatch(r"\d{2}PROC\d{9}", value):
+        raise ValueError("KIMDIS official id must look like 26PROC019417347.")
+    return value
+
+
 def status_payload() -> dict[str, Any]:
     document_types_path = REPO_ROOT / "config/document_types.yml"
     document_types_data = load_config(document_types_path) if document_types_path.exists() else {}
@@ -456,6 +477,7 @@ def expanded_report_payload() -> dict[str, Any]:
 
 def kimdis_open_proc_rows() -> list[dict[str, Any]]:
     payload = expanded_report_payload()
+    document_index = kimdis_documents_by_official_id()
     rows = []
     for candidate in payload.get("focus_open_proc_candidates", []):
         if not isinstance(candidate, dict):
@@ -465,6 +487,13 @@ def kimdis_open_proc_rows() -> list[dict[str, Any]]:
             continue
         deadline = str(candidate.get("submission_deadline") or "")
         matched_scopes = [str(scope) for scope in candidate.get("matched_scopes") or [] if str(scope).strip()]
+        document = document_index.get(official_id, {})
+        local_path = normalize_local_path(_none_or_str(document.get("local_path")))
+        has_local_document = local_path is not None
+        text_sample = None
+        analysis = document.get("document_analysis") if isinstance(document.get("document_analysis"), dict) else {}
+        if isinstance(analysis, dict):
+            text_sample = analysis.get("text_sample")
         rows.append(
             {
                 "source": "kimdis",
@@ -485,13 +514,46 @@ def kimdis_open_proc_rows() -> list[dict[str, Any]]:
                 ),
                 "official_url": candidate.get("source_url"),
                 "attachment_url": candidate.get("attachment_url"),
-                "download_url": candidate.get("attachment_url"),
+                "download_url": f"/api/kimdis-document-file?official_id={official_id}" if has_local_document else candidate.get("attachment_url"),
+                "preview_url": f"/api/kimdis-document-preview?official_id={official_id}" if has_local_document else None,
+                "has_local_documents": has_local_document,
+                "local_path": str(local_path) if local_path else None,
+                "sha256": document.get("sha256"),
+                "size_bytes": document.get("size_bytes"),
+                "text_sample": short_text_sample(_none_or_str(text_sample)),
                 "supports_eshidis_actions": False,
+                "supports_kimdis_actions": has_local_document,
                 "interest_match": bool(matched_scopes),
                 "interest_reason": ", ".join(matched_scopes),
             }
         )
     return rows
+
+
+def kimdis_document_index_payload() -> dict[str, Any]:
+    path = REPO_ROOT / "work/derived/kimdis_open_proc_documents.json"
+    if not path.exists():
+        return {"exists": False, "path": str(path), "documents": []}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        "exists": True,
+        "path": str(path),
+        "documents": payload.get("documents") or [],
+        "summary": payload.get("fetch_report_summary") or {},
+        "status_note": payload.get("status_note"),
+    }
+
+
+def kimdis_documents_by_official_id() -> dict[str, dict[str, Any]]:
+    payload = kimdis_document_index_payload()
+    documents = {}
+    for document in payload.get("documents", []):
+        if not isinstance(document, dict):
+            continue
+        official_id = str(document.get("official_id") or "")
+        if official_id:
+            documents[official_id] = document
+    return documents
 
 
 def discovery_candidate_rows() -> list[dict[str, Any]]:
@@ -610,6 +672,40 @@ def document_preview_payload(eshidis_id: str) -> dict[str, Any]:
     }
 
 
+def kimdis_document_preview_payload(official_id: str) -> dict[str, Any]:
+    document = kimdis_documents_by_official_id().get(official_id)
+    if not document:
+        return {"official_id": official_id, "documents": [], "featured": []}
+    local_path = normalize_local_path(_none_or_str(document.get("local_path")))
+    analysis = document.get("document_analysis") if isinstance(document.get("document_analysis"), dict) else {}
+    evidence = document.get("document_evidence") if isinstance(document.get("document_evidence"), dict) else {}
+    kind = preview_kind(str(analysis.get("document_type") or ""), str(document.get("original_filename") or ""))
+    doc = {
+        "official_id": official_id,
+        "name": document.get("original_filename") or f"{official_id}.pdf",
+        "kind": kind,
+        "label": preview_label(kind),
+        "document_type": analysis.get("document_type"),
+        "available": local_path is not None,
+        "size_bytes": document.get("size_bytes"),
+        "sha256": document.get("sha256"),
+        "text_sample": short_text_sample(_none_or_str(analysis.get("text_sample"))),
+        "evidence_status": evidence.get("evidence_status"),
+        "authority_match": evidence.get("authority_match"),
+        "scope_alias_matches": evidence.get("scope_alias_matches") or [],
+        "view_url": f"/api/kimdis-document-file?official_id={official_id}" if local_path else None,
+    }
+    return {
+        "official_id": official_id,
+        "source_label": "ΚΗΜΔΗΣ",
+        "official_url": document.get("attachment_url") or document.get("source_url"),
+        "candidate_status": document.get("candidate_status"),
+        "verification_status": document.get("verification_status"),
+        "documents": [doc],
+        "featured": [doc],
+    }
+
+
 def preview_document_from_row(row: sqlite3.Row) -> dict[str, Any]:
     attachment_id = int(row["attachment_id"])
     local_path = normalize_local_path(row["local_path"])
@@ -643,6 +739,13 @@ def local_attachment_path(attachment_id: int) -> Path | None:
     return normalize_local_path(row[0])
 
 
+def kimdis_document_file_path(official_id: str) -> Path | None:
+    document = kimdis_documents_by_official_id().get(official_id)
+    if not document:
+        return None
+    return normalize_local_path(_none_or_str(document.get("local_path")))
+
+
 def normalize_local_path(value: str | None) -> Path | None:
     if not value:
         return None
@@ -654,6 +757,12 @@ def normalize_local_path(value: str | None) -> Path | None:
     if work_dir not in path.parents or not path.exists():
         return None
     return path
+
+
+def _none_or_str(value: object) -> str | None:
+    if value in (None, ""):
+        return None
+    return str(value)
 
 
 def is_interest_match(text: str) -> bool:
@@ -1509,6 +1618,7 @@ function renderDashboard(payload) {
   for (const tender of payload.tenders) {
     const rowKey = tender.row_key || tender.eshidis_id || tender.display_id || '';
     const isEshidis = Boolean(tender.supports_eshidis_actions);
+    const isKimdis = Boolean(tender.supports_kimdis_actions);
     const linkLabel = tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : 'ΕΣΗΔΗΣ';
     const tr = document.createElement('tr');
     tr.innerHTML = `
@@ -1519,9 +1629,10 @@ function renderDashboard(payload) {
       <td class="deadlineCell">${escapeHtml(tender.deadline_display || '')}</td>
       <td>
         <div class="actionStack">
-          <a class="button secondary tinyButton" href="${escapeHtml(tender.download_url || tender.official_url || '#')}" target="_blank" rel="noreferrer">${linkLabel}</a>
-          ${isEshidis ? `<button class="secondary tinyButton previewTender" data-key="${escapeHtml(rowKey)}">Preview</button>` : ''}
+          <a class="button secondary tinyButton" href="${escapeHtml(tender.official_url || tender.attachment_url || '#')}" target="_blank" rel="noreferrer">${linkLabel}</a>
+          ${(isEshidis || isKimdis) ? `<button class="secondary tinyButton previewTender" data-key="${escapeHtml(rowKey)}">Preview</button>` : ''}
           ${isEshidis ? `<button class="tinyButton downloadTender" data-key="${escapeHtml(rowKey)}">Download files</button>` : ''}
+          ${isKimdis && tender.download_url ? `<a class="button tinyButton" href="${escapeHtml(tender.download_url)}" target="_blank" rel="noreferrer">Download file</a>` : ''}
         </div>
       </td>
     `;
@@ -1549,16 +1660,21 @@ async function selectTender(eshidisId, downloadFirst) {
   state.selected = eshidisId;
   const tender = (state.dashboard?.tenders || []).find((item) => (item.row_key || item.eshidis_id) === eshidisId) || {};
   const supportsEshidis = Boolean(tender.supports_eshidis_actions);
+  const supportsKimdis = Boolean(tender.supports_kimdis_actions);
   const actualEshidisId = tender.eshidis_id || '';
   $('eshidisInput').value = supportsEshidis ? actualEshidisId : '';
   $('previewTitle').textContent = `${tender.display_id || actualEshidisId || eshidisId} · ${tender.title || ''}`;
   $('officialLink').textContent = tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : 'ΕΣΗΔΗΣ';
-  $('officialLink').href = tender.download_url || tender.official_url || '#';
+  $('officialLink').href = tender.official_url || tender.attachment_url || tender.download_url || '#';
+  if (supportsKimdis) {
+    await renderKimdisPreview(tender.official_id || tender.display_id || eshidisId);
+    return;
+  }
   if (!supportsEshidis) {
     $('previewBody').innerHTML = `
       <div class="emptyState">
         Η γραμμή είναι ΚΗΜΔΗΣ ${escapeHtml(tender.status || 'candidate')} από το expanded report.
-        Χρησιμοποίησε το link ΚΗΜΔΗΣ για το διαθέσιμο επίσημο συνημμένο. Το ESHIDIS preview/download δεν εφαρμόζεται σε ΑΔΑΜ.
+        Δεν υπάρχει ακόμα τοπικό fetched αρχείο για preview. Χρησιμοποίησε το link ΚΗΜΔΗΣ για το επίσημο συνημμένο.
       </div>
     `;
     return;
@@ -1568,6 +1684,26 @@ async function selectTender(eshidisId, downloadFirst) {
     await loadDashboard();
   }
   await renderPreview(actualEshidisId);
+}
+
+async function renderKimdisPreview(officialId) {
+  const payload = await api(`/api/kimdis-document-preview?official_id=${encodeURIComponent(officialId)}`);
+  const docs = payload.featured?.length ? payload.featured : payload.documents || [];
+  if (!docs.length) {
+    $('previewBody').innerHTML = '<div class="emptyState">Δεν υπάρχει ακόμα structured ΚΗΜΔΗΣ preview για αυτό το ΑΔΑΜ.</div>';
+    return;
+  }
+  $('previewBody').innerHTML = docs.map((doc) => `
+    <article class="docItem">
+      <h4>${escapeHtml(doc.label)}${doc.available ? '' : ' · δεν έχει κατέβει'}</h4>
+      <p>${escapeHtml(doc.name || '')}</p>
+      ${doc.text_sample ? `<p>${escapeHtml(String(doc.text_sample).slice(0, 220))}</p>` : ''}
+      ${doc.evidence_status ? `<p class="noteText">${escapeHtml(doc.evidence_status)}${doc.authority_match ? ` · ${escapeHtml(doc.authority_match)}` : ''}</p>` : ''}
+      <div class="docActions">
+        ${doc.view_url ? `<a class="button tinyButton" href="${escapeHtml(doc.view_url)}" target="_blank" rel="noreferrer">Open</a>` : ''}
+      </div>
+    </article>
+  `).join('');
 }
 
 async function renderPreview(eshidisId) {

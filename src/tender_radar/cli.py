@@ -39,7 +39,11 @@ from tender_radar.sources.eshidis_browser import (
     render_discovery_markdown,
 )
 from tender_radar.sources.expanded_report import build_expanded_report, write_expanded_report
-from tender_radar.sources.kimdis_fetch import fetch_kimdis_open_proc_candidates, write_kimdis_fetch_report
+from tender_radar.sources.kimdis_fetch import (
+    fetch_kimdis_open_proc_candidates,
+    write_kimdis_document_index,
+    write_kimdis_fetch_report,
+)
 from tender_radar.sources.whitelist import audit_source_whitelist, write_source_audit_report
 from tender_radar.status import verify_tender_status, write_status_reports
 
@@ -185,6 +189,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--download-dir",
         default="work/download_audit/kimdis",
         help="Directory for downloaded KIMDIS attachments.",
+    )
+    kimdis_fetch.add_argument(
+        "--text-dir",
+        default="work/extracted_text/kimdis",
+        help="Directory for extracted KIMDIS text artifacts.",
+    )
+    kimdis_fetch.add_argument(
+        "--document-index",
+        default="work/derived/kimdis_open_proc_documents.json",
+        help="Structured KIMDIS document index output path.",
     )
     kimdis_fetch.add_argument("--timeout", type=int, default=30, help="Per-request timeout in seconds.")
     kimdis_fetch.add_argument("--limit", type=int, default=50, help="Maximum open PROC candidates to fetch.")
@@ -435,16 +449,21 @@ def _sources_fetch_kimdis_open_proc(args: argparse.Namespace) -> int:
         limit=args.limit,
         force=args.force,
         sources_config_path=Path(args.config),
+        text_dir=Path(args.text_dir),
         retry_count=args.retries,
         retry_delay_seconds=args.retry_delay,
         request_delay_seconds=args.request_delay,
     )
     write_kimdis_fetch_report(report, report_path, markdown_path)
+    document_index_path = Path(args.document_index) if args.document_index else None
+    document_index = write_kimdis_document_index(report, document_index_path) if document_index_path else None
     _emit_json(
         {
             "report_path": str(report_path),
             "markdown_report_path": str(markdown_path) if markdown_path else None,
+            "document_index_path": str(document_index_path) if document_index_path else None,
             "summary": report.get("summary"),
+            "document_index_summary": document_index.get("fetch_report_summary") if document_index else None,
         }
     )
     summary = report.get("summary")
