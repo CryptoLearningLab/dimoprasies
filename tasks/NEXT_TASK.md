@@ -20,6 +20,7 @@ Latest discovery-depth update as of `2026-07-17`:
 ESHIDIS active discovery default limit is 100 rows
 KIMDIS expanded report default depth is 20 pages per record family
 expanded-report runtime summary.errors are surfaced as warnings/failure in UI
+long-running UI actions now run as background jobs polled every 5 seconds
 these are safer bounded scans, not a formal no-miss weekly guarantee
 ```
 

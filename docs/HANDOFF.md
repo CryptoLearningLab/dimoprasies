@@ -222,6 +222,10 @@ That URL is temporary and should not be treated as stable infrastructure.
   gate should add persisted discovery watermarks/backfill so a run after a
   week scans until it covers the previous successful window or source
   exhaustion.
+- Long-running UI actions use in-memory background jobs. Heavy POST endpoints
+  return `202` with a `job_id`; the browser polls `/api/jobs/{job_id}` every
+  5 seconds. This avoids browser/tunnel/server request timeouts while keeping
+  CLI commands serialized through `COMMAND_LOCK`.
 - Ambiguous place aliases are recall-first. `Γλυφάδα` and `Γλυφάδας` are
   configured as ambiguous aliases for Δήμος Δωρίδος: positive context such as
   `Δωρίδος`, `Φωκίδα` or `EL645` confirms the match; negative context such as
@@ -240,7 +244,7 @@ Latest confirmed command:
 Result:
 
 ```text
-71 passed in 1.57s
+73 passed in 1.54s
 ```
 
 Latest KIMDIS PROC attachment fetch command:

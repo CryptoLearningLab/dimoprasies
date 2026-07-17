@@ -208,3 +208,15 @@ last successful discovery window or a documented source exhaustion condition.
 The UI may expose bounded scans for speed, but reports must make partial
 source failures visible and must not imply formal completeness from a fixed
 limit alone.
+
+## D-027 - UI long-running actions use background jobs
+**Status:** Accepted
+
+Long-running UI actions must not keep the initiating HTTP request open while
+CLI/source work runs. The UI server returns a short-lived in-memory `job_id`
+with HTTP `202`, runs the work in a background thread, and exposes job status
+through `/api/jobs/{job_id}` for browser polling.
+
+The current implementation is process-local and suitable for local/tunnel
+preview. A future multi-process production deployment should persist job state
+or use an external queue.

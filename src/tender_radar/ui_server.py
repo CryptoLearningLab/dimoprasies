@@ -10,7 +10,9 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import time
 import unicodedata
+import uuid
 import webbrowser
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,6 +30,8 @@ DEFAULT_PORT = 8765
 DEFAULT_ESHIDIS_DISCOVERY_LIMIT = 100
 DEFAULT_KIMDIS_DISCOVERY_PAGES = 20
 COMMAND_LOCK = threading.Lock()
+JOBS_LOCK = threading.Lock()
+JOBS: dict[str, dict[str, Any]] = {}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -70,6 +74,14 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/candidates":
             self._send_json(candidates_payload())
+            return
+        if parsed.path.startswith("/api/jobs/"):
+            job_id = parsed.path.rsplit("/", 1)[-1]
+            job = job_payload(job_id)
+            if not job:
+                self._send_json({"ok": False, "error": "Unknown job id."}, status=404)
+                return
+            self._send_json(job)
             return
         if parsed.path == "/api/dashboard":
             query = parse_qs(parsed.query)
@@ -137,33 +149,45 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             parsed = urlparse(self.path)
             payload = self._read_json()
             if parsed.path == "/api/discover":
-                limit = int(payload.get("limit") or 25)
-                self._send_json(run_discovery_search(limit=limit))
+                limit = int(payload.get("limit") or DEFAULT_ESHIDIS_DISCOVERY_LIMIT)
+                self._send_json(start_job("discover", run_discovery_search, limit=limit), status=202)
                 return
             if parsed.path == "/api/fetch-resource":
                 eshidis_id = require_eshidis_id(payload)
-                self._send_json(run_cli_command(["sources", "fetch-resource", eshidis_id, "--allow-insecure-tls"]))
+                self._send_json(
+                    start_job(
+                        "fetch-resource",
+                        run_cli_command,
+                        ["sources", "fetch-resource", eshidis_id, "--allow-insecure-tls"],
+                    ),
+                    status=202,
+                )
                 return
             if parsed.path == "/api/download-all":
                 eshidis_id = require_eshidis_id(payload)
                 self._send_json(
-                    run_cli_command(
-                        ["sources", "download-attachment", eshidis_id, "--all", "--limit", "50", "--allow-insecure-tls"]
-                    )
+                    start_job(
+                        "download-all",
+                        run_cli_command,
+                        ["sources", "download-attachment", eshidis_id, "--all", "--limit", "50", "--allow-insecure-tls"],
+                    ),
+                    status=202,
                 )
                 return
             if parsed.path == "/api/fetch-selected":
                 identifier = require_known_document_identifier(payload)
-                self._send_json(run_selected_fetch(identifier))
+                self._send_json(start_job("fetch-selected", run_selected_fetch, identifier), status=202)
                 return
             if parsed.path == "/api/fetch-kimdis-open-proc":
                 official_id = str(payload.get("official_id") or "").strip() or None
-                self._send_json(run_kimdis_fetch(official_id=official_id))
+                self._send_json(start_job("fetch-kimdis-open-proc", run_kimdis_fetch, official_id=official_id), status=202)
                 return
             if parsed.path == "/api/analyze":
                 eshidis_id = require_eshidis_id(payload)
                 self._send_json(
-                    run_cli_command(
+                    start_job(
+                        "analyze",
+                        run_cli_command,
                         [
                             "documents",
                             "analyze",
@@ -174,7 +198,8 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                             "--markdown-report",
                             f"work/reports/document_analysis_{eshidis_id}.md",
                         ]
-                    )
+                    ),
+                    status=202,
                 )
                 return
             if parsed.path == "/api/search":
@@ -182,7 +207,9 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 profile = str(payload.get("profile") or "config/search_profiles/road_maintenance.yml")
                 profile_id = Path(profile).stem
                 self._send_json(
-                    run_cli_command(
+                    start_job(
+                        "search",
+                        run_cli_command,
                         [
                             "search",
                             "run",
@@ -195,7 +222,8 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                             "--markdown-report",
                             f"work/reports/search_{profile_id}_{eshidis_id}.md",
                         ]
-                    )
+                    ),
+                    status=202,
                 )
                 return
             if parsed.path == "/api/evaluate":
@@ -203,7 +231,9 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 profile = str(payload.get("profile") or "config/evaluation_profiles/public_works_dynamic.yml")
                 profile_id = Path(profile).stem
                 self._send_json(
-                    run_cli_command(
+                    start_job(
+                        "evaluate",
+                        run_cli_command,
                         [
                             "evaluate",
                             "run",
@@ -216,7 +246,8 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                             "--markdown-report",
                             f"work/reports/evaluation_{profile_id}_{eshidis_id}.md",
                         ]
-                    )
+                    ),
+                    status=202,
                 )
                 return
             if parsed.path == "/api/evaluation-profile":
@@ -293,6 +324,56 @@ def run_cli_command(args: list[str]) -> dict[str, Any]:
         return {"ok": False, "error": f"Command timed out: {exc!r}", "command": " ".join(args)}
     finally:
         COMMAND_LOCK.release()
+
+
+def start_job(name: str, target: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    job_id = uuid.uuid4().hex
+    now = time.time()
+    with JOBS_LOCK:
+        prune_jobs(now=now)
+        JOBS[job_id] = {
+            "ok": True,
+            "job_id": job_id,
+            "name": name,
+            "status": "running",
+            "created_at": now,
+            "updated_at": now,
+            "result": None,
+            "error": None,
+        }
+    thread = threading.Thread(target=_run_job, args=(job_id, target, args, kwargs), daemon=True)
+    thread.start()
+    return {"ok": True, "job_id": job_id, "name": name, "status": "running", "poll_url": f"/api/jobs/{job_id}"}
+
+
+def _run_job(job_id: str, target: Any, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+    try:
+        result = target(*args, **kwargs)
+        status = "failed" if isinstance(result, dict) and result.get("ok") is False else "completed"
+        error = result.get("error") if isinstance(result, dict) else None
+    except Exception as exc:  # pragma: no cover - defensive boundary for background jobs
+        result = None
+        status = "failed"
+        error = str(exc)
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return
+        job.update({"status": status, "updated_at": time.time(), "result": result, "error": error})
+
+
+def job_payload(job_id: str) -> dict[str, Any] | None:
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return None
+        return dict(job)
+
+
+def prune_jobs(*, now: float, max_age_seconds: int = 3600) -> None:
+    expired = [job_id for job_id, job in JOBS.items() if now - float(job.get("updated_at") or 0) > max_age_seconds]
+    for job_id in expired:
+        JOBS.pop(job_id, None)
 
 
 def run_selected_fetch(identifier: str) -> dict[str, Any]:
@@ -2096,9 +2177,11 @@ async function runAction(path, body, label) {
   setBusy(true, label);
   $('commandOutput').textContent = `${label}\\n`;
   try {
-    const result = await api(path, { method: 'POST', body: JSON.stringify(body || {}) });
+    const initial = await api(path, { method: 'POST', body: JSON.stringify(body || {}) });
+    const result = initial.job_id ? await pollJob(initial.job_id, label) : initial;
     $('commandOutput').textContent = JSON.stringify(result, null, 2);
-    $('statusText').textContent = result.ok === false ? 'Τελείωσε με σφάλματα' : 'Ολοκληρώθηκε';
+    const finalResult = result.result || result;
+    $('statusText').textContent = finalResult.ok === false || result.status === 'failed' ? 'Τελείωσε με σφάλματα' : 'Ολοκληρώθηκε';
     await loadDashboard();
   } catch (error) {
     $('commandOutput').textContent = String(error);
@@ -2106,6 +2189,25 @@ async function runAction(path, body, label) {
   } finally {
     setBusy(false, $('statusText').textContent);
   }
+}
+
+async function pollJob(jobId, label) {
+  let attempts = 0;
+  while (true) {
+    await sleep(5000);
+    attempts += 1;
+    const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
+    $('statusText').textContent = `${label} · έλεγχος ${attempts}`;
+    $('busyText').textContent = `${label} · ελέγχουμε κάθε 5 δευτερόλεπτα`;
+    $('commandOutput').textContent = JSON.stringify(job, null, 2);
+    if (job.status === 'completed' || job.status === 'failed') {
+      return job;
+    }
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function selectedId() {

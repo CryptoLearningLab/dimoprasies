@@ -577,6 +577,22 @@
   returned `27 passed in 0.76s`.
 - Full test suite:
   `.venv/bin/python -m pytest` returned `71 passed in 1.57s`.
+- Long-running UI actions now use background jobs instead of holding the
+  browser/server POST request open. Heavy endpoints return `202` with `job_id`
+  and the UI polls `/api/jobs/{job_id}` every 5 seconds until completion or
+  failure.
+- The in-memory job registry covers discovery, per-row fetch, ESHIDIS detail
+  fetch, download-all, KIMDIS fetch, analyze, search and evaluate actions.
+  CLI commands remain serialized with `COMMAND_LOCK` because they write shared
+  runtime reports and indexes.
+- Verification for background jobs:
+  `.venv/bin/python -m tender_radar config validate` passed for all config
+  files.
+- Targeted tests:
+  `.venv/bin/python -m pytest tests/test_ui_server.py` returned
+  `19 passed in 0.53s`.
+- Full test suite:
+  `.venv/bin/python -m pytest` returned `73 passed in 1.54s`.
 
 ## Coverage
 
@@ -611,6 +627,8 @@ ui_dashboard_zip_download: true
 kimdis_fetch_single_official_id: true
 eshidis_discovery_default_limit: 100
 kimdis_discovery_default_pages_per_family: 20
+ui_background_jobs: true
+ui_job_poll_interval_seconds: 5
 source_whitelist_files: 2
 source_whitelist_entries_checked: 36
 source_whitelist_reachable: 29

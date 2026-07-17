@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 
 import tender_radar.ui_server as ui_server
 from tender_radar.ui_server import (
@@ -16,6 +17,7 @@ from tender_radar.ui_server import (
     parse_budget_from_row_text,
     preview_kind,
     short_text_sample,
+    start_job,
     focus_term_matches,
 )
 
@@ -49,6 +51,27 @@ def test_dashboard_actions_use_fetch_and_zip_not_preview_buttons() -> None:
     assert "/api/fetch-selected" in APP_JS
     assert "/api/document-zip" in APP_JS
     assert "previewTender" not in APP_JS
+
+
+def test_long_actions_use_background_job_polling() -> None:
+    assert "/api/jobs/" in APP_JS
+    assert "sleep(5000)" in APP_JS
+    assert "pollJob" in APP_JS
+
+
+def test_background_job_completes_with_result() -> None:
+    started = start_job("unit-test", lambda: {"ok": True, "value": 7})
+    job_id = started["job_id"]
+
+    deadline = time.time() + 2
+    job = ui_server.job_payload(job_id)
+    while job and job["status"] == "running" and time.time() < deadline:
+        time.sleep(0.01)
+        job = ui_server.job_payload(job_id)
+
+    assert job is not None
+    assert job["status"] == "completed"
+    assert job["result"] == {"ok": True, "value": 7}
 
 
 def test_budget_parser_extracts_candidate_row_budget() -> None:
