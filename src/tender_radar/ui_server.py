@@ -1653,6 +1653,16 @@ textarea {
 table { width: 100%; border-collapse: collapse; min-width: 1060px; }
 th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 th { font-size: 12px; color: var(--muted); background: #f1f4f7; }
+.tenderTable tbody tr {
+  cursor: pointer;
+}
+.tenderTable tbody tr:hover {
+  background: #f8fafc;
+}
+.tenderTable tbody tr.selectedRow {
+  background: #e8f3f1;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
 td:first-child { font-weight: 700; white-space: nowrap; }
 td:nth-child(2) { white-space: nowrap; color: var(--muted); font-weight: 700; }
 .tenderTable td:nth-child(3) { white-space: normal; }
@@ -2047,6 +2057,8 @@ function renderDashboard(payload) {
     const identifier = tender.official_id || tender.eshidis_id || tender.display_id || '';
     const zipUrl = `/api/document-zip?identifier=${encodeURIComponent(identifier)}`;
     const tr = document.createElement('tr');
+    tr.dataset.key = rowKey;
+    if (state.selected === rowKey) tr.classList.add('selectedRow');
     tr.innerHTML = `
       <td><strong>${escapeHtml(tender.display_id || tender.eshidis_id || '')}</strong></td>
       <td>${escapeHtml(tender.source_label || '')}</td>
@@ -2064,8 +2076,17 @@ function renderDashboard(payload) {
     `;
     rows.appendChild(tr);
   }
+  document.querySelectorAll('#tenderRows tr[data-key]').forEach((row) => {
+    row.addEventListener('click', () => selectTender(row.dataset.key, false));
+  });
   document.querySelectorAll('.fetchTender').forEach((button) => {
-    button.addEventListener('click', () => fetchTenderDocuments(button.dataset.key, button.dataset.id));
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      fetchTenderDocuments(button.dataset.key, button.dataset.id);
+    });
+  });
+  document.querySelectorAll('#tenderRows a').forEach((link) => {
+    link.addEventListener('click', (event) => event.stopPropagation());
   });
   if (!state.selected || !payload.tenders.some((item) => (item.row_key || item.eshidis_id) === state.selected)) {
     selectTender(payload.tenders[0].row_key || payload.tenders[0].eshidis_id, false);
@@ -2081,6 +2102,7 @@ function resetPreview() {
 async function selectTender(eshidisId, downloadFirst) {
   if (!eshidisId) return;
   state.selected = eshidisId;
+  highlightSelectedRow();
   const tender = (state.dashboard?.tenders || []).find((item) => (item.row_key || item.eshidis_id) === eshidisId) || {};
   const supportsEshidis = Boolean(tender.supports_eshidis_actions);
   const supportsKimdis = Boolean(tender.supports_kimdis_actions);
@@ -2108,6 +2130,12 @@ async function selectTender(eshidisId, downloadFirst) {
     await loadDashboard();
   }
   await renderPreview(actualEshidisId);
+}
+
+function highlightSelectedRow() {
+  document.querySelectorAll('#tenderRows tr[data-key]').forEach((row) => {
+    row.classList.toggle('selectedRow', row.dataset.key === state.selected);
+  });
 }
 
 async function fetchTenderDocuments(rowKey, identifier) {

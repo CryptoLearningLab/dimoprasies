@@ -593,6 +593,19 @@
   `19 passed in 0.53s`.
 - Full test suite:
   `.venv/bin/python -m pytest` returned `73 passed in 1.54s`.
+- Dashboard rows are now clickable. Selecting a row updates the preview pane
+  and highlights the selected row; row action buttons/links stop propagation
+  so `Fetch`, `ZIP` and official links do not accidentally change selection.
+- User confirmed a successful end-to-end UI workflow through the tunnel:
+  a per-row `Fetch` completed successfully and the `ZIP` download was tested.
+- Verification for clickable dashboard rows:
+  `.venv/bin/python -m tender_radar config validate` passed for all config
+  files.
+- Targeted tests:
+  `.venv/bin/python -m pytest tests/test_ui_server.py` returned
+  `20 passed in 0.48s`.
+- Full test suite:
+  `.venv/bin/python -m pytest` returned `74 passed in 1.41s`.
 
 ## Coverage
 
@@ -629,6 +642,8 @@ eshidis_discovery_default_limit: 100
 kimdis_discovery_default_pages_per_family: 20
 ui_background_jobs: true
 ui_job_poll_interval_seconds: 5
+ui_clickable_preview_rows: true
+ui_end_to_end_fetch_zip_confirmed_by_user: true
 source_whitelist_files: 2
 source_whitelist_entries_checked: 36
 source_whitelist_reachable: 29

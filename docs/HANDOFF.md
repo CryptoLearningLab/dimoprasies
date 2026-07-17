@@ -226,6 +226,10 @@ That URL is temporary and should not be treated as stable infrastructure.
   return `202` with a `job_id`; the browser polls `/api/jobs/{job_id}` every
   5 seconds. This avoids browser/tunnel/server request timeouts while keeping
   CLI commands serialized through `COMMAND_LOCK`.
+- Dashboard rows are clickable and update the preview pane. The selected row
+  is highlighted, while action buttons/links stop event propagation. The user
+  confirmed one successful end-to-end tunnel workflow: per-row `Fetch` plus
+  `ZIP` download.
 - Ambiguous place aliases are recall-first. `Γλυφάδα` and `Γλυφάδας` are
   configured as ambiguous aliases for Δήμος Δωρίδος: positive context such as
   `Δωρίδος`, `Φωκίδα` or `EL645` confirms the match; negative context such as
@@ -244,7 +248,7 @@ Latest confirmed command:
 Result:
 
 ```text
-73 passed in 1.54s
+74 passed in 1.41s
 ```
 
 Latest KIMDIS PROC attachment fetch command:

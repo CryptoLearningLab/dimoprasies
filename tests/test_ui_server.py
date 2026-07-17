@@ -53,6 +53,13 @@ def test_dashboard_actions_use_fetch_and_zip_not_preview_buttons() -> None:
     assert "previewTender" not in APP_JS
 
 
+def test_dashboard_rows_select_preview_on_click() -> None:
+    assert "selectedRow" in APP_JS
+    assert "highlightSelectedRow" in APP_JS
+    assert "row.addEventListener('click', () => selectTender(row.dataset.key, false))" in APP_JS
+    assert "event.stopPropagation()" in APP_JS
+
+
 def test_long_actions_use_background_job_polling() -> None:
     assert "/api/jobs/" in APP_JS
     assert "sleep(5000)" in APP_JS
