@@ -410,6 +410,34 @@
   `total_known: 32`, `visible: 14`, `focus_matches: 14`.
 - `.venv/bin/python -m pytest`
 - Result: 56 passed in 1.44s.
+- Added `sources fetch-kimdis-open-proc` for official KIMDIS PROC attachment
+  fetching from `work/reports/expanded_discovery_report.json`.
+- The KIMDIS fetch report stores per-record official id, title, authority,
+  budget, final submission date, source URL, attachment URL, local path,
+  size, SHA-256, extraction status and document evidence status.
+- The fetch command keeps open PROC records as `SUBMISSION_OPEN_CANDIDATE` and
+  `ATTACHMENT_*_PENDING_DOCUMENT_REVIEW`; it never emits `VERIFIED_ACTIVE`.
+- First live KIMDIS fetch pass checked 12 open PROC candidates, downloaded 9
+  PDFs, extracted text from 9 PDFs and failed 3 attachments with
+  `HTTP Error 429: Too Many Requests`.
+- Retry/backoff and idempotent local skip were added for KIMDIS attachment
+  fetching, so already-downloaded official files are inspected locally without
+  re-hitting KIMDIS.
+- Second live KIMDIS fetch pass checked the same 12 open PROC candidates,
+  reused 9 already-present files, downloaded the 3 remaining PDFs, failed 0
+  records and extracted text from all 12 PDFs.
+- Final KIMDIS shortlist refresh:
+  `.venv/bin/python -m tender_radar sources fetch-kimdis-open-proc --expanded-report work/reports/expanded_discovery_report.json --config config/sources.yml --download-dir work/download_audit/kimdis --report work/reports/kimdis_open_proc_fetch_report.json --markdown-report work/reports/kimdis_open_proc_fetch_report.md --limit 12 --timeout 30 --allow-insecure-tls --retries 2 --retry-delay 30 --request-delay 5`
+- Final KIMDIS shortlist result: 12 checked, 12 already present, 0 failed,
+  12 text extracted, 12 document evidence found, 0 unsupported/unread.
+- New KIMDIS tests cover attachment metadata/SHA-256, no title-only merge for
+  repeated titles, and document authority/scope evidence from attachment text.
+- `.venv/bin/python -m pytest tests/test_kimdis_fetch.py tests/test_cli.py`
+- Result: 13 passed in 0.53s.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m pytest`
+- Result: 60 passed in 1.45s.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
@@ -438,6 +466,9 @@
 - Το expanded report είναι discovery/candidate report. Τα KIMDIS PROC/AWRD/SYMV
   records δεν είναι ισοδύναμα με `VERIFIED_ACTIVE` διαγωνισμούς και χρειάζονται
   detail/status verification πριν παρουσιαστούν ως ενεργά έργα.
+- Τα 12 open KIMDIS PROC PDFs έχουν κατέβει και δίνουν text/evidence report,
+  αλλά δεν έχουν ακόμη persisted SQLite model, full text artifacts ή UI
+  preview/download ισοδύναμο με τα ESHIDIS attachments.
 
 ## Coverage
 
@@ -452,6 +483,10 @@ attachments_downloaded: 17
 documents_parsed: 17
 documents_classified: 17
 documents_with_text: 17
+kimdis_open_proc_candidates: 12
+kimdis_open_proc_attachments_fetched: 12
+kimdis_open_proc_documents_with_text: 12
+kimdis_open_proc_document_evidence_found: 12
 content_matches: 60
 status_reports: 1
 ui_dashboard_scope_focus_rows: 14
@@ -483,9 +518,9 @@ focus_municipalities: 6
 
 ## Next Gate
 
-Expanded report follow-up: fetch official KIMDIS attachments for the 11 open
-PROC candidates, then verify exact place/authority evidence and deduplicate
-related/cancelled notice pairs.
+KIMDIS integration follow-up: persist KIMDIS PROC attachment metadata/text in
+the database or a structured artifact, then expose KIMDIS preview/download
+actions in the UI with candidate-only status labels.
 
 ## Handoff Discipline
 

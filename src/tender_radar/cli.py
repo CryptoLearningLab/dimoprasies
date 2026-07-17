@@ -39,6 +39,7 @@ from tender_radar.sources.eshidis_browser import (
     render_discovery_markdown,
 )
 from tender_radar.sources.expanded_report import build_expanded_report, write_expanded_report
+from tender_radar.sources.kimdis_fetch import fetch_kimdis_open_proc_candidates, write_kimdis_fetch_report
 from tender_radar.sources.whitelist import audit_source_whitelist, write_source_audit_report
 from tender_radar.status import verify_tender_status, write_status_reports
 
@@ -170,6 +171,48 @@ def build_parser() -> argparse.ArgumentParser:
         default="work/reports/expanded_discovery_report.md",
         help="Markdown report output path.",
     )
+    kimdis_fetch = sources_sub.add_parser(
+        "fetch-kimdis-open-proc",
+        help="Fetch official attachments for open KIMDIS PROC candidates from an expanded report.",
+    )
+    kimdis_fetch.add_argument(
+        "--expanded-report",
+        default="work/reports/expanded_discovery_report.json",
+        help="Expanded discovery JSON path.",
+    )
+    kimdis_fetch.add_argument("--config", default="config/sources.yml", help="Source whitelist YAML path.")
+    kimdis_fetch.add_argument(
+        "--download-dir",
+        default="work/download_audit/kimdis",
+        help="Directory for downloaded KIMDIS attachments.",
+    )
+    kimdis_fetch.add_argument("--timeout", type=int, default=30, help="Per-request timeout in seconds.")
+    kimdis_fetch.add_argument("--limit", type=int, default=50, help="Maximum open PROC candidates to fetch.")
+    kimdis_fetch.add_argument("--force", action="store_true", help="Download again even when a local file exists.")
+    kimdis_fetch.add_argument("--retries", type=int, default=2, help="Retries for HTTP 429 rate-limit responses.")
+    kimdis_fetch.add_argument(
+        "--retry-delay",
+        type=float,
+        default=20.0,
+        help="Seconds to wait before retrying after HTTP 429.",
+    )
+    kimdis_fetch.add_argument(
+        "--request-delay",
+        type=float,
+        default=1.0,
+        help="Seconds to wait between attachment requests.",
+    )
+    kimdis_fetch.add_argument("--allow-insecure-tls", action="store_true")
+    kimdis_fetch.add_argument(
+        "--report",
+        default="work/reports/kimdis_open_proc_fetch_report.json",
+        help="JSON report output path.",
+    )
+    kimdis_fetch.add_argument(
+        "--markdown-report",
+        default="work/reports/kimdis_open_proc_fetch_report.md",
+        help="Markdown report output path.",
+    )
     discover_active = sources_sub.add_parser(
         "discover-active",
         help="Audit the public ESHIDIS active-search grid and save active candidate rows.",
@@ -289,6 +332,8 @@ def main(argv: list[str] | None = None) -> int:
         return _sources_audit_whitelist(args)
     if args.command == "sources" and args.sources_command == "expanded-report":
         return _sources_expanded_report(args)
+    if args.command == "sources" and args.sources_command == "fetch-kimdis-open-proc":
+        return _sources_fetch_kimdis_open_proc(args)
     if args.command == "sources" and args.sources_command == "discover-active":
         return _sources_discover_active(args)
     if args.command == "sources" and args.sources_command == "import-resource-audit":
@@ -376,6 +421,35 @@ def _sources_expanded_report(args: argparse.Namespace) -> int:
             "summary": report.get("summary"),
         }
     )
+    return 0
+
+
+def _sources_fetch_kimdis_open_proc(args: argparse.Namespace) -> int:
+    report_path = Path(args.report)
+    markdown_path = Path(args.markdown_report) if args.markdown_report else None
+    report = fetch_kimdis_open_proc_candidates(
+        expanded_report_path=Path(args.expanded_report),
+        download_dir=Path(args.download_dir),
+        timeout_seconds=args.timeout,
+        allow_insecure_tls=args.allow_insecure_tls,
+        limit=args.limit,
+        force=args.force,
+        sources_config_path=Path(args.config),
+        retry_count=args.retries,
+        retry_delay_seconds=args.retry_delay,
+        request_delay_seconds=args.request_delay,
+    )
+    write_kimdis_fetch_report(report, report_path, markdown_path)
+    _emit_json(
+        {
+            "report_path": str(report_path),
+            "markdown_report_path": str(markdown_path) if markdown_path else None,
+            "summary": report.get("summary"),
+        }
+    )
+    summary = report.get("summary")
+    if isinstance(summary, dict) and summary.get("failed"):
+        return 1
     return 0
 
 

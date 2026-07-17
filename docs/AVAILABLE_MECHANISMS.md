@@ -16,6 +16,12 @@ human-friendly UI should compose these mechanisms instead of replacing them.
   - Opens the official public ESHIDIS resource detail page.
   - Imports metadata and latest attachment names into SQLite.
   - Preserves existing local download metadata for matching filenames.
+- `sources expanded-report`
+  - Combines ESHIDIS discovery candidates with KIMDIS Open Data
+    PROC/AWRD/SYMV records.
+  - Classifies PROC rows by `finalSubmissionDate` as candidate-only submission
+    stage.
+  - Deduplicates only by official source id.
 
 ## Attachments and Documents
 
@@ -23,6 +29,14 @@ human-friendly UI should compose these mechanisms instead of replacing them.
   - Downloads one, selected, or all known latest attachment rows.
   - Stores local path, size and SHA-256 in SQLite.
   - Keeps source audit evidence under `work/source_audit/`.
+- `sources fetch-kimdis-open-proc`
+  - Fetches official KIMDIS attachment URLs for `SUBMISSION_OPEN_CANDIDATE`
+    PROC rows from `work/reports/expanded_discovery_report.json`.
+  - Stores files under `work/download_audit/kimdis/` with size and SHA-256.
+  - Extracts supported PDF/XML text in-memory for the shortlist report.
+  - Records whether document text contains authority/scope evidence from
+    `config/sources.yml`.
+  - Remains candidate-only and does not emit `VERIFIED_ACTIVE`.
 - `documents analyze`
   - Classifies downloaded attachments.
   - Extracts text where supported.

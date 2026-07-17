@@ -1,23 +1,9 @@
 # NEXT TASK
 
 Execute:
-`Fetch and verify open KIMDIS PROC candidates`
+`Persist and expose fetched KIMDIS PROC attachments`
 
-## Instruction
-
-Use the latest whitelist audit report:
-
-```text
-work/reports/source_whitelist_audit.json
-work/reports/source_whitelist_audit.md
-```
-
-Current source-readiness result:
-
-```text
-36 checked, 29 reachable/ready, 3 failed, 0 adapter-required, 4 templates,
-2 failed-with-fallback, 0 unresolved blockers
-```
+## Current Input
 
 Use the latest expanded discovery report:
 
@@ -26,28 +12,39 @@ work/reports/expanded_discovery_report.json
 work/reports/expanded_discovery_report.md
 ```
 
-Latest result as of `2026-07-17`:
+Use the latest KIMDIS attachment fetch report:
 
 ```text
-765 total records
-51 focus-related records
-12 SUBMISSION_OPEN_CANDIDATE PROC notices
-0 focus-expired PROC notices
-37 historical AWRD/SYMV records
-0 runtime errors
+work/reports/kimdis_open_proc_fetch_report.json
+work/reports/kimdis_open_proc_fetch_report.md
 ```
 
-Fetch and verify the open PROC records:
+Latest KIMDIS fetch result as of `2026-07-17`:
 
-1. Treat the 12 open PROC records as `SUBMISSION_OPEN_CANDIDATE`, not
-   `VERIFIED_ACTIVE`.
-2. Fetch official KIMDIS attachment URLs for those 12 PROC ids.
-3. Extract or inspect the attachments for exact place/authority evidence.
-4. Compare related/cancelled notice pairs through `docs/DEDUPLICATION.md`;
-   never merge by title alone.
-5. Produce a shortlist report with official id, title, authority, budget,
-   final submission date, source URL, attachment URL, local file metadata and
-   verification status.
+```text
+12 SUBMISSION_OPEN_CANDIDATE PROC notices checked
+12 official KIMDIS PDFs present under work/download_audit/kimdis/
+0 failed fetches
+12 documents with text extracted for the shortlist report
+12 documents with authority/scope evidence found
+0 records promoted to VERIFIED_ACTIVE
+```
+
+## Instruction
+
+Build the next smallest integration step:
+
+1. Persist fetched KIMDIS PROC attachment metadata and extracted text in a
+   structured model or durable artifact.
+2. Preserve official id, title, authority, budget, final submission date,
+   source URL, attachment URL, local file path, size, SHA-256 and retrieval
+   timestamp.
+3. Keep status labels candidate-only:
+   `SUBMISSION_OPEN_CANDIDATE` and `ATTACHMENT_*_PENDING_DOCUMENT_REVIEW`.
+4. Expose KIMDIS rows in the UI with preview/download actions equivalent to
+   ESHIDIS where local files exist.
+5. Do not merge repeated titles unless `docs/DEDUPLICATION.md` allows it by
+   official identifiers or strong composite evidence.
 6. Keep ESHIDIS status verification separate.
 
 Do not store TEE subscription credentials in the repository. Treat TEE as a

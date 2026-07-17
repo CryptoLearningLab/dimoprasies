@@ -183,6 +183,17 @@ That URL is temporary and should not be treated as stable infrastructure.
   focus rows: 12 KIMDIS rows plus 2 ESHIDIS rows.
 - `Γλυφάδα` was tightened to `Γλυφάδα Δωρίδος` to avoid false positives from
   Δήμος Γλυφάδας Αττικής.
+- `sources fetch-kimdis-open-proc` now fetches official KIMDIS attachment URLs
+  for open PROC candidates from the expanded report, stores local files under
+  `work/download_audit/kimdis/`, records size/SHA-256/provenance, extracts
+  supported PDF/XML text for the shortlist report and checks document text for
+  authority/scope evidence from `config/sources.yml`.
+- Latest KIMDIS fetch gate checked 12 open PROC candidates, kept all statuses
+  candidate-only, had 12 official PDFs present, extracted text from 12 PDFs,
+  found document authority/scope evidence in 12 records and had 0 failed
+  fetches. The generated runtime reports are
+  `work/reports/kimdis_open_proc_fetch_report.json` and
+  `work/reports/kimdis_open_proc_fetch_report.md`.
 
 ## Current Verification
 
@@ -195,7 +206,20 @@ Latest confirmed command:
 Result:
 
 ```text
-56 passed in 1.44s
+60 passed in 1.45s
+```
+
+Latest KIMDIS PROC attachment fetch command:
+
+```bash
+.venv/bin/python -m tender_radar sources fetch-kimdis-open-proc --expanded-report work/reports/expanded_discovery_report.json --config config/sources.yml --download-dir work/download_audit/kimdis --report work/reports/kimdis_open_proc_fetch_report.json --markdown-report work/reports/kimdis_open_proc_fetch_report.md --limit 12 --timeout 30 --allow-insecure-tls --retries 2 --retry-delay 30 --request-delay 5
+```
+
+Result:
+
+```text
+12 checked, 12 already present, 0 failed, 12 text extracted,
+12 document evidence found
 ```
 
 Latest whitelist audit command:
@@ -261,8 +285,9 @@ The system `python` command is not present in the remote environment; use
   audit; reachable fallbacks exist for the same scope.
 - Verification/prioritization of expanded KIMDIS discovery records. The latest
   53 focus-related records are candidates, not `VERIFIED_ACTIVE` tenders.
-- Official attachment fetch and exact place/authority verification for the 11
-  open PROC candidates.
+- SQLite/document-artifact persistence and UI preview/download support for the
+  fetched KIMDIS PROC attachments. The current KIMDIS report is a runtime
+  artifact under `work/reports/`.
 
 ## Next Work
 
@@ -270,5 +295,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Fetch official KIMDIS attachments for the 11 open PROC candidates, verify exact
-place/authority evidence and deduplicate related/cancelled notice pairs.
+Persist fetched KIMDIS PROC attachment metadata/text in a structured model and
+expose KIMDIS preview/download actions in the UI with candidate-only status
+labels.

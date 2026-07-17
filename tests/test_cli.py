@@ -34,6 +34,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, exc.exception.code)
         self.assertIn("audit-whitelist", output.getvalue())
         self.assertIn("expanded-report", output.getvalue())
+        self.assertIn("fetch-kimdis-open-proc", output.getvalue())
         self.assertIn("discover-active", output.getvalue())
         self.assertIn("fetch-resource", output.getvalue())
         self.assertIn("download-attachment", output.getvalue())
