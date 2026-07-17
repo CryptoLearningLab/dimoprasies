@@ -464,6 +464,35 @@
 - Result: all repository configs OK.
 - `.venv/bin/python -m pytest`
 - Result: 62 passed in 1.41s.
+- Added recall-first ambiguous place alias handling for configured source and
+  UI focus matching.
+- `config/sources.yml` and `config/locations.yml` now model `Γλυφάδα` and
+  `Γλυφάδας` as ambiguous aliases for Δήμος Δωρίδος. Positive context such as
+  `Δωρίδος`, `Φωκίδα` or `EL645` confirms the match; negative context such as
+  `Δήμος Γλυφάδας`, `Αττική` or `EL30` blocks it; otherwise the candidate is
+  retained for review with a match note.
+- Added `match_notes` to expanded discovery candidates so ambiguous retained
+  matches are visible in reports and UI rows.
+- Added config validation for optional `ambiguous_aliases` entries.
+- Alias-risk inventory found additional watchlist aliases: `Κατοχή`,
+  `Ρίο` and `Ιτέα`. They remain exact-token matches, not substring matches;
+  no immediate recall-blocking change was needed.
+- Duplicate aliases `Δωρίδα` and `Ευπάλιο` appear in both the Δήμος Δωρίδος
+  scope and the Π.Ε. Φωκίδας regional scope. This is intentional overlap, not
+  title-only deduplication.
+- Live expanded-report re-run after the ambiguity change:
+  `.venv/bin/python -m tender_radar sources expanded-report --allow-insecure-tls --kimdis-pages 5 --timeout 20 --as-of-date 2026-07-17 --eshidis-candidates work/reports/eshidis_active_candidates.json --report work/reports/expanded_discovery_report.json --markdown-report work/reports/expanded_discovery_report.md`
+- Result: `total_candidates: 765`, `focus_candidates: 51`,
+  `focus_open_proc_candidates: 12`, `focus_historical_awrd_symv_records: 37`,
+  `errors: 0`; current live dataset has 0 ambiguous `match_notes`.
+- UI smoke through `dashboard_payload("focus")`: `total_known: 32`,
+  `visible: 14`, `focus_matches: 14`, with 12 KIMDIS rows.
+- `.venv/bin/python -m pytest tests/test_config.py tests/test_expanded_report.py tests/test_ui_server.py`
+- Result: 22 passed in 0.52s.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m pytest`
+- Result: 65 passed in 1.44s.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
@@ -516,6 +545,8 @@ kimdis_open_proc_document_evidence_found: 12
 kimdis_open_proc_document_index_rows: 12
 kimdis_open_proc_text_artifacts: 12
 kimdis_ui_preview_rows: 12
+ambiguous_location_rules: 2
+ambiguous_location_live_matches: 0
 content_matches: 60
 status_reports: 1
 ui_dashboard_scope_focus_rows: 14
@@ -547,9 +578,9 @@ focus_municipalities: 6
 
 ## Next Gate
 
-KIMDIS search/evaluation follow-up: run search/evaluation profiles over the
-KIMDIS text artifacts and produce a combined candidate shortlist across
-ESHIDIS and KIMDIS, still with candidate-only status labels.
+Recall-safety follow-up: add a repeatable alias-risk audit report for short,
+common or ambiguous place names, then optionally expose ambiguous retained
+matches with a distinct UI badge.
 
 ## Handoff Discipline
 

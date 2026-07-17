@@ -487,6 +487,7 @@ def kimdis_open_proc_rows() -> list[dict[str, Any]]:
             continue
         deadline = str(candidate.get("submission_deadline") or "")
         matched_scopes = [str(scope) for scope in candidate.get("matched_scopes") or [] if str(scope).strip()]
+        match_notes = [str(note) for note in candidate.get("match_notes") or [] if str(note).strip()]
         document = document_index.get(official_id, {})
         local_path = normalize_local_path(_none_or_str(document.get("local_path")))
         has_local_document = local_path is not None
@@ -510,7 +511,7 @@ def kimdis_open_proc_rows() -> list[dict[str, Any]]:
                 "status_confidence": 0.65,
                 "row_text": " ".join(
                     str(candidate.get(key) or "")
-                    for key in ("title", "authority", "budget", "submission_deadline", "matched_scopes", "status")
+                    for key in ("title", "authority", "budget", "submission_deadline", "matched_scopes", "match_notes", "status")
                 ),
                 "official_url": candidate.get("source_url"),
                 "attachment_url": candidate.get("attachment_url"),
@@ -524,7 +525,7 @@ def kimdis_open_proc_rows() -> list[dict[str, Any]]:
                 "supports_eshidis_actions": False,
                 "supports_kimdis_actions": has_local_document,
                 "interest_match": bool(matched_scopes),
-                "interest_reason": ", ".join(matched_scopes),
+                "interest_reason": ", ".join([*matched_scopes, *match_notes]),
             }
         )
     return rows
@@ -778,6 +779,9 @@ def interest_reason(text: str) -> str | None:
         terms = [municipality.get("name"), *(municipality.get("aliases") or [])]
         if any(term and focus_term_matches(normalized, str(term)) for term in terms):
             return str(municipality.get("name") or "Δήμος ενδιαφέροντος")
+        ambiguous_reason = ambiguous_location_reason(normalized, municipality)
+        if ambiguous_reason:
+            return ambiguous_reason
     for region in data.get("regions", []):
         if not isinstance(region, dict):
             continue
@@ -786,6 +790,23 @@ def interest_reason(text: str) -> str | None:
         if any(term and focus_term_matches(normalized, str(term), prefix_ok=not included_units) for term in terms):
             units = ", ".join(region.get("included_regional_units") or [])
             return f"{region.get('name')} - {units}" if units else str(region.get("name"))
+    return None
+
+
+def ambiguous_location_reason(normalized_text: str, scope: dict[str, Any]) -> str | None:
+    for rule in scope.get("ambiguous_aliases") or []:
+        if not isinstance(rule, dict) or not rule.get("alias"):
+            continue
+        if not focus_term_matches(normalized_text, str(rule.get("alias"))):
+            continue
+        negative_context = [str(value) for value in rule.get("negative_context") or [] if str(value).strip()]
+        if any(focus_term_matches(normalized_text, value) for value in negative_context):
+            continue
+        positive_context = [str(value) for value in rule.get("positive_context") or [] if str(value).strip()]
+        name = str(scope.get("name") or "Περιοχή ενδιαφέροντος")
+        if any(focus_term_matches(normalized_text, value) for value in positive_context):
+            return name
+        return f"{name} (ασαφές τοπωνύμιο: {rule.get('alias')})"
     return None
 
 

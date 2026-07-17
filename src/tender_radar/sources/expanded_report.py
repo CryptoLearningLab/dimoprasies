@@ -45,6 +45,7 @@ class ExpandedTenderCandidate:
     source_url: str
     attachment_url: str | None
     matched_scopes: list[str]
+    match_notes: list[str]
     status: str
     status_reason: str
 
@@ -235,6 +236,7 @@ def _fetch_kimdis_candidates(
                         source_url=url,
                         attachment_url=str(family["attachment_url"]).format(reference=reference),
                         matched_scopes=_matched_scopes(item, scope_aliases),
+                        match_notes=_match_notes(item, scope_aliases),
                         status=status,
                         status_reason=status_reason,
                     )
@@ -263,6 +265,7 @@ def _eshidis_candidates(payload: dict[str, Any], scope_aliases: dict[str, list[s
                 source_url=f"https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/{eshidis_id}",
                 attachment_url=None,
                 matched_scopes=_matched_scopes(item, scope_aliases),
+                match_notes=_match_notes(item, scope_aliases),
                 status=str(item.get("status") or "DISCOVERED_ACTIVE_CANDIDATE"),
                 status_reason="ESHIDIS discovery candidate; detail/status verification remains separate.",
             )
@@ -270,21 +273,62 @@ def _eshidis_candidates(payload: dict[str, Any], scope_aliases: dict[str, list[s
     return candidates
 
 
-def _scope_aliases(config: dict[str, Any]) -> dict[str, list[str]]:
-    scopes: dict[str, list[str]] = {}
+def _scope_aliases(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    scopes: dict[str, dict[str, Any]] = {}
     for scope in config.get("scopes") or []:
         if not isinstance(scope, dict):
             continue
         name = str(scope.get("name") or scope.get("id") or "")
         aliases = [_normalize_text(str(alias)) for alias in scope.get("aliases") or [] if str(alias).strip()]
-        scopes[name] = aliases
+        ambiguous_aliases = []
+        for item in scope.get("ambiguous_aliases") or []:
+            if not isinstance(item, dict) or not str(item.get("alias") or "").strip():
+                continue
+            ambiguous_aliases.append(
+                {
+                    "alias": _normalize_text(str(item.get("alias"))),
+                    "positive_context": [
+                        _normalize_text(str(value)) for value in item.get("positive_context") or [] if str(value).strip()
+                    ],
+                    "negative_context": [
+                        _normalize_text(str(value)) for value in item.get("negative_context") or [] if str(value).strip()
+                    ],
+                }
+            )
+        scopes[name] = {"aliases": aliases, "ambiguous_aliases": ambiguous_aliases}
     return scopes
 
 
-def _matched_scopes(item: dict[str, Any], scope_aliases: dict[str, list[str]]) -> list[str]:
+def _matched_scopes(item: dict[str, Any], scope_aliases: dict[str, dict[str, Any]]) -> list[str]:
+    return [match["scope"] for match in _scope_matches(item, scope_aliases)]
+
+
+def _match_notes(item: dict[str, Any], scope_aliases: dict[str, dict[str, Any]]) -> list[str]:
+    return [match["note"] for match in _scope_matches(item, scope_aliases) if match.get("note")]
+
+
+def _scope_matches(item: dict[str, Any], scope_aliases: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
     haystack = _normalize_text(json.dumps(item, ensure_ascii=False))
     tokens = set(_tokens(haystack))
-    return [scope for scope, aliases in scope_aliases.items() if any(_alias_matches(alias, haystack, tokens) for alias in aliases)]
+    matches: list[dict[str, str]] = []
+    for scope, config in scope_aliases.items():
+        aliases = config.get("aliases") or []
+        if any(_alias_matches(str(alias), haystack, tokens) for alias in aliases):
+            matches.append({"scope": scope, "note": ""})
+            continue
+        for rule in config.get("ambiguous_aliases") or []:
+            if not _alias_matches(str(rule.get("alias") or ""), haystack, tokens):
+                continue
+            negative_context = rule.get("negative_context") or []
+            if any(_alias_matches(str(value), haystack, tokens) for value in negative_context):
+                continue
+            positive_context = rule.get("positive_context") or []
+            if any(_alias_matches(str(value), haystack, tokens) for value in positive_context):
+                matches.append({"scope": scope, "note": f"ambiguous alias confirmed by context: {rule.get('alias')}"})
+            else:
+                matches.append({"scope": scope, "note": f"ambiguous alias retained for review: {rule.get('alias')}"})
+            break
+    return matches
 
 
 def _dedupe_by_official_source_id(candidates: list[ExpandedTenderCandidate]) -> list[ExpandedTenderCandidate]:
@@ -301,13 +345,13 @@ def _dedupe_by_official_source_id(candidates: list[ExpandedTenderCandidate]) -> 
 
 def _candidate_table(candidates: list[dict[str, Any]]) -> list[str]:
     lines = [
-        "| Source | Type | Official id | Status | Title | Authority | Budget | Deadline | Scope | Link |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Source | Type | Official id | Status | Title | Authority | Budget | Deadline | Scope | Notes | Link |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for item in candidates:
         link = item.get("source_url") or item.get("attachment_url") or ""
         lines.append(
-            "| {source} | {kind} | `{official_id}` | `{status}` | {title} | {authority} | {budget} | {deadline} | {scope} | {link} |".format(
+            "| {source} | {kind} | `{official_id}` | `{status}` | {title} | {authority} | {budget} | {deadline} | {scope} | {notes} | {link} |".format(
                 source=_cell(item.get("source") or ""),
                 kind=_cell(item.get("record_type") or ""),
                 official_id=_cell(item.get("official_id") or ""),
@@ -317,6 +361,7 @@ def _candidate_table(candidates: list[dict[str, Any]]) -> list[str]:
                 budget=_cell(item.get("budget") or ""),
                 deadline=_cell(item.get("submission_deadline") or ""),
                 scope=_cell(", ".join(item.get("matched_scopes") or [])),
+                notes=_cell(", ".join(item.get("match_notes") or [])),
                 link=_cell(link),
             )
         )

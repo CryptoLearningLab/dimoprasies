@@ -173,3 +173,13 @@ availability. A source timeout is recorded as a failure, but it is not an
 adapter blocker when a known adapter can retry it or when another configured
 source for the same scope is reachable. URL templates are treated as ready once
 their official identifier is known.
+
+## D-024 - Ambiguous place aliases are recall-first
+**Status:** Accepted
+
+Ambiguous place names are not silently discarded when they may refer to a focus
+area. Configuration may define `ambiguous_aliases` with positive and negative
+context. A negative context such as another municipality, region or NUTS code
+blocks the match. A positive context confirms it. If the alias appears without
+either, the candidate is retained for human review with a match note rather
+than being filtered out.

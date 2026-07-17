@@ -1,42 +1,39 @@
 # NEXT TASK
 
 Execute:
-`Search and evaluate KIMDIS text artifacts`
+`Build alias risk audit report`
 
 ## Current Input
 
-Use the latest KIMDIS document index:
+Use the configured focus geography:
 
 ```text
-work/derived/kimdis_open_proc_documents.json
-work/extracted_text/kimdis/*.txt
+config/sources.yml
+config/locations.yml
 ```
 
-Latest KIMDIS document-index result as of `2026-07-17`:
+Latest recall-safety update as of `2026-07-17`:
 
 ```text
-12 SUBMISSION_OPEN_CANDIDATE PROC notices
-12 official KIMDIS PDFs present
-12 extracted text artifacts
-12 records with authority/scope evidence
-0 records promoted to VERIFIED_ACTIVE
+Γλυφάδα / Γλυφάδας configured as ambiguous Δήμος Δωρίδος aliases
+positive context confirms the match
+negative context blocks Attica/Glyfada municipality false positives
+context-free ambiguous matches are retained for review
+current live expanded report has 0 ambiguous retained matches
 ```
 
 ## Instruction
 
-Build the next smallest scoring/search step:
+Build the next smallest recall-safety step:
 
-1. Run existing YAML search/evaluation profiles over the KIMDIS extracted text
-   artifacts without hardcoding technical phrases in core code.
-2. Preserve provenance for every KIMDIS hit: official id, source URL,
-   attachment URL, local file path, text path, matched rule/profile and text
-   snippet location where available.
-3. Produce a combined ESHIDIS/KIMDIS candidate shortlist report.
-4. Keep status labels candidate-only:
-   `SUBMISSION_OPEN_CANDIDATE` and `ATTACHMENT_*_PENDING_DOCUMENT_REVIEW`.
-5. Do not merge repeated titles unless `docs/DEDUPLICATION.md` allows it by
-   official identifiers or strong composite evidence.
-6. Keep ESHIDIS status verification separate.
+1. Add a repeatable alias-risk audit that reads source/location configs and
+   reports short, common, duplicated or ambiguous place aliases.
+2. Keep the audit informational unless a rule is structurally invalid.
+3. Produce JSON and Markdown reports with scope, alias, risk reason and
+   recommended handling.
+4. Do not remove aliases only because they are noisy; prefer ambiguous review
+   buckets over recall loss.
+5. Keep status verification and search/evaluation separate.
 
 Do not store TEE subscription credentials in the repository. Treat TEE as a
 future authenticated adapter.

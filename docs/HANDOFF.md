@@ -202,6 +202,12 @@ That URL is temporary and should not be treated as stable infrastructure.
   with local files expose Preview and Download file actions through
   `/api/kimdis-document-preview?official_id=...` and
   `/api/kimdis-document-file?official_id=...`.
+- Ambiguous place aliases are recall-first. `Γλυφάδα` and `Γλυφάδας` are
+  configured as ambiguous aliases for Δήμος Δωρίδος: positive context such as
+  `Δωρίδος`, `Φωκίδα` or `EL645` confirms the match; negative context such as
+  `Δήμος Γλυφάδας`, `Αττική` or `EL30` blocks it; otherwise the candidate is
+  retained for review with a match note. The current live expanded report has
+  0 ambiguous retained matches.
 
 ## Current Verification
 
@@ -214,7 +220,7 @@ Latest confirmed command:
 Result:
 
 ```text
-62 passed in 1.41s
+65 passed in 1.44s
 ```
 
 Latest KIMDIS PROC attachment fetch command:
@@ -302,5 +308,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Run search/evaluation profiles over KIMDIS text artifacts and produce a
-combined ESHIDIS/KIMDIS candidate shortlist with candidate-only status labels.
+Add a repeatable alias-risk audit report for short, common or ambiguous place
+names, then optionally expose ambiguous retained matches with a distinct UI
+badge.

@@ -193,6 +193,12 @@ def test_region_focus_uses_included_units_not_broad_nuts_prefix() -> None:
     assert interest_reason("Έργο στη Φθιώτιδα EL644") is None
 
 
+def test_ambiguous_glyfada_is_kept_for_dorida_review() -> None:
+    assert interest_reason("Δημοτική οδοποιία ΔΕ Γλυφάδας") == "Δήμος Δωρίδος (ασαφές τοπωνύμιο: Γλυφάδα)"
+    assert interest_reason("Δημοτική οδοποιία ΔΕ Γλυφάδας Δήμος Δωρίδος") == "Δήμος Δωρίδος"
+    assert interest_reason("Ανάπλαση Δήμος Γλυφάδας Αττική EL30") is None
+
+
 def test_interest_reason_matches_amfilochia_alias_variants() -> None:
     assert interest_reason("ΕΡΓΟ ΣΤΟ ΘΕΡΙΑΚΗΣΙ") == "Δήμος Αμφιλοχίας"
     assert interest_reason("εργο στο Θεριακήσιο") == "Δήμος Αμφιλοχίας"

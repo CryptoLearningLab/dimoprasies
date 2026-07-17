@@ -207,6 +207,106 @@ scopes:
     assert report["summary"]["focus_candidates"] == 0
 
 
+def test_ambiguous_glyfada_alias_keeps_dorida_candidate_for_review(tmp_path) -> None:
+    config_path = tmp_path / "sources.yml"
+    config_path.write_text(
+        """
+version: 1
+global_sources: []
+collection_order: []
+rules: []
+scopes:
+  - id: dorida
+    name: "Δήμος Δωρίδος"
+    aliases: ["Δήμος Δωρίδος", "Δωρίδα", "Δωρίδος", "Γλυφάδα Δωρίδος"]
+    ambiguous_aliases:
+      - alias: "Γλυφάδα"
+        positive_context: ["Δήμος Δωρίδος", "Δωρίδα", "Δωρίδος", "Φωκίδα", "EL645"]
+        negative_context: ["Δήμος Γλυφάδας", "Αττική", "EL30"]
+      - alias: "Γλυφάδας"
+        positive_context: ["Δήμος Δωρίδος", "Δωρίδα", "Δωρίδος", "Φωκίδα", "EL645"]
+        negative_context: ["Δήμος Γλυφάδας", "Αττική", "EL30"]
+    sources: []
+""",
+        encoding="utf-8",
+    )
+    candidates_path = tmp_path / "candidates.json"
+    candidates_path.write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {
+                        "eshidis_id": "12345",
+                        "title": "Δημοτική οδοποιία ΔΕ Γλυφάδας",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_expanded_report(
+        sources_config_path=config_path,
+        eshidis_candidates_path=candidates_path,
+        kimdis_pages=0,
+    )
+
+    assert report["summary"]["focus_candidates"] == 1
+    assert report["focus_candidates"][0]["matched_scopes"] == ["Δήμος Δωρίδος"]
+    assert "ambiguous alias retained" in report["focus_candidates"][0]["match_notes"][0]
+
+
+def test_ambiguous_glyfada_alias_blocks_attica_context(tmp_path) -> None:
+    config_path = tmp_path / "sources.yml"
+    config_path.write_text(
+        """
+version: 1
+global_sources: []
+collection_order: []
+rules: []
+scopes:
+  - id: dorida
+    name: "Δήμος Δωρίδος"
+    aliases: ["Δήμος Δωρίδος", "Δωρίδα", "Δωρίδος", "Γλυφάδα Δωρίδος"]
+    ambiguous_aliases:
+      - alias: "Γλυφάδα"
+        positive_context: ["Δήμος Δωρίδος", "Δωρίδα", "Δωρίδος", "Φωκίδα", "EL645"]
+        negative_context: ["Δήμος Γλυφάδας", "Αττική", "EL30"]
+      - alias: "Γλυφάδας"
+        positive_context: ["Δήμος Δωρίδος", "Δωρίδα", "Δωρίδος", "Φωκίδα", "EL645"]
+        negative_context: ["Δήμος Γλυφάδας", "Αττική", "EL30"]
+    sources: []
+""",
+        encoding="utf-8",
+    )
+    candidates_path = tmp_path / "candidates.json"
+    candidates_path.write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {
+                        "eshidis_id": "12345",
+                        "title": "ΑΝΑΚΑΤΑΣΚΕΥΗ ΚΡΗΠΙΔΩΜΑΤΟΣ ΜΑΡΙΝΑΣ ΓΛΥΦΑΔΑΣ",
+                        "authority_name": "ΔΗΜΟΣ ΓΛΥΦΑΔΑΣ",
+                        "region": "Αττική EL30",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_expanded_report(
+        sources_config_path=config_path,
+        eshidis_candidates_path=candidates_path,
+        kimdis_pages=0,
+    )
+
+    assert report["summary"]["focus_candidates"] == 0
+
+
 def test_kimdis_proc_future_deadline_is_open_candidate(tmp_path) -> None:
     config_path = tmp_path / "sources.yml"
     config_path.write_text(

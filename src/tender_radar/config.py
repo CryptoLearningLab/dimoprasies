@@ -61,8 +61,11 @@ def _validate_shape(path: Path, data: Any) -> None:
     name = path.name
     if name == "locations.yml":
         _require(data, "timezone", str)
-        _require(data, "municipalities", list)
+        municipalities = _require(data, "municipalities", list)
         _require(data, "regions", list)
+        for item in municipalities:
+            if isinstance(item, dict):
+                _validate_ambiguous_aliases(item)
     elif name == "sources.yml":
         _require(data, "version", int)
         _require(data, "global_sources", list)
@@ -83,6 +86,7 @@ def _validate_shape(path: Path, data: Any) -> None:
                     raise ConfigValidationError(f"scope missing required key: {key}")
             if not isinstance(item["aliases"], list) or not isinstance(item["sources"], list):
                 raise ConfigValidationError("scope aliases and sources must be lists")
+            _validate_ambiguous_aliases(item)
     elif name == "deduplication.yml":
         _require(data, "version", int)
         identity_keys = _require(data, "identity_keys", dict)
@@ -128,3 +132,20 @@ def _require(data: dict[str, Any], key: str, expected_type: type) -> Any:
             f"{key} must be {expected_type.__name__}, got {type(value).__name__}"
         )
     return value
+
+
+def _validate_ambiguous_aliases(item: dict[str, Any]) -> None:
+    rules = item.get("ambiguous_aliases")
+    if rules is None:
+        return
+    if not isinstance(rules, list):
+        raise ConfigValidationError("ambiguous_aliases must be a list")
+    for rule in rules:
+        if not isinstance(rule, dict):
+            raise ConfigValidationError("ambiguous_aliases entries must be mappings")
+        if not isinstance(rule.get("alias"), str) or not rule["alias"].strip():
+            raise ConfigValidationError("ambiguous_aliases entries require a non-empty alias")
+        for key in ("positive_context", "negative_context"):
+            values = rule.get(key, [])
+            if not isinstance(values, list):
+                raise ConfigValidationError(f"ambiguous_aliases.{key} must be a list")

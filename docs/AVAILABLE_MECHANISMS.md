@@ -22,6 +22,8 @@ human-friendly UI should compose these mechanisms instead of replacing them.
   - Classifies PROC rows by `finalSubmissionDate` as candidate-only submission
     stage.
   - Deduplicates only by official source id.
+  - Supports configured `ambiguous_aliases` so uncertain place names can be
+    retained for review unless negative context blocks them.
 
 ## Attachments and Documents
 
@@ -86,6 +88,7 @@ human-friendly UI should compose these mechanisms instead of replacing them.
 
 - The first UI screen is a business-facing tender list.
 - Geographic focus is configuration-driven.
+- Ambiguous place names are recall-first and may appear with match notes.
 - Content matches and status verification remain separate.
 - Preview depends on known/downloaded attachments; missing files stay visible
   instead of being hidden.
