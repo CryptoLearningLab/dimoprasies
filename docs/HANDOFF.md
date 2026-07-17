@@ -10,7 +10,6 @@ This is the compact handoff for a new Codex chat starting from zero.
 - GitHub repo: `https://github.com/CryptoLearningLab/dimoprasies`
 - Main branch: `main`
 - Initial baseline commit: `9f556be Initial public works tender radar snapshot`
-- Latest confirmed pushed commit: `e5bcef5 Document project handoff and remote status`
 - Access: the repo may be public or private. Codex access is through the
   GitHub deploy key named `dimoprasies-codex`; keep `Allow write access`
   enabled if Codex must push updates.

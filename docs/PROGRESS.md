@@ -148,7 +148,7 @@
 - `git push git@github.com:CryptoLearningLab/dimoprasies.git main:main`
   using the dedicated `dimoprasies-codex` key created remote branch `main`.
 - `git ls-remote --heads git@github.com:CryptoLearningLab/dimoprasies.git`
-  returned `e5bcef55d1c171ff4a2af0843225d78a486a63ea refs/heads/main`.
+  confirmed that `refs/heads/main` exists on GitHub.
 - `.venv/bin/tender-radar-ui --host 0.0.0.0 --port 8765` started the local UI
   server.
 - `curl -L -s https://b608b69a6b7e08.lhr.life` returned the Tender Radar UI
