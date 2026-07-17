@@ -139,3 +139,12 @@ confidence, rationale and status signals, but it does not mutate
 `tenders.status`. Persisted status transitions require a separate status
 history/persistence model. Until then, even a future official deadline is
 reported as advisory `POSSIBLY_ACTIVE`, not `VERIFIED_ACTIVE`.
+
+## D-020 - Human UI composes existing mechanisms
+**Status:** Accepted
+
+The business-facing UI presents a focused tender list and document preview, but
+it remains a composition layer over the existing CLI/source/database
+mechanisms. Geographic focus is loaded from `config/locations.yml`. The
+all-Greece toggle changes presentation scope only and must not imply national
+coverage completeness.

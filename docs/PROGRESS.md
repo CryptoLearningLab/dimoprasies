@@ -189,12 +189,32 @@
 - The generated status reports are:
   `work/reports/status_verification_221675.json` and
   `work/reports/status_verification_221675.md`.
+- The local UI first screen was redesigned as a business-facing tender list
+  rather than a developer-only phase console. It now combines discovery report
+  rows and SQLite metadata through `/api/dashboard`.
+- `config/locations.yml` now includes Δήμος Πατρέων and limits the configured
+  Central Greece regional focus to Φωκίδα. The default UI scope uses the
+  configured local-interest geography; the all-Greece toggle changes only the
+  presentation scope and does not claim national completeness.
+- The UI now shows essential columns: ESHIDIS id, title, authority, budget,
+  submission deadline and official ESHIDIS link. It also exposes `Download
+  files` and preview for declaration, technical description and budget when
+  known/downloaded attachments exist.
+- `docs/AVAILABLE_MECHANISMS.md` records the existing source, download,
+  analysis, search, evaluation, status and UI mechanisms.
+- UI smoke test:
+  - `/` returned the new first screen.
+  - `/api/dashboard?scope=focus` returned 1 local-interest visible row from
+    20 known/discovered rows.
+  - `/api/dashboard?scope=all` returned 20 visible rows.
+  - `/api/document-preview?eshidis_id=221675` returned 9 documents and featured
+    declaration, technical description and budget.
 
 ## Tests Last Run
 - `.venv/bin/python -m pytest tests/test_status.py tests/test_cli.py`
 - Result: 12 passed.
 - `.venv/bin/python -m pytest`
-- Result: 39 passed.
+- Result: 44 passed.
 
 ## Open Problems
 - Η αναζήτηση grid του ΕΣΗΔΗΣ παραμένει δύσκολη/virtualized, αλλά το direct
@@ -232,6 +252,8 @@ documents_classified: 17
 documents_with_text: 17
 content_matches: 60
 status_reports: 1
+ui_dashboard_scope_focus_rows: 1
+ui_dashboard_scope_all_rows: 20
 discovered_active_candidates: 15
 verified_active_matches: 0
 unknown_statuses: 6
@@ -240,10 +262,9 @@ unexplained_failures: 0
 
 ## Next Gate
 
-Download/analyze follow-up: run the controlled attachment download and document
-analysis gate for candidate `221629`, then evaluate it with
-`config/evaluation_profiles/public_works_dynamic.yml` and keep status
-verification separate from content matches.
+UI review follow-up: manually review the redesigned first screen from a browser,
+then continue with the controlled attachment download and document analysis
+gate for candidate `221629`.
 
 ## Handoff Discipline
 

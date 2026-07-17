@@ -1,11 +1,25 @@
 # NEXT TASK
 
 Execute:
-`Download and analyze candidate 221629 attachments`
+`Manual review of redesigned UI, then candidate 221629 document gate`
 
 ## Instruction
 
-Keep the discovery/status separation:
+First manually review the redesigned UI first screen:
+
+1. Start the UI:
+   - `.venv/bin/tender-radar-ui --host 0.0.0.0 --port 8765`
+2. Open the UI from a browser and check:
+   - default local-interest scope,
+   - all-Greece toggle,
+   - essential tender table,
+   - official ESHIDIS links,
+   - `Download files`,
+   - preview for declaration, technical description and budget.
+3. Confirm that the UI does not claim `VERIFIED_ACTIVE` or national
+   completeness.
+
+Then continue the document gate for `221629`:
 
 1. Use existing evidence for `221629`:
    - `work/source_audit/eshidis_resource_audit_221629.json`

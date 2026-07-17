@@ -121,6 +121,15 @@ That URL is temporary and should not be treated as stable infrastructure.
     documents
   - recommended status is `POSSIBLY_ACTIVE` with confidence `0.65`
   - `verified_active` remains `false`; SQLite status remains `UNKNOWN`
+- The local UI first screen was redesigned for non-technical daily use:
+  - default local-interest scope from `config/locations.yml`
+  - all-Greece presentation toggle
+  - essential tender table
+  - official ESHIDIS link
+  - `Download files`
+  - preview of declaration, technical description and budget where available
+- `docs/AVAILABLE_MECHANISMS.md` records the mechanisms available behind the
+  UI so future UI work composes them instead of replacing them.
 
 ## Current Verification
 
@@ -133,7 +142,7 @@ Latest confirmed command:
 Result:
 
 ```text
-39 passed in 1.18s
+44 passed in 1.62s
 ```
 
 Latest status verification command:
@@ -178,6 +187,7 @@ The system `python` command is not present in the remote environment; use
 - Deduplicated change detection across repeated scans.
 - Authentication-safe adapter for TEE subscription sources.
 - Production access model for UI beyond local/LAN/Tailscale/private tunnel.
+- Manual browser review of the redesigned first UI screen.
 
 ## Next Work
 
@@ -185,5 +195,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Run the controlled attachment download and document analysis gate for candidate
-`221629`, then evaluate it with `config/evaluation_profiles/public_works_dynamic.yml`.
+Manually review the redesigned UI first screen from a browser, then run the
+controlled attachment download and document analysis gate for candidate
+`221629`.

@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
+import re
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -62,6 +64,25 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/candidates":
             self._send_json(candidates_payload())
+            return
+        if parsed.path == "/api/dashboard":
+            query = parse_qs(parsed.query)
+            scope = query.get("scope", ["focus"])[0]
+            self._send_json(dashboard_payload(scope=scope))
+            return
+        if parsed.path == "/api/document-preview":
+            query = parse_qs(parsed.query)
+            eshidis_id = require_eshidis_id({"eshidis_id": query.get("eshidis_id", [""])[0]})
+            self._send_json(document_preview_payload(eshidis_id))
+            return
+        if parsed.path == "/api/document-file":
+            query = parse_qs(parsed.query)
+            attachment_id = int(query.get("attachment_id", ["0"])[0])
+            path = local_attachment_path(attachment_id)
+            if not path:
+                self._send_json({"error": "Attachment file is not available."}, status=404)
+                return
+            self._send_file(path)
             return
         if parsed.path == "/api/evaluation-profile":
             query = parse_qs(parsed.query)
@@ -295,6 +316,336 @@ def candidates_payload() -> dict[str, Any]:
     }
 
 
+def dashboard_payload(scope: str = "focus") -> dict[str, Any]:
+    all_greece = scope == "all"
+    profile = location_focus_profile()
+    rows = merged_tender_rows()
+    visible_rows = rows if all_greece else [row for row in rows if row["interest_match"]]
+    return {
+        "scope": "all" if all_greece else "focus",
+        "profile": profile,
+        "summary": {
+            "total_known": len(rows),
+            "visible": len(visible_rows),
+            "focus_matches": sum(1 for row in rows if row["interest_match"]),
+            "verified_active": sum(1 for row in rows if row.get("verified_active")),
+        },
+        "tenders": visible_rows,
+        "note": (
+            "Focus filtering uses configured municipalities, regional units and NUTS hints. "
+            "Discovery rows remain candidates until official detail/status verification."
+        ),
+    }
+
+
+def location_focus_profile() -> dict[str, Any]:
+    path = REPO_ROOT / "config" / "locations.yml"
+    data = load_config(path) if path.exists() else {}
+    municipalities = data.get("municipalities", []) if isinstance(data, dict) else []
+    regions = data.get("regions", []) if isinstance(data, dict) else []
+    return {
+        "label": "Περιοχή ενδιαφέροντος",
+        "municipalities": [item.get("name") for item in municipalities if isinstance(item, dict)],
+        "regions": [
+            {
+                "name": item.get("name"),
+                "regional_units": item.get("included_regional_units") or [],
+            }
+            for item in regions
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def merged_tender_rows() -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for candidate in discovery_candidate_rows():
+        eshidis_id = str(candidate.get("eshidis_id") or "")
+        if eshidis_id:
+            merged[eshidis_id] = candidate
+    for tender in sqlite_tender_rows():
+        eshidis_id = str(tender.get("eshidis_id") or "")
+        if eshidis_id:
+            existing = merged.get(eshidis_id, {})
+            merged[eshidis_id] = {**existing, **{key: value for key, value in tender.items() if value not in (None, "")}}
+    rows = [decorate_tender_row(row) for row in merged.values()]
+    return sorted(rows, key=lambda row: (row.get("deadline_sort") or "9999", row.get("eshidis_id") or ""))
+
+
+def discovery_candidate_rows() -> list[dict[str, Any]]:
+    payload = candidates_payload()
+    rows = []
+    for candidate in payload.get("candidates", []):
+        if not isinstance(candidate, dict):
+            continue
+        row_text = str(candidate.get("row_text") or "")
+        rows.append(
+            {
+                "source": "discovery",
+                "eshidis_id": candidate.get("eshidis_id"),
+                "title": candidate.get("title"),
+                "authority_name": candidate.get("authority_name"),
+                "region": extract_region(row_text),
+                "budget_with_vat": parse_budget_from_row_text(row_text),
+                "current_deadline_at": candidate.get("submission_deadline"),
+                "status": candidate.get("status"),
+                "status_confidence": candidate.get("status_confidence"),
+                "row_text": row_text,
+            }
+        )
+    return rows
+
+
+def sqlite_tender_rows() -> list[dict[str, Any]]:
+    db_path = REPO_ROOT / "data" / "tender_radar.sqlite"
+    if not db_path.exists():
+        return []
+    connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        rows = connection.execute(
+            """
+            SELECT eshidis_id, title, authority_name, region, budget_with_vat,
+                   current_deadline_at, status, status_confidence
+            FROM tenders
+            WHERE eshidis_id IS NOT NULL
+            ORDER BY eshidis_id
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+    return [
+        {
+            "source": "sqlite",
+            "eshidis_id": row["eshidis_id"],
+            "title": row["title"],
+            "authority_name": row["authority_name"],
+            "region": row["region"],
+            "budget_with_vat": row["budget_with_vat"],
+            "current_deadline_at": row["current_deadline_at"],
+            "status": row["status"],
+            "status_confidence": row["status_confidence"],
+            "row_text": " ".join(str(row[key] or "") for key in row.keys()),
+        }
+        for row in rows
+    ]
+
+
+def decorate_tender_row(row: dict[str, Any]) -> dict[str, Any]:
+    eshidis_id = str(row.get("eshidis_id") or "")
+    text = " ".join(
+        str(row.get(key) or "")
+        for key in ("title", "authority_name", "region", "row_text")
+    )
+    return {
+        **row,
+        "interest_match": is_interest_match(text),
+        "interest_reason": interest_reason(text),
+        "budget_display": format_budget(row.get("budget_with_vat")),
+        "deadline_display": row.get("current_deadline_at") or row.get("submission_deadline") or "",
+        "deadline_sort": deadline_sort_key(str(row.get("current_deadline_at") or "")),
+        "official_url": official_resource_url(eshidis_id) if eshidis_id else None,
+        "verified_active": False,
+    }
+
+
+def document_preview_payload(eshidis_id: str) -> dict[str, Any]:
+    db_path = REPO_ROOT / "data" / "tender_radar.sqlite"
+    if not db_path.exists():
+        return {"eshidis_id": eshidis_id, "documents": []}
+    connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        rows = connection.execute(
+            """
+            SELECT attachments.id AS attachment_id, attachments.original_name,
+                   attachments.local_path, attachments.size_bytes, attachments.sha256,
+                   documents.document_type, documents.text_sample
+            FROM attachments
+            JOIN tenders ON tenders.id = attachments.tender_id
+            LEFT JOIN documents ON documents.attachment_id = attachments.id
+            WHERE tenders.eshidis_id = ?
+              AND attachments.is_latest = 1
+            ORDER BY attachments.id
+            """,
+            (eshidis_id,),
+        ).fetchall()
+    finally:
+        connection.close()
+    docs = [preview_document_from_row(row) for row in rows]
+    priority = {"declaration": 0, "technical_description": 1, "budget": 2, "price_list": 3}
+    docs.sort(key=lambda item: (priority.get(str(item["kind"]), 9), item["name"]))
+    return {
+        "eshidis_id": eshidis_id,
+        "official_url": official_resource_url(eshidis_id),
+        "documents": docs,
+        "featured": [doc for doc in docs if doc["kind"] in {"declaration", "technical_description", "budget"}],
+    }
+
+
+def preview_document_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    attachment_id = int(row["attachment_id"])
+    local_path = normalize_local_path(row["local_path"])
+    available = local_path is not None and local_path.exists()
+    kind = preview_kind(str(row["document_type"] or ""), str(row["original_name"] or ""))
+    return {
+        "attachment_id": attachment_id,
+        "name": row["original_name"],
+        "kind": kind,
+        "label": preview_label(kind),
+        "document_type": row["document_type"],
+        "available": available,
+        "size_bytes": row["size_bytes"],
+        "sha256": row["sha256"],
+        "text_sample": short_text_sample(row["text_sample"]),
+        "view_url": f"/api/document-file?attachment_id={attachment_id}" if available else None,
+    }
+
+
+def local_attachment_path(attachment_id: int) -> Path | None:
+    db_path = REPO_ROOT / "data" / "tender_radar.sqlite"
+    if attachment_id <= 0 or not db_path.exists():
+        return None
+    connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        row = connection.execute("SELECT local_path FROM attachments WHERE id = ?", (attachment_id,)).fetchone()
+    finally:
+        connection.close()
+    if not row:
+        return None
+    return normalize_local_path(row[0])
+
+
+def normalize_local_path(value: str | None) -> Path | None:
+    if not value:
+        return None
+    path = Path(str(value).replace("\\", "/"))
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    path = path.resolve()
+    work_dir = (REPO_ROOT / "work").resolve()
+    if work_dir not in path.parents or not path.exists():
+        return None
+    return path
+
+
+def is_interest_match(text: str) -> bool:
+    return interest_reason(text) is not None
+
+
+def interest_reason(text: str) -> str | None:
+    normalized = normalize_greek(text)
+    data = load_config(REPO_ROOT / "config" / "locations.yml")
+    for municipality in data.get("municipalities", []):
+        if not isinstance(municipality, dict):
+            continue
+        terms = [municipality.get("name"), *(municipality.get("aliases") or [])]
+        if any(term and focus_term_matches(normalized, str(term)) for term in terms):
+            return str(municipality.get("name") or "Δήμος ενδιαφέροντος")
+    for region in data.get("regions", []):
+        if not isinstance(region, dict):
+            continue
+        terms = [region.get("name"), *(region.get("included_regional_units") or []), *(region.get("nuts_prefixes") or [])]
+        if any(term and focus_term_matches(normalized, str(term), prefix_ok=True) for term in terms):
+            units = ", ".join(region.get("included_regional_units") or [])
+            return f"{region.get('name')} - {units}" if units else str(region.get("name"))
+    return None
+
+
+def focus_term_matches(normalized_text: str, term: str, *, prefix_ok: bool = False) -> bool:
+    normalized_term = normalize_greek(term)
+    if not normalized_term:
+        return False
+    if normalized_term.startswith("el"):
+        return normalized_text.find(normalized_term) >= 0 if prefix_ok else normalized_term in normalized_text
+    if len(normalized_term) <= 3:
+        pattern = rf"(?<![0-9a-zα-ω]){re.escape(normalized_term)}(?![0-9a-zα-ω])"
+        return re.search(pattern, normalized_text) is not None
+    if " " in normalized_term:
+        pattern = rf"(?<![0-9a-zα-ω]){re.escape(normalized_term)}(?![0-9a-zα-ω])"
+        return re.search(pattern, normalized_text) is not None
+    return normalized_term in normalized_text
+
+
+def normalize_greek(value: str) -> str:
+    translation = str.maketrans("άέήίόύώϊΐϋΰ", "αεηιουωιιυυ")
+    return re.sub(r"\s+", " ", value.lower().translate(translation)).strip()
+
+
+def parse_budget_from_row_text(row_text: str) -> float | None:
+    before_first_date = re.split(r"\d{2}-\d{2}-\d{4}", row_text, maxsplit=1)[0]
+    matches = re.findall(r"\d{1,3}(?:\.\d{3})*,\d{2}", before_first_date)
+    if not matches:
+        return None
+    return greek_number_to_float(matches[-1])
+
+
+def greek_number_to_float(value: str) -> float | None:
+    try:
+        return float(value.replace(".", "").replace(",", "."))
+    except ValueError:
+        return None
+
+
+def format_budget(value: object) -> str:
+    if value in (None, ""):
+        return ""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    integer, decimals = f"{number:,.2f}".split(".")
+    return integer.replace(",", ".") + "," + decimals + " EUR"
+
+
+def extract_region(row_text: str) -> str | None:
+    match = re.search(r"(EL\d{3}\s+-\s+[^Υ]+?)(?:\s+ΥΠΟΒΟΛΗ|\s+ΣΕ\s+|\s+ΕΛΕΓΧΟΣ|$)", row_text)
+    return re.sub(r"\s+", " ", match.group(1)).strip() if match else None
+
+
+def deadline_sort_key(value: str) -> str:
+    match = re.match(r"(\d{2})-(\d{2})-(\d{4})(.*)", value or "")
+    if not match:
+        return "9999"
+    day, month, year, rest = match.groups()
+    return f"{year}-{month}-{day}{rest}"
+
+
+def official_resource_url(eshidis_id: str) -> str:
+    return f"https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/{eshidis_id}"
+
+
+def preview_kind(document_type: str, name: str) -> str:
+    normalized = normalize_greek(f"{document_type} {name}")
+    if document_type == "tender_declaration" or "διακηρυ" in normalized:
+        return "declaration"
+    if document_type == "technical_description" or "τεχνικη περιγραφ" in normalized:
+        return "technical_description"
+    if document_type == "budget" or "προυπολογισ" in normalized or "προϋπολογισ" in normalized:
+        return "budget"
+    if document_type == "price_list" or "τιμολογιο" in normalized:
+        return "price_list"
+    return "other"
+
+
+def preview_label(kind: str) -> str:
+    return {
+        "declaration": "Διακήρυξη",
+        "technical_description": "Τεχνική περιγραφή",
+        "budget": "Προϋπολογισμός",
+        "price_list": "Τιμολόγιο",
+    }.get(kind, "Λοιπό αρχείο")
+
+
+def short_text_sample(value: str | None, limit: int = 420) -> str | None:
+    if not value:
+        return None
+    text = re.sub(r"\s+", " ", value).strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "..."
+
+
 def report_path(value: str) -> Path | None:
     if value not in {"candidates.md", "candidates.json"}:
         return None
@@ -357,55 +708,90 @@ INDEX_HTML = """<!doctype html>
       <span class="mark">TR</span>
       <div>
         <h1>Tender Radar</h1>
-        <p>Local control panel</p>
+        <p>Δημόσια έργα</p>
       </div>
     </div>
     <nav>
-      <button class="nav active" data-view="discover">Discovery</button>
-      <button class="nav" data-view="tender">Tender</button>
-      <button class="nav" data-view="rules">Rules</button>
-      <button class="nav" data-view="reports">Reports</button>
+      <button class="nav active" data-view="overview">Αναζήτηση</button>
+      <button class="nav" data-view="workflow">Εργαλεία</button>
+      <button class="nav" data-view="rules">Κανόνες</button>
+      <button class="nav" data-view="reports">Αρχεία</button>
     </nav>
   </aside>
   <main>
-    <header>
+    <header class="topbar">
       <div>
-        <h2>Public Works Tender Radar</h2>
-        <p id="statusText">Ready</p>
+        <p class="eyebrow">Public Works Tender Radar</p>
+        <h2>Διαγωνισμοί που αξίζει να κοιτάξεις πρώτα</h2>
+        <p id="statusText">Έτοιμο</p>
       </div>
-      <button id="refreshBtn" class="secondary">Refresh</button>
+      <button id="refreshBtn" class="secondary">Ανανέωση</button>
     </header>
 
-    <section id="discover" class="view active">
-      <div class="toolbar">
-        <label>Limit <input id="limitInput" type="number" min="1" max="100" value="25"></label>
-        <button id="discoverBtn">Run Discovery</button>
+    <section id="overview" class="view active">
+      <div class="searchBand">
+        <div>
+          <p class="eyebrow">Περιοχή αναζήτησης</p>
+          <h3>Ναυπακτία, Δωρίδα, Θέρμο, Μεσολόγγι, Πάτρα και σχετικές Π.Ε.</h3>
+          <p id="scopeText" class="mutedLine">Προεπιλογή: τοπική περιοχή ενδιαφέροντος από το config.</p>
+        </div>
+        <label class="switchLine">
+          <input id="allGreeceToggle" type="checkbox">
+          <span>Λήψη έργων από όλη την Ελλάδα</span>
+        </label>
+        <div class="toolbar inlineToolbar">
+          <label>Πλήθος αναζήτησης <input id="limitInput" type="number" min="1" max="100" value="25"></label>
+          <button id="discoverBtn">Νέα αναζήτηση ΕΣΗΔΗΣ</button>
+        </div>
       </div>
+
       <div class="metrics">
-        <div><span id="candidateCount">0</span><small>Candidates</small></div>
-        <div><span id="visibleRows">0</span><small>Visible rows</small></div>
-        <div><span id="adfBodies">0</span><small>ADF bodies</small></div>
+        <div><span id="visibleTenderCount">0</span><small>έργα στη λίστα</small></div>
+        <div><span id="focusTenderCount">0</span><small>ταιριάζουν στην περιοχή</small></div>
+        <div><span id="knownTenderCount">0</span><small>γνωστά στο σύστημα</small></div>
       </div>
-      <div class="tableWrap">
-        <table>
-          <thead>
-            <tr><th>A/A ΕΣΗΔΗΣ</th><th>Προθεσμία</th><th>Τίτλος</th><th>Status</th><th></th></tr>
-          </thead>
-          <tbody id="candidateRows"></tbody>
-        </table>
+
+      <div class="workspace">
+        <div class="tableWrap">
+          <table class="tenderTable">
+            <thead>
+              <tr>
+                <th>Α/Α ΕΣΗΔΗΣ</th>
+                <th>Έργο</th>
+                <th>Φορέας</th>
+                <th>Προϋπολογισμός</th>
+                <th>Λήξη</th>
+                <th>Ενέργειες</th>
+              </tr>
+            </thead>
+            <tbody id="tenderRows"></tbody>
+          </table>
+        </div>
+        <aside class="previewPane">
+          <div class="previewHeader">
+            <div>
+              <p class="eyebrow">Preview</p>
+              <h3 id="previewTitle">Διάλεξε έργο</h3>
+            </div>
+            <a id="officialLink" class="iconLink" target="_blank" rel="noreferrer">ΕΣΗΔΗΣ</a>
+          </div>
+          <div id="previewBody" class="previewBody">
+            <p class="mutedLine">Εδώ θα εμφανιστούν η διακήρυξη, η τεχνική περιγραφή και ο προϋπολογισμός όταν υπάρχουν κατεβασμένα ή γνωστά συνημμένα.</p>
+          </div>
+        </aside>
       </div>
     </section>
 
-    <section id="tender" class="view">
+    <section id="workflow" class="view">
       <div class="toolbar">
-        <label>A/A ΕΣΗΔΗΣ <input id="eshidisInput" type="text" inputmode="numeric" placeholder="π.χ. 221348"></label>
-        <button id="fetchBtn">Fetch Detail</button>
-        <button id="downloadBtn" class="secondary">Download All</button>
-        <button id="analyzeBtn" class="secondary">Analyze Docs</button>
+        <label>A/A ΕΣΗΔΗΣ <input id="eshidisInput" type="text" inputmode="numeric" placeholder="π.χ. 221744"></label>
+        <button id="fetchBtn">Fetch official detail</button>
+        <button id="downloadBtn" class="secondary">Download files</button>
+        <button id="analyzeBtn" class="secondary">Analyze docs</button>
       </div>
       <div class="toolbar compact">
-        <label>Profile <select id="profileSelect"></select></label>
-        <button id="searchBtn">Run Search</button>
+        <label>Search profile <select id="profileSelect"></select></label>
+        <button id="searchBtn">Run search</button>
       </div>
       <div class="toolbar compact">
         <label>Evaluation <select id="evaluationProfileSelect"></select></label>
@@ -485,13 +871,14 @@ INDEX_HTML = """<!doctype html>
 STYLES_CSS = """
 :root {
   color-scheme: light;
-  --bg: #f7f8fa;
+  --bg: #f4f6f8;
   --panel: #ffffff;
   --line: #d9dde5;
   --text: #1c2430;
   --muted: #647084;
-  --accent: #146b63;
-  --accent-dark: #0d4f49;
+  --accent: #0f766e;
+  --accent-dark: #115e59;
+  --soft: #e8f3f1;
   --warn: #9a5b10;
 }
 * { box-sizing: border-box; }
@@ -506,7 +893,7 @@ body {
   font-size: 14px;
 }
 .sidebar {
-  background: #202832;
+  background: #1f2933;
   color: white;
   padding: 20px 14px;
 }
@@ -527,8 +914,16 @@ body {
 }
 h1, h2, p { margin: 0; }
 h1 { font-size: 17px; }
-h2 { font-size: 21px; }
-.brand p, header p, .note { color: var(--muted); }
+h2 { font-size: 26px; letter-spacing: 0; }
+.brand p, header p, .note, .mutedLine { color: var(--muted); }
+.eyebrow {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
 nav { display: grid; gap: 6px; }
 button, .button {
   border: 0;
@@ -556,7 +951,7 @@ button:disabled { opacity: .55; cursor: wait; }
 }
 .nav.active { background: #31404f; border-color: #4c6174; }
 main { padding: 22px; min-width: 0; }
-header {
+.topbar {
   display: flex;
   justify-content: space-between;
   gap: 16px;
@@ -565,6 +960,45 @@ header {
 }
 .view { display: none; }
 .view.active { display: block; }
+.searchBand {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  margin-bottom: 14px;
+}
+.searchBand h3 {
+  font-size: 20px;
+  margin-bottom: 6px;
+}
+.switchLine {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: #f8fafc;
+  font-size: 13px;
+}
+.switchLine input {
+  min-width: 18px;
+  width: 18px;
+  height: 18px;
+}
+.inlineToolbar {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -612,17 +1046,119 @@ textarea {
 }
 .metrics span { display: block; font-size: 24px; font-weight: 750; }
 .metrics small { color: var(--muted); }
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 14px;
+  align-items: start;
+}
 .tableWrap {
   overflow: auto;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
 }
-table { width: 100%; border-collapse: collapse; min-width: 880px; }
+.tenderTable { table-layout: fixed; }
+table { width: 100%; border-collapse: collapse; min-width: 980px; }
 th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 th { font-size: 12px; color: var(--muted); background: #f1f4f7; }
 td:first-child { font-weight: 700; white-space: nowrap; }
 td:nth-child(2) { white-space: nowrap; }
+.tenderTable td:nth-child(2) { white-space: normal; }
+.tenderTitle {
+  max-width: 360px;
+  white-space: normal;
+  font-weight: 750;
+}
+.authorityCell {
+  max-width: 300px;
+  white-space: normal;
+  color: #334155;
+}
+.deadlineCell, .budgetCell {
+  white-space: nowrap;
+}
+.actionStack {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tinyButton {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.pill {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--accent-dark);
+  font-size: 11px;
+  font-weight: 800;
+}
+.previewPane {
+  position: sticky;
+  top: 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 440px;
+  overflow: hidden;
+}
+.previewHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+  padding: 14px;
+  border-bottom: 1px solid var(--line);
+  background: #f8fafc;
+}
+.iconLink {
+  display: inline-grid;
+  place-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  color: var(--accent-dark);
+  text-decoration: none;
+  font-weight: 800;
+}
+.previewBody {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+.docItem {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+}
+.docItem h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+.docItem p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.docActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.emptyState {
+  color: var(--muted);
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
 pre {
   margin: 0;
   min-height: 320px;
@@ -712,6 +1248,10 @@ h3 {
   .sidebar { position: static; }
   nav { grid-template-columns: repeat(4, 1fr); }
   main { padding: 14px; }
+  .searchBand,
+  .workspace {
+    grid-template-columns: 1fr;
+  }
   .metrics { grid-template-columns: 1fr; }
   .rulesGrid,
   .editorGrid {
@@ -727,6 +1267,7 @@ h3 {
 APP_JS = """
 const state = {
   selected: null,
+  dashboard: null,
   profiles: [],
   evaluationProfiles: [],
   documentTypes: [],
@@ -771,36 +1312,9 @@ function splitList(value) {
     .filter(Boolean);
 }
 
-function setBusy(isBusy, text = 'Ready') {
+function setBusy(isBusy, text = 'Έτοιμο') {
   $('statusText').textContent = text;
   document.querySelectorAll('button').forEach((button) => { button.disabled = isBusy; });
-}
-
-function renderCandidates(payload) {
-  const coverage = payload.coverage || {};
-  $('candidateCount').textContent = payload.candidates.length;
-  $('visibleRows').textContent = coverage.visible_rows_seen || 0;
-  $('adfBodies').textContent = coverage.adf_response_bodies_checked || 0;
-  const rows = $('candidateRows');
-  rows.innerHTML = '';
-  for (const candidate of payload.candidates) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${escapeHtml(candidate.eshidis_id || '')}</td>
-      <td>${escapeHtml(candidate.submission_deadline || '')}</td>
-      <td>${escapeHtml(candidate.title || '')}</td>
-      <td>${escapeHtml(candidate.status || '')}</td>
-      <td><button class="secondary selectTender" data-id="${escapeHtml(candidate.eshidis_id)}">Use</button></td>
-    `;
-    rows.appendChild(tr);
-  }
-  document.querySelectorAll('.selectTender').forEach((button) => {
-    button.addEventListener('click', () => {
-      state.selected = button.dataset.id;
-      $('eshidisInput').value = state.selected;
-      document.querySelector('[data-view="tender"]').click();
-    });
-  });
 }
 
 async function refresh() {
@@ -808,34 +1322,114 @@ async function refresh() {
   state.profiles = status.profiles || [];
   state.evaluationProfiles = status.evaluation_profiles || [];
   state.documentTypes = status.document_types || [];
-  const select = $('profileSelect');
-  select.innerHTML = '';
-  for (const profile of state.profiles) {
-    const option = document.createElement('option');
-    option.value = profile;
-    option.textContent = profile.split('/').pop();
-    select.appendChild(option);
-  }
-  const evaluationSelect = $('evaluationProfileSelect');
-  evaluationSelect.innerHTML = '';
-  for (const profile of state.evaluationProfiles) {
-    const option = document.createElement('option');
-    option.value = profile;
-    option.textContent = profile.split('/').pop();
-    evaluationSelect.appendChild(option);
-  }
-  const ruleProfileSelect = $('ruleProfileSelect');
-  ruleProfileSelect.innerHTML = '';
-  for (const profile of state.evaluationProfiles) {
-    const option = document.createElement('option');
-    option.value = profile;
-    option.textContent = profile.split('/').pop();
-    ruleProfileSelect.appendChild(option);
-  }
-  renderCandidates(await api('/api/candidates'));
-  if (!state.evaluationConfig && ruleProfileSelect.value) {
+  fillSelect('profileSelect', state.profiles);
+  fillSelect('evaluationProfileSelect', state.evaluationProfiles);
+  fillSelect('ruleProfileSelect', state.evaluationProfiles);
+  await loadDashboard();
+  if (!state.evaluationConfig && $('ruleProfileSelect').value) {
     await loadRules();
   }
+}
+
+function fillSelect(id, values) {
+  const select = $(id);
+  select.innerHTML = '';
+  for (const value of values) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = value.split('/').pop();
+    select.appendChild(option);
+  }
+}
+
+async function loadDashboard() {
+  const scope = $('allGreeceToggle').checked ? 'all' : 'focus';
+  const payload = await api(`/api/dashboard?scope=${scope}`);
+  state.dashboard = payload;
+  renderDashboard(payload);
+}
+
+function renderDashboard(payload) {
+  $('visibleTenderCount').textContent = payload.summary.visible || 0;
+  $('focusTenderCount').textContent = payload.summary.focus_matches || 0;
+  $('knownTenderCount').textContent = payload.summary.total_known || 0;
+  const municipalityText = (payload.profile.municipalities || []).join(', ');
+  $('scopeText').textContent = payload.scope === 'all'
+    ? 'Προβολή όλων των γνωστών/discovered έργων. Η πληρότητα παραμένει μετρήσιμη, όχι δεδομένη.'
+    : `Προεπιλογή τοπικού ενδιαφέροντος: ${municipalityText}`;
+  const rows = $('tenderRows');
+  rows.innerHTML = '';
+  if (!payload.tenders.length) {
+    rows.innerHTML = '<tr><td colspan="6" class="emptyState">Δεν υπάρχουν ακόμα έργα για αυτό το φίλτρο. Δοκίμασε νέα αναζήτηση ΕΣΗΔΗΣ ή ενεργοποίησε όλη την Ελλάδα.</td></tr>';
+    resetPreview();
+    return;
+  }
+  for (const tender of payload.tenders) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escapeHtml(tender.eshidis_id || '')}</td>
+      <td class="tenderTitle">${escapeHtml(tender.title || '')}${tender.interest_reason ? `<span class="pill">${escapeHtml(tender.interest_reason)}</span>` : ''}</td>
+      <td class="authorityCell">${escapeHtml(tender.authority_name || '')}</td>
+      <td class="budgetCell">${escapeHtml(tender.budget_display || '')}</td>
+      <td class="deadlineCell">${escapeHtml(tender.deadline_display || '')}</td>
+      <td>
+        <div class="actionStack">
+          <a class="button secondary tinyButton" href="${escapeHtml(tender.official_url || '#')}" target="_blank" rel="noreferrer">ΕΣΗΔΗΣ</a>
+          <button class="secondary tinyButton previewTender" data-id="${escapeHtml(tender.eshidis_id)}">Preview</button>
+          <button class="tinyButton downloadTender" data-id="${escapeHtml(tender.eshidis_id)}">Download files</button>
+        </div>
+      </td>
+    `;
+    rows.appendChild(tr);
+  }
+  document.querySelectorAll('.previewTender').forEach((button) => {
+    button.addEventListener('click', () => selectTender(button.dataset.id, false));
+  });
+  document.querySelectorAll('.downloadTender').forEach((button) => {
+    button.addEventListener('click', () => selectTender(button.dataset.id, true));
+  });
+  if (!state.selected || !payload.tenders.some((item) => item.eshidis_id === state.selected)) {
+    selectTender(payload.tenders[0].eshidis_id, false);
+  }
+}
+
+function resetPreview() {
+  $('previewTitle').textContent = 'Διάλεξε έργο';
+  $('officialLink').removeAttribute('href');
+  $('previewBody').innerHTML = '<p class="mutedLine">Εδώ θα εμφανιστούν η διακήρυξη, η τεχνική περιγραφή και ο προϋπολογισμός όταν υπάρχουν κατεβασμένα ή γνωστά συνημμένα.</p>';
+}
+
+async function selectTender(eshidisId, downloadFirst) {
+  if (!eshidisId) return;
+  state.selected = eshidisId;
+  $('eshidisInput').value = eshidisId;
+  const tender = (state.dashboard?.tenders || []).find((item) => item.eshidis_id === eshidisId) || {};
+  $('previewTitle').textContent = `${eshidisId} · ${tender.title || ''}`;
+  $('officialLink').href = tender.official_url || `/api/document-preview?eshidis_id=${encodeURIComponent(eshidisId)}`;
+  if (downloadFirst) {
+    await runAction('/api/download-all', { eshidis_id: eshidisId }, `Downloading files for ${eshidisId}...`);
+    await loadDashboard();
+  }
+  await renderPreview(eshidisId);
+}
+
+async function renderPreview(eshidisId) {
+  const payload = await api(`/api/document-preview?eshidis_id=${encodeURIComponent(eshidisId)}`);
+  const docs = payload.featured?.length ? payload.featured : payload.documents || [];
+  if (!docs.length) {
+    $('previewBody').innerHTML = '<div class="emptyState">Δεν υπάρχουν ακόμα συνημμένα στη βάση για αυτό το έργο. Πάτα Fetch official detail και μετά Download files.</div>';
+    return;
+  }
+  $('previewBody').innerHTML = docs.map((doc) => `
+    <article class="docItem">
+      <h4>${escapeHtml(doc.label)}${doc.available ? '' : ' · δεν έχει κατέβει'}</h4>
+      <p>${escapeHtml(doc.name || '')}</p>
+      ${doc.text_sample ? `<p>${escapeHtml(String(doc.text_sample).slice(0, 220))}</p>` : ''}
+      <div class="docActions">
+        ${doc.view_url ? `<a class="button tinyButton" href="${escapeHtml(doc.view_url)}" target="_blank" rel="noreferrer">Open</a>` : ''}
+      </div>
+    </article>
+  `).join('');
 }
 
 async function runAction(path, body, label) {
@@ -844,18 +1438,18 @@ async function runAction(path, body, label) {
   try {
     const result = await api(path, { method: 'POST', body: JSON.stringify(body || {}) });
     $('commandOutput').textContent = JSON.stringify(result, null, 2);
-    if (result.candidates) renderCandidates(result.candidates);
-    $('statusText').textContent = result.ok === false ? 'Finished with errors' : 'Done';
+    $('statusText').textContent = result.ok === false ? 'Τελείωσε με σφάλματα' : 'Ολοκληρώθηκε';
+    await loadDashboard();
   } catch (error) {
     $('commandOutput').textContent = String(error);
-    $('statusText').textContent = 'Error';
+    $('statusText').textContent = 'Σφάλμα';
   } finally {
     setBusy(false, $('statusText').textContent);
   }
 }
 
 function selectedId() {
-  return $('eshidisInput').value.trim();
+  return $('eshidisInput').value.trim() || state.selected || '';
 }
 
 async function loadRules() {
@@ -987,7 +1581,8 @@ function deleteRule() {
 }
 
 $('refreshBtn').addEventListener('click', refresh);
-$('discoverBtn').addEventListener('click', () => runAction('/api/discover', { limit: $('limitInput').value }, 'Running discovery...'));
+$('allGreeceToggle').addEventListener('change', () => loadDashboard().catch((error) => { $('statusText').textContent = String(error); }));
+$('discoverBtn').addEventListener('click', () => runAction('/api/discover', { limit: $('limitInput').value }, 'Νέα αναζήτηση ΕΣΗΔΗΣ...'));
 $('fetchBtn').addEventListener('click', () => runAction('/api/fetch-resource', { eshidis_id: selectedId() }, 'Fetching official detail...'));
 $('downloadBtn').addEventListener('click', () => runAction('/api/download-all', { eshidis_id: selectedId() }, 'Downloading attachments...'));
 $('analyzeBtn').addEventListener('click', () => runAction('/api/analyze', { eshidis_id: selectedId() }, 'Analyzing documents...'));

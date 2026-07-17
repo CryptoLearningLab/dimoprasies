@@ -24,6 +24,12 @@ municipalities:
     aliases: ["Θέρμο", "Θέρμου"]
     nuts: ["EL631"]
 
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Πάτρα", "Πατρών", "Πατρέων", "Ρίο", "Βραχνέικα", "Μεσσάτιδα",
+              "Παραλία Πατρών"]
+    nuts: ["EL632"]
+
 regions:
   - id: western_greece
     name: "Περιφέρεια Δυτικής Ελλάδας"
@@ -33,5 +39,4 @@ regions:
   - id: central_greece
     name: "Περιφέρεια Στερεάς Ελλάδας"
     nuts_prefixes: ["EL64"]
-    included_regional_units: ["Βοιωτία", "Εύβοια", "Ευρυτανία",
-                              "Φθιώτιδα", "Φωκίδα"]
+    included_regional_units: ["Φωκίδα"]

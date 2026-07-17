@@ -43,6 +43,12 @@ It starts a local browser UI at `http://127.0.0.1:8765/` with buttons for:
 The UI uses the same audited CLI commands and stores the same JSON/Markdown
 reports under `work/reports/`.
 
+The first screen is now organized for daily use: it defaults to the configured
+local-interest geography in `config/locations.yml`, offers an `all Greece`
+toggle, shows the essential tender fields, links to the official ESHIDIS
+resource page, and provides `Download files` plus preview of declaration,
+technical description and budget when those attachments are known.
+
 For private remote access through Tailscale, use:
 
 ```text
