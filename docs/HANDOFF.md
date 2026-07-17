@@ -205,6 +205,16 @@ That URL is temporary and should not be treated as stable infrastructure.
 - The UI table uses separate `Α/Α` and `Πηγή` columns. The `Εργαλεία` page has
   both an ESHIDIS id input and a KIMDIS ADAM input. Document previews render
   all available documents rather than only the featured subset.
+- The first dashboard is now the primary document workflow. Each tender row
+  exposes `Fetch`, which detects the first-column identifier as either ESHIDIS
+  numeric id or KIMDIS `26PROC...` ADAM and fetches only that row's official
+  documents, plus `ZIP`, which streams all already downloaded local documents
+  for that row as one archive.
+- `sources fetch-kimdis-open-proc` supports `--official-id` for single-ADAM
+  fetches. The older batch fetch remains available for full open-PROC refreshes.
+- The UI shows a modal progress overlay while long-running fetch/download
+  actions are active. Commands remain serialized because they write shared
+  runtime reports and document indexes.
 - Ambiguous place aliases are recall-first. `Γλυφάδα` and `Γλυφάδας` are
   configured as ambiguous aliases for Δήμος Δωρίδος: positive context such as
   `Δωρίδος`, `Φωκίδα` or `EL645` confirms the match; negative context such as
@@ -223,7 +233,7 @@ Latest confirmed command:
 Result:
 
 ```text
-66 passed in 1.46s
+69 passed in 1.67s
 ```
 
 Latest KIMDIS PROC attachment fetch command:

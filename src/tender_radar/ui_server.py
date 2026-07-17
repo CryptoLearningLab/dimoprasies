@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import date
+import io
 import json
 import mimetypes
 import re
@@ -11,6 +12,7 @@ import sys
 import threading
 import unicodedata
 import webbrowser
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -100,6 +102,19 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 return
             self._send_file(path)
             return
+        if parsed.path == "/api/document-zip":
+            query = parse_qs(parsed.query)
+            identifier = require_known_document_identifier({"identifier": query.get("identifier", [""])[0]})
+            archive_name, archive_body = document_zip_bytes(identifier)
+            if not archive_body:
+                self._send_json({"error": "No downloaded documents are available for this tender."}, status=404)
+                return
+            self._send_bytes(
+                archive_body,
+                "application/zip",
+                extra_headers={"Content-Disposition": f'attachment; filename="{archive_name}"'},
+            )
+            return
         if parsed.path == "/api/evaluation-profile":
             query = parse_qs(parsed.query)
             profile_path = safe_evaluation_profile_path(query.get("path", [""])[0])
@@ -135,34 +150,13 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                     )
                 )
                 return
+            if parsed.path == "/api/fetch-selected":
+                identifier = require_known_document_identifier(payload)
+                self._send_json(run_selected_fetch(identifier))
+                return
             if parsed.path == "/api/fetch-kimdis-open-proc":
-                self._send_json(
-                    run_cli_command(
-                        [
-                            "sources",
-                            "fetch-kimdis-open-proc",
-                            "--expanded-report",
-                            "work/reports/expanded_discovery_report.json",
-                            "--config",
-                            "config/sources.yml",
-                            "--download-dir",
-                            "work/download_audit/kimdis",
-                            "--text-dir",
-                            "work/extracted_text/kimdis",
-                            "--document-index",
-                            "work/derived/kimdis_open_proc_documents.json",
-                            "--report",
-                            "work/reports/kimdis_open_proc_fetch_report.json",
-                            "--markdown-report",
-                            "work/reports/kimdis_open_proc_fetch_report.md",
-                            "--limit",
-                            "50",
-                            "--timeout",
-                            "30",
-                            "--allow-insecure-tls",
-                        ]
-                    )
-                )
+                official_id = str(payload.get("official_id") or "").strip() or None
+                self._send_json(run_kimdis_fetch(official_id=official_id))
                 return
             if parsed.path == "/api/analyze":
                 eshidis_id = require_eshidis_id(payload)
@@ -267,9 +261,21 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
     def _send_file(self, path: Path) -> None:
         body = path.read_bytes()
         content_type = content_type_for_path(path)
-        self.send_response(200)
+        self._send_bytes(body, content_type)
+
+    def _send_bytes(
+        self,
+        body: bytes,
+        content_type: str,
+        *,
+        status: int = 200,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
+        self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        for key, value in (extra_headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -283,6 +289,83 @@ def run_cli_command(args: list[str]) -> dict[str, Any]:
         return result
     except subprocess.TimeoutExpired as exc:
         return {"ok": False, "error": f"Command timed out: {exc!r}", "command": " ".join(args)}
+    finally:
+        COMMAND_LOCK.release()
+
+
+def run_selected_fetch(identifier: str) -> dict[str, Any]:
+    if is_kimdis_identifier(identifier):
+        return run_kimdis_fetch(official_id=identifier)
+    eshidis_id = require_eshidis_id({"eshidis_id": identifier})
+    steps = [
+        {"name": "fetch_detail", "args": ["sources", "fetch-resource", eshidis_id, "--allow-insecure-tls"], "timeout": 180},
+        {
+            "name": "download_files",
+            "args": ["sources", "download-attachment", eshidis_id, "--all", "--limit", "50", "--allow-insecure-tls"],
+            "timeout": 180,
+        },
+    ]
+    return run_cli_steps(steps, dashboard_scope="focus")
+
+
+def run_kimdis_fetch(*, official_id: str | None = None) -> dict[str, Any]:
+    args = kimdis_fetch_args()
+    if official_id:
+        official_id = require_kimdis_id({"official_id": official_id})
+        args.extend(["--official-id", official_id])
+    return run_cli_command(args)
+
+
+def kimdis_fetch_args() -> list[str]:
+    return [
+        "sources",
+        "fetch-kimdis-open-proc",
+        "--expanded-report",
+        "work/reports/expanded_discovery_report.json",
+        "--config",
+        "config/sources.yml",
+        "--download-dir",
+        "work/download_audit/kimdis",
+        "--text-dir",
+        "work/extracted_text/kimdis",
+        "--document-index",
+        "work/derived/kimdis_open_proc_documents.json",
+        "--report",
+        "work/reports/kimdis_open_proc_fetch_report.json",
+        "--markdown-report",
+        "work/reports/kimdis_open_proc_fetch_report.md",
+        "--limit",
+        "50",
+        "--timeout",
+        "30",
+        "--allow-insecure-tls",
+    ]
+
+
+def run_cli_steps(steps: list[dict[str, Any]], *, dashboard_scope: str | None = None) -> dict[str, Any]:
+    if not COMMAND_LOCK.acquire(blocking=False):
+        return {"ok": False, "error": "Another command is already running. Wait for it to finish."}
+    results: list[dict[str, Any]] = []
+    try:
+        for step in steps:
+            result = run_cli_process(step["args"], timeout=int(step.get("timeout") or 180))
+            result["name"] = step.get("name")
+            results.append(result)
+            if result.get("returncode") != 0:
+                break
+        ok = bool(results) and all(item.get("returncode") == 0 for item in results)
+        payload: dict[str, Any] = {
+            "ok": ok,
+            "command": " && ".join(str(item.get("command") or "") for item in results),
+            "steps": results,
+            "warnings": [item for item in results if item.get("returncode") not in (0, None)],
+            "candidates": candidates_payload(),
+        }
+        if dashboard_scope:
+            payload["dashboard"] = dashboard_payload(scope=dashboard_scope)
+        return payload
+    except subprocess.TimeoutExpired as exc:
+        return {"ok": False, "error": f"Command timed out: {exc!r}", "steps": results}
     finally:
         COMMAND_LOCK.release()
 
@@ -389,6 +472,17 @@ def require_kimdis_id(payload: dict[str, Any]) -> str:
     if not re.fullmatch(r"\d{2}PROC\d{9}", value):
         raise ValueError("KIMDIS official id must look like 26PROC019417347.")
     return value
+
+
+def require_known_document_identifier(payload: dict[str, Any]) -> str:
+    value = str(payload.get("identifier") or payload.get("official_id") or payload.get("eshidis_id") or "").strip()
+    if is_kimdis_identifier(value):
+        return require_kimdis_id({"official_id": value})
+    return require_eshidis_id({"eshidis_id": value})
+
+
+def is_kimdis_identifier(value: str) -> bool:
+    return re.fullmatch(r"\d{2}PROC\d{9}", str(value or "").strip()) is not None
 
 
 def status_payload() -> dict[str, Any]:
@@ -552,7 +646,7 @@ def kimdis_open_proc_rows() -> list[dict[str, Any]]:
                 "size_bytes": document.get("size_bytes"),
                 "text_sample": short_text_sample(_none_or_str(text_sample)),
                 "supports_eshidis_actions": False,
-                "supports_kimdis_actions": has_local_document,
+                "supports_kimdis_actions": True,
                 "interest_match": bool(matched_scopes),
                 "interest_reason": ", ".join([*matched_scopes, *match_notes]),
             }
@@ -774,6 +868,84 @@ def kimdis_document_file_path(official_id: str) -> Path | None:
     if not document:
         return None
     return normalize_local_path(_none_or_str(document.get("local_path")))
+
+
+def document_zip_bytes(identifier: str) -> tuple[str, bytes | None]:
+    entries = (
+        kimdis_document_paths(identifier)
+        if is_kimdis_identifier(identifier)
+        else eshidis_document_paths(require_eshidis_id({"eshidis_id": identifier}))
+    )
+    if not entries:
+        return f"tender_{safe_filename(identifier)}_documents.zip", None
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        used_names: set[str] = set()
+        for preferred_name, path in entries:
+            arcname = unique_archive_name(safe_filename(preferred_name or path.name), used_names)
+            archive.write(path, arcname=arcname)
+    return f"tender_{safe_filename(identifier)}_documents.zip", buffer.getvalue()
+
+
+def eshidis_document_paths(eshidis_id: str) -> list[tuple[str, Path]]:
+    db_path = REPO_ROOT / "data" / "tender_radar.sqlite"
+    if not db_path.exists():
+        return []
+    connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        rows = connection.execute(
+            """
+            SELECT original_name, local_path
+            FROM attachments
+            JOIN tenders ON tenders.id = attachments.tender_id
+            WHERE tenders.eshidis_id = ?
+              AND attachments.is_latest = 1
+              AND attachments.local_path IS NOT NULL
+            ORDER BY attachments.id
+            """,
+            (eshidis_id,),
+        ).fetchall()
+    finally:
+        connection.close()
+    entries: list[tuple[str, Path]] = []
+    for row in rows:
+        path = normalize_local_path(row["local_path"])
+        if path:
+            entries.append((str(row["original_name"] or path.name), path))
+    return entries
+
+
+def kimdis_document_paths(official_id: str) -> list[tuple[str, Path]]:
+    entries: list[tuple[str, Path]] = []
+    document_path = kimdis_document_file_path(official_id)
+    if document_path:
+        entries.append((document_path.name, document_path))
+    target_dir = (REPO_ROOT / "work/download_audit/kimdis" / safe_filename(official_id)).resolve()
+    work_dir = (REPO_ROOT / "work").resolve()
+    if work_dir in target_dir.parents and target_dir.exists():
+        for path in sorted(target_dir.iterdir()):
+            if path.is_file() and path.resolve() != document_path:
+                entries.append((path.name, path.resolve()))
+    return entries
+
+
+def safe_filename(value: str) -> str:
+    sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", str(value or "").strip())
+    sanitized = re.sub(r"\s+", " ", sanitized).strip(" .")
+    return sanitized or "document"
+
+
+def unique_archive_name(name: str, used_names: set[str]) -> str:
+    candidate = name
+    stem = Path(name).stem or "document"
+    suffix = Path(name).suffix
+    counter = 2
+    while candidate in used_names:
+        candidate = f"{stem}_{counter}{suffix}"
+        counter += 1
+    used_names.add(candidate)
+    return candidate
 
 
 def normalize_local_path(value: str | None) -> Path | None:
@@ -1014,7 +1186,6 @@ INDEX_HTML = """<!doctype html>
     </div>
     <nav>
       <button class="nav active" data-view="overview">Αναζήτηση</button>
-      <button class="nav" data-view="workflow">Εργαλεία</button>
       <button class="nav" data-view="rules">Κανόνες</button>
       <button class="nav" data-view="reports">Αρχεία</button>
     </nav>
@@ -1082,6 +1253,10 @@ INDEX_HTML = """<!doctype html>
           </div>
         </aside>
       </div>
+      <details class="commandLog">
+        <summary>Τεχνικό αποτέλεσμα τελευταίας ενέργειας</summary>
+        <pre id="commandOutput"></pre>
+      </details>
     </section>
 
     <section id="workflow" class="view">
@@ -1104,7 +1279,7 @@ INDEX_HTML = """<!doctype html>
         <label>Evaluation <select id="evaluationProfileSelect"></select></label>
         <button id="evaluateBtn">Evaluate</button>
       </div>
-      <pre id="commandOutput"></pre>
+      <pre id="advancedCommandOutput"></pre>
     </section>
 
     <section id="rules" class="view">
@@ -1169,6 +1344,13 @@ INDEX_HTML = """<!doctype html>
       <p class="note">Οι υποψήφιοι μένουν candidate-only μέχρι να γίνει fetch του επίσημου detail resource.</p>
     </section>
   </main>
+  <div id="busyOverlay" class="busyOverlay" aria-live="polite" aria-hidden="true">
+    <div class="busyPanel">
+      <div class="radarPulse"><span></span></div>
+      <h3 id="busyTitle">Περιμένετε όσο συλλέγουμε όλα τα δεδομένα</h3>
+      <p id="busyText">Επικοινωνούμε με τις επίσημες πηγές και οργανώνουμε τα αρχεία.</p>
+    </div>
+  </div>
   <script src="/app.js"></script>
 </body>
 </html>
@@ -1459,6 +1641,19 @@ td:nth-child(2) { white-space: nowrap; color: var(--muted); font-weight: 700; }
   gap: 8px;
   margin-top: 10px;
 }
+.commandLog {
+  margin-top: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.commandLog summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  color: var(--muted);
+  font-weight: 800;
+}
 .emptyState {
   color: var(--muted);
   padding: 14px;
@@ -1550,10 +1745,75 @@ h3 {
   color: var(--muted);
   font-size: 13px;
 }
+.busyOverlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, .48);
+  z-index: 20;
+}
+.busyOverlay.active {
+  display: grid;
+}
+.busyPanel {
+  width: min(420px, 100%);
+  border-radius: 8px;
+  border: 1px solid rgba(184, 231, 223, .55);
+  background: #101820;
+  color: #edf7f5;
+  padding: 24px;
+  text-align: center;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, .28);
+}
+.busyPanel h3 {
+  font-size: 18px;
+  margin: 12px 0 6px;
+}
+.busyPanel p {
+  color: #a8b6c5;
+  line-height: 1.45;
+}
+.radarPulse {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  margin: 0 auto;
+  border: 1px solid rgba(140, 189, 182, .5);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, rgba(15, 118, 110, .9) 0 5px, transparent 6px),
+    repeating-radial-gradient(circle at center, rgba(184, 231, 223, .12) 0 1px, transparent 1px 18px);
+  overflow: hidden;
+}
+.radarPulse::before {
+  content: "";
+  position: absolute;
+  inset: 50% 50% 0 50%;
+  width: 44px;
+  height: 44px;
+  background: linear-gradient(45deg, rgba(45, 212, 191, .85), transparent 62%);
+  transform-origin: 0 0;
+  animation: sweep 1.45s linear infinite;
+}
+.radarPulse span {
+  position: absolute;
+  inset: 20px;
+  border: 1px solid rgba(45, 212, 191, .45);
+  border-radius: 50%;
+  animation: pulse 1.8s ease-in-out infinite;
+}
+@keyframes sweep {
+  to { transform: rotate(360deg); }
+}
+@keyframes pulse {
+  50% { transform: scale(1.28); opacity: .45; }
+}
 @media (max-width: 820px) {
   body { grid-template-columns: 1fr; }
   .sidebar { position: static; }
-  nav { grid-template-columns: repeat(4, 1fr); }
+  nav { grid-template-columns: repeat(3, 1fr); }
   main { padding: 14px; }
   .searchBand,
   .workspace {
@@ -1622,6 +1882,12 @@ function splitList(value) {
 function setBusy(isBusy, text = 'Έτοιμο') {
   $('statusText').textContent = text;
   document.querySelectorAll('button').forEach((button) => { button.disabled = isBusy; });
+  $('busyOverlay').classList.toggle('active', isBusy);
+  $('busyOverlay').setAttribute('aria-hidden', isBusy ? 'false' : 'true');
+  $('busyTitle').textContent = isBusy ? 'Περιμένετε όσο συλλέγουμε όλα τα δεδομένα' : 'Έτοιμο';
+  $('busyText').textContent = isBusy
+    ? text
+    : 'Επικοινωνούμε με τις επίσημες πηγές και οργανώνουμε τα αρχεία.';
 }
 
 async function refresh() {
@@ -1676,6 +1942,8 @@ function renderDashboard(payload) {
     const isEshidis = Boolean(tender.supports_eshidis_actions);
     const isKimdis = Boolean(tender.supports_kimdis_actions);
     const linkLabel = tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : 'ΕΣΗΔΗΣ';
+    const identifier = tender.official_id || tender.eshidis_id || tender.display_id || '';
+    const zipUrl = `/api/document-zip?identifier=${encodeURIComponent(identifier)}`;
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><strong>${escapeHtml(tender.display_id || tender.eshidis_id || '')}</strong></td>
@@ -1687,19 +1955,15 @@ function renderDashboard(payload) {
       <td>
         <div class="actionStack">
           <a class="button secondary tinyButton" href="${escapeHtml(tender.official_url || tender.attachment_url || '#')}" target="_blank" rel="noreferrer">${linkLabel}</a>
-          ${(isEshidis || isKimdis) ? `<button class="secondary tinyButton previewTender" data-key="${escapeHtml(rowKey)}">Preview</button>` : ''}
-          ${isEshidis ? `<button class="tinyButton downloadTender" data-key="${escapeHtml(rowKey)}">Download files</button>` : ''}
-          ${isKimdis && tender.download_url ? `<a class="button tinyButton" href="${escapeHtml(tender.download_url)}" target="_blank" rel="noreferrer">Download file</a>` : ''}
+          ${(isEshidis || isKimdis) ? `<button class="tinyButton fetchTender" data-key="${escapeHtml(rowKey)}" data-id="${escapeHtml(identifier)}">Fetch</button>` : ''}
+          ${(isEshidis || isKimdis) ? `<a class="button secondary tinyButton" href="${escapeHtml(zipUrl)}" target="_blank" rel="noreferrer">ZIP</a>` : ''}
         </div>
       </td>
     `;
     rows.appendChild(tr);
   }
-  document.querySelectorAll('.previewTender').forEach((button) => {
-    button.addEventListener('click', () => selectTender(button.dataset.key, false));
-  });
-  document.querySelectorAll('.downloadTender').forEach((button) => {
-    button.addEventListener('click', () => selectTender(button.dataset.key, true));
+  document.querySelectorAll('.fetchTender').forEach((button) => {
+    button.addEventListener('click', () => fetchTenderDocuments(button.dataset.key, button.dataset.id));
   });
   if (!state.selected || !payload.tenders.some((item) => (item.row_key || item.eshidis_id) === state.selected)) {
     selectTender(payload.tenders[0].row_key || payload.tenders[0].eshidis_id, false);
@@ -1742,6 +2006,30 @@ async function selectTender(eshidisId, downloadFirst) {
     await loadDashboard();
   }
   await renderPreview(actualEshidisId);
+}
+
+async function fetchTenderDocuments(rowKey, identifier) {
+  if (!identifier) return;
+  if (rowKey) state.selected = rowKey;
+  await runAction(
+    '/api/fetch-selected',
+    { identifier },
+    `Συλλογή επίσημων εγγράφων για ${identifier}...`
+  );
+  await loadDashboard();
+  const tender = (state.dashboard?.tenders || []).find((item) => (item.row_key || item.eshidis_id) === rowKey) || {};
+  if (isKimdisCode(identifier)) {
+    await renderKimdisPreview(identifier);
+  } else {
+    await renderPreview(identifier);
+  }
+  if (tender.title) {
+    $('previewTitle').textContent = `${tender.display_id || identifier} · ${tender.title}`;
+  }
+}
+
+function isKimdisCode(value) {
+  return /^\\d{2}PROC\\d{9}$/.test(String(value || '').trim());
 }
 
 async function renderKimdisPreview(officialId) {

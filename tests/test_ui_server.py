@@ -2,9 +2,11 @@ from pathlib import Path
 
 import tender_radar.ui_server as ui_server
 from tender_radar.ui_server import (
+    APP_JS,
     INDEX_HTML,
     content_type_for_path,
     dashboard_payload,
+    document_zip_bytes,
     discovery_search_steps,
     format_budget,
     interest_reason,
@@ -31,6 +33,13 @@ def test_ui_has_separate_id_source_columns_and_kimdis_tool_input() -> None:
     assert "Α/Α / Πηγή" not in INDEX_HTML
     assert 'id="kimdisInput"' in INDEX_HTML
     assert 'id="kimdisFetchBtn"' in INDEX_HTML
+
+
+def test_dashboard_actions_use_fetch_and_zip_not_preview_buttons() -> None:
+    assert "fetchTender" in APP_JS
+    assert "/api/fetch-selected" in APP_JS
+    assert "/api/document-zip" in APP_JS
+    assert "previewTender" not in APP_JS
 
 
 def test_budget_parser_extracts_candidate_row_budget() -> None:
@@ -180,6 +189,56 @@ regions: []
     assert preview["documents"][0]["label"] == "Διακήρυξη"
     assert preview["documents"][0]["view_url"] == "/api/kimdis-document-file?official_id=26PROC000000001"
     assert file_path == pdf_path.resolve()
+
+
+def test_document_zip_includes_all_eshidis_latest_local_files(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    file_one = tmp_path / "work/download_audit/eshidis/221744/one.pdf"
+    file_two = tmp_path / "work/download_audit/eshidis/221744/two.pdf"
+    file_one.parent.mkdir(parents=True)
+    file_one.write_bytes(b"one")
+    file_two.write_bytes(b"two")
+    db_path = tmp_path / "data/tender_radar.sqlite"
+    import sqlite3
+
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE tenders (id INTEGER PRIMARY KEY, eshidis_id TEXT);
+            CREATE TABLE attachments (
+              id INTEGER PRIMARY KEY,
+              tender_id INTEGER,
+              original_name TEXT,
+              local_path TEXT,
+              is_latest INTEGER
+            );
+            """
+        )
+        connection.execute("INSERT INTO tenders (id, eshidis_id) VALUES (1, '221744')")
+        connection.execute(
+            "INSERT INTO attachments (tender_id, original_name, local_path, is_latest) VALUES (1, 'one.pdf', ?, 1)",
+            (str(file_one.relative_to(tmp_path)),),
+        )
+        connection.execute(
+            "INSERT INTO attachments (tender_id, original_name, local_path, is_latest) VALUES (1, 'two.pdf', ?, 1)",
+            (str(file_two.relative_to(tmp_path)),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    name, body = document_zip_bytes("221744")
+
+    assert name == "tender_221744_documents.zip"
+    assert body is not None
+    import io
+    import zipfile
+
+    with zipfile.ZipFile(io.BytesIO(body)) as archive:
+        assert sorted(archive.namelist()) == ["one.pdf", "two.pdf"]
+        assert archive.read("one.pdf") == b"one"
 
 
 def test_discovery_search_steps_run_eshidis_then_expanded_kimdis() -> None:

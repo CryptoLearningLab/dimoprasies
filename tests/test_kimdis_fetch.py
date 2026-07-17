@@ -115,6 +115,48 @@ def test_fetch_kimdis_open_proc_keeps_repeated_titles_separate(tmp_path) -> None
     assert report["deduplication"]["title_only_merge"] is False
 
 
+def test_fetch_kimdis_open_proc_can_filter_one_official_id(tmp_path) -> None:
+    expanded_report = tmp_path / "expanded.json"
+    expanded_report.write_text(
+        json.dumps(
+            {
+                "focus_open_proc_candidates": [
+                    _candidate("26PROC000000001", "https://example.test/1"),
+                    _candidate("26PROC000000002", "https://example.test/2"),
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    class Response:
+        headers = Message()
+
+        def __init__(self) -> None:
+            self.headers["Content-Type"] = "application/octet-stream"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return b"attachment"
+
+    with patch("tender_radar.sources.kimdis_fetch.urlopen", return_value=Response()) as mocked_urlopen:
+        report = fetch_kimdis_open_proc_candidates(
+            expanded_report_path=expanded_report,
+            download_dir=tmp_path / "downloads",
+            official_id="26PROC000000002",
+        )
+
+    assert mocked_urlopen.call_count == 1
+    assert report["summary"]["candidates_checked"] == 1
+    assert [item["official_id"] for item in report["shortlist"]] == ["26PROC000000002"]
+
+
 def test_fetch_kimdis_open_proc_marks_document_evidence_from_text(tmp_path) -> None:
     config_path = tmp_path / "sources.yml"
     config_path.write_text(

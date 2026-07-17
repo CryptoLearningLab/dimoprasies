@@ -541,6 +541,23 @@
 - Τα KIMDIS PROC documents έχουν structured artifact και UI preview/download,
   αλλά δεν έχουν ακόμη ενσωματωθεί στο SQLite search/evaluation pipeline όπως
   τα ESHIDIS documents.
+- Το dashboard είναι πλέον η κύρια ροή λήψης εγγράφων: κάθε γραμμή έχει
+  `Fetch` που αναγνωρίζει από τον κωδικό αν πρόκειται για ΕΣΗΔΗΣ ή ΚΗΜΔΗΣ και
+  `ZIP` για όλα τα ήδη διαθέσιμα τοπικά έγγραφα της συγκεκριμένης γραμμής.
+- Το `sources fetch-kimdis-open-proc` υποστηρίζει `--official-id`, ώστε το UI
+  να μπορεί να κάνει fetch ενός συγκεκριμένου ΑΔΑΜ χωρίς να ξανατραβάει όλη
+  τη λίστα open PROC.
+- Προστέθηκε progress overlay στο UI με μήνυμα αναμονής κατά τα long-running
+  fetch/download actions. Τα commands παραμένουν serialized με lock επειδή
+  γράφουν κοινά runtime reports/indexes.
+- Verification για την UI απλοποίηση:
+  `.venv/bin/python -m tender_radar config validate` πέρασε για όλα τα config
+  files.
+- Targeted tests:
+  `.venv/bin/python -m pytest tests/test_ui_server.py tests/test_kimdis_fetch.py`
+  επέστρεψε `22 passed in 0.65s`.
+- Full test suite:
+  `.venv/bin/python -m pytest` επέστρεψε `69 passed in 1.67s`.
 
 ## Coverage
 
@@ -570,6 +587,9 @@ ui_dashboard_scope_focus_rows: 14
 ui_dashboard_scope_all_rows: 32
 ui_table_id_source_split: true
 ui_kimdis_tools: true
+ui_dashboard_row_fetch: true
+ui_dashboard_zip_download: true
+kimdis_fetch_single_official_id: true
 source_whitelist_files: 2
 source_whitelist_entries_checked: 36
 source_whitelist_reachable: 29

@@ -183,3 +183,16 @@ context. A negative context such as another municipality, region or NUTS code
 blocks the match. A positive context confirms it. If the alias appears without
 either, the candidate is retained for human review with a match note rather
 than being filtered out.
+
+## D-025 - Dashboard rows own document actions
+**Status:** Accepted
+
+The first dashboard is the primary daily workflow for document collection.
+Per-row `Fetch` detects whether the row identifier is an ESHIDIS numeric id or
+a KIMDIS `PROC` ADAM and fetches documents for that identifier only. Per-row
+`ZIP` streams the downloaded local documents for that same row. Batch tools may
+remain available for maintenance, but they should not be the main user path.
+
+Long-running commands remain serialized because they write shared runtime
+reports and document indexes; the UI must show explicit progress instead of
+appearing idle.

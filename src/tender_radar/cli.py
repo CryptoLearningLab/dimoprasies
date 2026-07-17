@@ -202,6 +202,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     kimdis_fetch.add_argument("--timeout", type=int, default=30, help="Per-request timeout in seconds.")
     kimdis_fetch.add_argument("--limit", type=int, default=50, help="Maximum open PROC candidates to fetch.")
+    kimdis_fetch.add_argument(
+        "--official-id",
+        default=None,
+        help="Fetch only one KIMDIS PROC official id, e.g. 26PROC019417347.",
+    )
     kimdis_fetch.add_argument("--force", action="store_true", help="Download again even when a local file exists.")
     kimdis_fetch.add_argument("--retries", type=int, default=2, help="Retries for HTTP 429 rate-limit responses.")
     kimdis_fetch.add_argument(
@@ -447,6 +452,7 @@ def _sources_fetch_kimdis_open_proc(args: argparse.Namespace) -> int:
         timeout_seconds=args.timeout,
         allow_insecure_tls=args.allow_insecure_tls,
         limit=args.limit,
+        official_id=args.official_id,
         force=args.force,
         sources_config_path=Path(args.config),
         text_dir=Path(args.text_dir),

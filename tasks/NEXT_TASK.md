@@ -22,6 +22,13 @@ context-free ambiguous matches are retained for review
 current live expanded report has 0 ambiguous retained matches
 ```
 
+Recent UI workflow update as of `2026-07-17`:
+
+```text
+dashboard row actions now handle per-id Fetch and ZIP document download
+KIMDIS fetch supports --official-id for one ADAM at a time
+```
+
 ## Instruction
 
 Build the next smallest recall-safety step:

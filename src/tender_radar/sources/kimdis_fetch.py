@@ -60,6 +60,7 @@ def fetch_kimdis_open_proc_candidates(
     timeout_seconds: int = 30,
     allow_insecure_tls: bool = False,
     limit: int | None = None,
+    official_id: str | None = None,
     force: bool = False,
     sources_config_path: Path | None = None,
     text_dir: Path | None = None,
@@ -70,6 +71,8 @@ def fetch_kimdis_open_proc_candidates(
     source_report = json.loads(expanded_report_path.read_text(encoding="utf-8"))
     scope_aliases = _scope_aliases(sources_config_path) if sources_config_path else {}
     candidates = _open_proc_candidates(source_report)
+    if official_id:
+        candidates = [candidate for candidate in candidates if str(candidate.get("official_id") or "") == official_id]
     if limit is not None:
         candidates = candidates[: max(0, limit)]
 
