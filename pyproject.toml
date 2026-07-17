@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "public-works-tender-radar"
+version = "0.1.0"
+description = "Public works tender monitoring scaffold for Greek public tenders."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+yaml = ["PyYAML>=6.0.2"]
+browser = ["playwright>=1.55"]
+docs = ["pypdf>=6.0"]
+dev = ["pytest>=8.0", "PyYAML>=6.0.2"]
+
+[project.scripts]
+tender-radar = "tender_radar.cli:main"
+tender-radar-ui = "tender_radar.ui_server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

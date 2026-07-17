@@ -1,0 +1,22 @@
+fixtures:
+  - id: poros_limena_rockfall
+    identifiers:
+      eshidis_id: "221314"
+      adam: "26PROC019312848"
+
+    expected_content:
+      work_family: rockfall_energy_barrier
+      energy_class_kj: 5000
+      nominal_height_m: 6
+
+    status_policy:
+      dynamic: true
+      expected_initial_class: CONTENT_MATCH_PENDING_STATUS
+      note: >
+        Η τελική κατάσταση προκύπτει από την τελευταία επίσημη
+        προθεσμία και νεότερες πράξεις.
+
+    hardcoding_forbidden:
+      - search result
+      - current status
+      - tender metadata outside identifiers

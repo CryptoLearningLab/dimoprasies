@@ -1,0 +1,24 @@
+fixture:
+  id: tender_221684
+  identifiers:
+    eshidis_id: "221684"
+
+  expected_content:
+    - phrase: "Κατασκευή οπλισμένου επιχώματος"
+      expected_article_code: "ΝΑΟΔΟ Α22"
+    - phrase: "γεωπλέγματα οπλισμένων επιχωμάτων"
+      expected_article_code: "ΝΑΟΔΟ Β12.5"
+      expected_revision_code: "ΟΙΚ-7914"
+
+  status_policy:
+    dynamic: true
+    note: >
+      Μην hardcode-άρεις ότι το έργο είναι ενεργό. Η κατάσταση
+      επαληθεύεται κατά το runtime.
+
+  pass_conditions:
+    - attachment list retrieved or failure explicitly evidenced
+    - relevant document downloaded
+    - matching page preserved
+    - extracted item stored in database
+    - exported result contains provenance

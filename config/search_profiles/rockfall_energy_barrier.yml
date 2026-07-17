@@ -1,0 +1,69 @@
+profile:
+  id: rockfall_energy_barrier
+  name: "Φράκτες ανάσχεσης βραχοπτώσεων"
+  description: >
+    Παράδειγμα ειδικού profile. Δεν αποτελεί λογική του πυρήνα.
+
+scope:
+  nationwide: true
+  active_only: true
+
+document_types:
+  include:
+    - budget
+    - bill_of_quantities
+    - price_list
+    - technical_description
+    - technical_specification
+    - technical_study
+
+terms:
+  exact_phrases:
+    - "φράχτης ανάσχεσης βραχοπτώσεων"
+    - "φράκτης ανάσχεσης βραχοπτώσεων"
+    - "φράχτες ανάσχεσης βραχοπτώσεων"
+    - "φράκτες ανάσχεσης βραχοπτώσεων"
+    - "φράχτης ανάσχεσης βραχοκαταπτώσεων"
+    - "φράκτης ανάσχεσης βραχοκαταπτώσεων"
+    - "φράχτης απορρόφησης ενέργειας"
+    - "φράκτης απορρόφησης ενέργειας"
+    - "φράχτης απορρόφησης ενεργείας"
+    - "φράκτης απορρόφησης ενεργείας"
+    - "rockfall barrier"
+    - "rockfall catch fence"
+
+  optional_terms:
+    - "δυναμικός φράκτης"
+    - "σύστημα ανάσχεσης βραχοπτώσεων"
+    - "σύστημα προστασίας από βραχοπτώσεις"
+    - "σύστημα συγκράτησης βράχων"
+    - "energy absorption barrier"
+
+  semantic_concepts:
+    - "προστασία από βραχοπτώσεις με εύκαμπτο φράκτη"
+    - "δυναμικό σύστημα απορρόφησης κινητικής ενέργειας βράχων"
+
+codes:
+  revision_codes: ["ΟΔΟ-2311", "ΟΔΟ-2312", "ΟΔΟ-2653"]
+
+code_policy:
+  revision_codes_are_supporting_evidence_only: true
+  require_textual_or_structural_confirmation: true
+
+normalization:
+  profile_alias_groups:
+    - ["φράχτης", "φράκτης"]
+    - ["βραχοπτώσεις", "βραχοκαταπτώσεις"]
+    - ["ενέργειας", "ενεργείας"]
+
+extraction_fields:
+  - energy_class_kj
+  - nominal_height_m
+  - length_m
+  - article_code
+  - revision_code
+  - unit
+  - quantity
+  - unit_price
+  - total_cost
+  - technical_specification

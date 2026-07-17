@@ -1,0 +1,57 @@
+document_types:
+  tender_declaration:
+    aliases: ["διακήρυξη", "διακηρυξη"]
+  tender_summary:
+    aliases: ["περίληψη διακήρυξης", "προκήρυξη"]
+  budget:
+    aliases: ["προϋπολογισμός", "προυπολογισμος"]
+  bill_of_quantities:
+    aliases: ["προμέτρηση", "αναλυτική προμέτρηση"]
+  price_list:
+    aliases: ["τιμολόγιο δημοπράτησης", "τιμολόγιο μελέτης"]
+  technical_description:
+    aliases: ["τεχνική περιγραφή"]
+  technical_specification:
+    aliases: ["τεχνικές προδιαγραφές"]
+  technical_study:
+    aliases: ["τεχνική μελέτη", "μελέτη"]
+  special_conditions:
+    aliases: ["ειδική συγγραφή υποχρεώσεων", "ΕΣΥ"]
+  general_conditions:
+    aliases: ["γενική συγγραφή υποχρεώσεων", "ΓΣΥ"]
+  financial_offer_form:
+    aliases: ["έντυπο οικονομικής προσφοράς"]
+  espd:
+    aliases: ["ΕΕΕΣ", "ESPD"]
+  drawings:
+    aliases: ["σχέδια", "οριζοντιογραφία", "μηκοτομή"]
+  clarification:
+    aliases: ["διευκρίνιση", "απάντηση σε ερώτημα"]
+  extension:
+    aliases: ["παράταση", "μετάθεση προθεσμίας"]
+  amendment:
+    aliases: ["τροποποίηση"]
+  correction:
+    aliases: ["ορθή επανάληψη"]
+  cancellation:
+    aliases: ["ματαίωση", "ακύρωση"]
+  funding_decision:
+    aliases: ["απόφαση χρηματοδότησης", "ένταξη"]
+  participation_table:
+    aliases: ["πίνακας συμμετεχόντων"]
+  evaluation_minutes:
+    aliases: ["πρακτικό αξιολόγησης", "πρακτικό επιτροπής"]
+  provisional_award:
+    aliases: ["προσωρινός ανάδοχος", "προσωρινός μειοδότης"]
+  final_award:
+    aliases: ["κατακύρωση", "οριστικός ανάδοχος"]
+  contract:
+    aliases: ["σύμβαση", "συμφωνητικό"]
+  ape:
+    aliases: ["ΑΠΕ", "ανακεφαλαιωτικός πίνακας εργασιών"]
+  measurement:
+    aliases: ["επιμέτρηση", "τελική επιμέτρηση"]
+  execution_report:
+    aliases: ["έκθεση εκτέλεσης", "βεβαίωση περαίωσης"]
+  other:
+    aliases: []

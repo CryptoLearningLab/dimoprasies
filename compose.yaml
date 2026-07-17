@@ -1,0 +1,10 @@
+services:
+  tender-radar:
+    build: .
+    container_name: tender-radar
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./data:/app/data
+      - ./work:/app/work

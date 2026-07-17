@@ -1,0 +1,76 @@
+search_request:
+  id: ""
+  name: ""
+  description: ""
+
+  scope:
+    nationwide: true
+    active_only: true
+    regions: []
+    regional_units: []
+    municipalities: []
+    authorities: []
+
+  document_types:
+    include:
+      - budget
+      - bill_of_quantities
+      - price_list
+      - technical_description
+      - technical_specification
+    exclude: []
+
+  terms:
+    exact_phrases: []
+    required_terms: []
+    optional_terms: []
+    excluded_terms: []
+    semantic_concepts: []
+
+  codes:
+    article_codes: []
+    revision_codes: []
+    cpv_codes: []
+
+  numeric_filters:
+    quantity: {min: null, max: null, unit: null}
+    unit_price: {min: null, max: null, currency: EUR}
+    total_cost: {min: null, max: null, currency: EUR}
+    custom_attributes: {}
+
+  matching:
+    exact: true
+    morphological: true
+    strong_related: true
+    semantic_candidates: true
+    minimum_confidence: 0.60
+
+  status:
+    accepted: [VERIFIED_ACTIVE]
+    include_manual_review: [POSSIBLY_ACTIVE]
+    reject:
+      - SUBMISSION_EXPIRED
+      - OPENING_COMPLETED
+      - EVALUATION_STAGE
+      - PROVISIONAL_CONTRACTOR
+      - AWARDED
+      - CONTRACT_SIGNED
+      - CANCELLED
+      - SUSPENDED
+      - STUDY_ONLY
+      - EXECUTION_DOCUMENT
+
+  extraction_fields:
+    - article_code
+    - revision_code
+    - description
+    - unit
+    - quantity
+    - unit_price
+    - total_cost
+
+  output:
+    format: [xlsx, json]
+    include_source_links: true
+    include_local_paths: true
+    include_rejected_matches: true

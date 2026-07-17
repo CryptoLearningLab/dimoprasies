@@ -1,0 +1,33 @@
+profile:
+  id: road_maintenance
+  name: "Συντήρηση οδικού δικτύου"
+  description: >
+    Παράδειγμα profile για έργα συντήρησης οδικού δικτύου.
+
+scope:
+  nationwide: true
+  active_only: true
+
+document_types:
+  include:
+    - tender_declaration
+    - budget
+    - price_list
+    - technical_description
+    - special_conditions
+
+terms:
+  exact_phrases:
+    - "συντήρηση επαρχιακού οδικού δικτύου"
+    - "συντηρήσεις επαρχιακού οδικού δικτύου"
+    - "επαρχιακού οδικού δικτύου"
+
+  optional_terms:
+    - "οδοστρωσία"
+    - "ασφαλτικά"
+    - "σήμανση"
+    - "στηθαίων"
+    - "άρση καταπτώσεων"
+
+codes:
+  revision_codes: []

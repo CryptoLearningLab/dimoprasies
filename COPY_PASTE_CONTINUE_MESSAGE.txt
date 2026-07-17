@@ -1,0 +1,13 @@
+Διάβασε ξανά τα AGENTS.md, PLANS.md, docs/INDEX.md,
+docs/PRODUCT_SPECIFICATION.md, docs/IMPLEMENTATION_PHASES.md,
+docs/PROGRESS.md και tasks/NEXT_TASK.md.
+
+Επιβεβαίωσε πρώτα ότι το acceptance gate της προηγούμενης φάσης
+έχει περάσει με πραγματικά αποδεικτικά.
+
+Έπειτα εκτέλεσε μόνο την εργασία που ορίζεται στο tasks/NEXT_TASK.md.
+Μην ξεκινήσεις καμία μεταγενέστερη φάση.
+
+Στο τέλος ενημέρωσε docs/PROGRESS.md, docs/DECISIONS.md και
+tasks/NEXT_TASK.md και ανέφερε tests, ευρήματα, αποτυχίες,
+περιορισμούς και το αποτέλεσμα του acceptance gate.

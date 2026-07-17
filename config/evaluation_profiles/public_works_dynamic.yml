@@ -1,0 +1,50 @@
+profile:
+  id: public_works_dynamic
+  name: "Dynamic public works evaluation"
+  description: >
+    Editable rules for ranking tenders. Change phrases, thresholds and scores
+    here or through the local UI without changing Python code.
+
+rules:
+  - id: foundation_excavation_price_gt_5
+    label: "Εκσκαφές θεμελίων με τιμή μονάδας > 5 EUR"
+    severity: important
+    score: 4.0
+    document_types:
+      - budget
+    phrases:
+      - "εκσκαφές θεμελίων"
+      - "εκσκαφή θεμελίων"
+      - "εκσκαφη θεμελιων"
+    numeric:
+      operator: ">"
+      threshold: 5.0
+
+  - id: road_maintenance_terms
+    label: "Όροι συντήρησης οδών"
+    severity: info
+    score: 2.0
+    document_types:
+      - tender_declaration
+      - technical_description
+      - budget
+      - price_list
+    phrases:
+      - "συντήρηση"
+      - "οδοστρωσία"
+      - "ασφαλτικά"
+
+  - id: landslide_or_rockfall_terms
+    label: "Όροι πρανών, κατολισθήσεων ή βραχοπτώσεων"
+    severity: important
+    score: 3.0
+    document_types:
+      - technical_description
+      - budget
+      - price_list
+      - special_conditions
+    phrases:
+      - "άρση καταπτώσεων"
+      - "κατολίσθηση"
+      - "βραχοπτώσεις"
+      - "πρανών"
