@@ -369,3 +369,16 @@ Clear administrative/news/personnel/election/meeting rows and out-of-scope
 supply/service rows are filtered from daily focus lists but retained in raw
 reports with a `public_works_gate` decision and reason. AI triage remains a
 second advisory layer, not the only filter.
+
+## D-039 - Official tender status belongs only to ESHIDIS rows
+**Status:** Accepted
+
+Dashboard rows may come from ESHIDIS, KIMDIS, municipal or regional sources,
+but only ESHIDIS rows are labeled as official tender rows. KIMDIS and authority
+rows remain candidates unless an explicit ESHIDIS id is extracted from their
+documents or source metadata.
+
+When a non-ESHIDIS row yields an ESHIDIS id, the system uses that id to fetch
+the official ESHIDIS detail and attachment folder. This creates a linked
+official path but does not merge records by title and does not promote
+anything to `VERIFIED_ACTIVE` without the separate status-verification gate.

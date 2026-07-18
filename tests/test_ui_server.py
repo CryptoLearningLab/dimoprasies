@@ -621,6 +621,94 @@ def test_selected_kimdis_fetch_chains_linked_eshidis_download(monkeypatch) -> No
     assert captured["steps"][0]["args"] == ["sources", "fetch-resource", "221473", "--allow-insecure-tls"]
 
 
+def test_selected_authority_fetch_extracts_linked_eshidis_and_chains_official_download(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Δήμος Πατρέων"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps(
+            {
+                "focus_authority_candidates": [
+                    {
+                        "source": "AUTHORITY",
+                        "record_type": "AUTHORITY_WEB",
+                        "official_id": "AUTH-work",
+                        "title": "Διακήρυξη έργου Δήμου Πατρέων",
+                        "authority": "Δήμος Πατρέων",
+                        "source_url": "https://e-patras.gr/el/work",
+                        "attachment_url": "https://e-patras.gr/work.pdf",
+                        "attachment_urls": ["https://e-patras.gr/work.pdf"],
+                        "matched_scopes": ["Δήμος Πατρέων"],
+                        "match_notes": [],
+                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_download(url, target_dir, index):
+        path = target_dir / "work.pdf"
+        path.write_bytes(b"pdf")
+        return path, 3
+
+    class FakeAnalysis:
+        document_type = "tender_declaration"
+        classification_confidence = 0.95
+        matched_terms = ("διακήρυξη",)
+        extraction_status = "TEXT_EXTRACTED"
+        page_or_sheet_count = 1
+        text_sample = "Άρθρο 2.2 URL resources/search/221473"
+        full_text = "Άρθρο 2.2 πρόσβαση στο ΕΣΗΔΗΣ μέσω resources/search/221473"
+        extraction_error = None
+
+        def to_dict(self):
+            return {
+                "document_type": self.document_type,
+                "classification_confidence": self.classification_confidence,
+                "matched_terms": self.matched_terms,
+                "extraction_status": self.extraction_status,
+                "page_or_sheet_count": self.page_or_sheet_count,
+                "text_sample": self.text_sample,
+                "full_text": self.full_text,
+                "extraction_error": self.extraction_error,
+            }
+
+    captured = {}
+
+    def fake_run_cli_steps(steps, *, dashboard_scope=None):
+        captured["steps"] = steps
+        captured["dashboard_scope"] = dashboard_scope
+        return {"ok": True, "steps": steps, "dashboard": {"scope": dashboard_scope}}
+
+    monkeypatch.setattr(ui_server, "download_authority_document", fake_download)
+    monkeypatch.setattr(ui_server, "analyze_document", lambda path, original_name=None: FakeAnalysis())
+    monkeypatch.setattr(ui_server, "run_cli_steps", fake_run_cli_steps)
+
+    result = run_selected_fetch("AUTHORITY:AUTH-work")
+    preview = ui_server.authority_document_preview_payload("AUTHORITY:AUTH-work")
+
+    assert result["ok"] is True
+    assert result["linked_eshidis_ids"] == ["221473"]
+    assert [step["name"] for step in captured["steps"]] == ["fetch_detail_221473", "download_files_221473"]
+    assert preview["official_status"] == "LINKED_TO_ESHIDIS"
+    assert preview["linked_eshidis_ids"] == ["221473"]
+    assert preview["documents"][0]["text_sample"] == "Άρθρο 2.2 URL resources/search/221473"
+
+
 def test_document_zip_includes_all_eshidis_latest_local_files(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "data").mkdir()

@@ -1484,6 +1484,46 @@ full test suite: 125 passed
 cached dashboard smoke: visible 79, total_known 126
 ```
 
+### Steps 3 and 4 - Official source labeling and authority document ESHIDIS extraction
+
+The dashboard now treats only ESHIDIS rows as official tender rows and uses
+KIMDIS/authority rows as candidates until they produce an explicit ESHIDIS
+cross-reference.
+
+Implemented behavior:
+
+- Every dashboard row gets `official_status` and `official_status_label`.
+- ESHIDIS rows show `OFFICIAL_ESHIDIS` / `Επίσημο ΕΣΗΔΗΣ`.
+- KIMDIS/authority rows with extracted linked ESHIDIS ids show
+  `LINKED_TO_ESHIDIS` / `Σύνδεση με ΕΣΗΔΗΣ`.
+- KIMDIS/authority rows without extracted ESHIDIS ids show
+  `CANDIDATE_NO_ESHIDIS_ID` / `Δεν βρέθηκε ακόμα ΕΣΗΔΗΣ`.
+- Authority-row Fetch now downloads all known public attachment URLs, analyzes
+  supported documents, writes extracted text under
+  `work/extracted_text/authority/`, extracts ESHIDIS ids from filename, title,
+  source URL, attachment URL and document text, and stores
+  `linked_eshidis_ids` in `work/derived/authority_documents.json`.
+- If authority Fetch finds linked ESHIDIS ids, it immediately runs the official
+  ESHIDIS detail fetch and full official attachment download for those ids.
+- Authority preview now shows either a linked ESHIDIS message or an explicit
+  note that no ESHIDIS id was found after checking downloaded documents.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py tests/test_kimdis_fetch.py
+.venv/bin/python -m pytest
+.venv/bin/python -c "from tender_radar.ui_server import dashboard_payload; p=dashboard_payload(scope='focus', apply_triage=False); print({'visible': p['summary'].get('visible'), 'total_known': p['summary'].get('total_known')}); print([(r.get('row_key'), r.get('source_label'), r.get('official_status_label'), r.get('linked_eshidis_ids')) for r in p.get('tenders', [])[:10]])"
+```
+
+Results:
+
+```text
+targeted tests: 61 passed
+full test suite: 126 passed
+cached dashboard smoke: visible 79, total_known 126
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

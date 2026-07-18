@@ -459,6 +459,13 @@ The system `python` command is not present in the remote environment; use
   public-works signals. Clear administrative/news/personnel/election/meeting
   rows and out-of-scope supply/service rows are filtered from the dashboard but
   retained in raw reports with `public_works_gate` reasons.
+- Dashboard rows now expose official status labels: only ESHIDIS rows are
+  `Επίσημο ΕΣΗΔΗΣ`; non-ESHIDIS rows are either `Σύνδεση με ΕΣΗΔΗΣ` when an
+  explicit linked id was extracted or `Δεν βρέθηκε ακόμα ΕΣΗΔΗΣ`.
+- Authority-row Fetch now downloads known public attachment URLs, analyzes
+  supported documents, extracts ESHIDIS ids from filenames/links/document text,
+  stores them in the authority document index, and chains the official ESHIDIS
+  detail plus attachment download when ids are found.
 
 ## Next Work
 

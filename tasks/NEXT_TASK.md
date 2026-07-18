@@ -1,7 +1,7 @@
 # NEXT TASK
 
 Execute:
-`Add non-ESHIDIS document enrichment to find official ESHIDIS ids`
+`Promote linked ESHIDIS ids into canonical dashboard rows`
 
 ## Current Input
 
@@ -26,29 +26,24 @@ ESHIDIS id extraction is context-first: official resource URLs and article
 `2.2` style references use 6-digit primary ids, `ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ
 ΠΡΟΣΦΟΡΑΣ` can expose `Α/Α ΣΥΣΤΗΜΑΤΟΣ`, and broad 7-digit matching is removed.
 
-The next stage is to treat ESHIDIS as the only official tender authority and
-enrich every non-ESHIDIS kept candidate by downloading available documents and
-extracting/searching for a linked ESHIDIS id.
+The next stage is to make linked ESHIDIS ids canonical in the dashboard after
+document enrichment finds them.
 
 ## Instruction
 
-Implement the non-ESHIDIS document enrichment gate:
+Implement the linked-ESHIDIS canonicalization gate:
 
-1. For each kept KIMDIS/authority row, fetch available public documents first
-   when attachment URLs exist.
-2. Extract ESHIDIS ids deterministically from article `2.2`,
-   `resources/search/<id>`, guarded `Α/Α Διαγωνισμού`, and
-   `ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ` / `Α/Α ΣΥΣΤΗΜΑΤΟΣ`.
-3. Add an optional exact-title public search enrichment step only when it can
-   record source URL, retrieved-at time and evidence snippet.
-4. When an ESHIDIS id is found, fetch the official ESHIDIS detail/folder and
-   surface the row as linked to that official id.
-5. If no ESHIDIS id is found, keep the KIMDIS/authority link with a visible
-   note that no official ESHIDIS id was found.
-6. Use a background/progress job with partial JSON writes if any enrichment can
-   run long.
-7. Preserve raw reports/provenance, no title-only deduplication, no
-   `VERIFIED_ACTIVE` promotion.
+1. When a KIMDIS/authority row has `linked_eshidis_ids`, ensure each id has an
+   official ESHIDIS detail fetch attempted.
+2. Add or refresh the corresponding ESHIDIS dashboard row from official
+   ESHIDIS metadata/files when available.
+3. Hide the linked non-ESHIDIS row behind the ESHIDIS row only when the official
+   id is present as a real dashboard row; otherwise keep both with clear
+   provenance.
+4. Preserve raw KIMDIS/authority rows in reports and keep title-only
+   deduplication forbidden.
+5. Do not promote to `VERIFIED_ACTIVE`; official row means official source, not
+   verified active status.
 
 ## Required Closeout
 

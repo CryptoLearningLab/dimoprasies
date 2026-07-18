@@ -31,6 +31,7 @@ from tender_radar.discovery_watermark import (
     latest_successful_discovery_run,
     utc_now_iso,
 )
+from tender_radar.documents import analyze_document
 from tender_radar.evaluation import normalize_evaluation_config, save_evaluation_config
 from tender_radar.sources.expanded_report import classify_public_works_candidate_dict
 from tender_radar.sources.kimdis_fetch import extract_eshidis_ids_from_text
@@ -414,7 +415,23 @@ def prune_jobs(*, now: float, max_age_seconds: int = 3600) -> None:
 
 def run_selected_fetch(identifier: str) -> dict[str, Any]:
     if authority_row_by_key(identifier):
-        return run_authority_fetch(identifier)
+        authority_result = run_authority_fetch(identifier)
+        linked_ids = authority_linked_eshidis_ids(identifier)
+        if not linked_ids:
+            return {
+                **authority_result,
+                "linked_eshidis_ids": [],
+                "eshidis_fetch": None,
+                "dashboard": dashboard_payload(scope="focus"),
+            }
+        eshidis_result = run_official_eshidis_fetch(linked_ids)
+        return {
+            **authority_result,
+            "ok": authority_result.get("ok") is not False and eshidis_result.get("ok") is not False,
+            "linked_eshidis_ids": linked_ids,
+            "eshidis_fetch": eshidis_result,
+            "dashboard": eshidis_result.get("dashboard") or dashboard_payload(scope="focus"),
+        }
     if is_kimdis_identifier(identifier):
         kimdis_result = run_kimdis_fetch(official_id=identifier)
         linked_ids = kimdis_linked_eshidis_ids(identifier)
@@ -426,31 +443,7 @@ def run_selected_fetch(identifier: str) -> dict[str, Any]:
                 "eshidis_fetch": None,
                 "dashboard": dashboard_payload(scope="focus"),
             }
-        steps: list[dict[str, Any]] = []
-        for eshidis_id in linked_ids:
-            steps.extend(
-                [
-                    {
-                        "name": f"fetch_detail_{eshidis_id}",
-                        "args": ["sources", "fetch-resource", eshidis_id, "--allow-insecure-tls"],
-                        "timeout": 180,
-                    },
-                    {
-                        "name": f"download_files_{eshidis_id}",
-                        "args": [
-                            "sources",
-                            "download-attachment",
-                            eshidis_id,
-                            "--all",
-                            "--limit",
-                            "50",
-                            "--allow-insecure-tls",
-                        ],
-                        "timeout": 180,
-                    },
-                ]
-            )
-        eshidis_result = run_cli_steps(steps, dashboard_scope="focus")
+        eshidis_result = run_official_eshidis_fetch(linked_ids)
         return {
             "ok": kimdis_result.get("ok") is not False and eshidis_result.get("ok") is not False,
             "kimdis_fetch": kimdis_result,
@@ -470,6 +463,34 @@ def run_selected_fetch(identifier: str) -> dict[str, Any]:
     return run_cli_steps(steps, dashboard_scope="focus")
 
 
+def run_official_eshidis_fetch(eshidis_ids: list[str]) -> dict[str, Any]:
+    steps: list[dict[str, Any]] = []
+    for eshidis_id in list(dict.fromkeys(str(value) for value in eshidis_ids if str(value).strip())):
+        steps.extend(
+            [
+                {
+                    "name": f"fetch_detail_{eshidis_id}",
+                    "args": ["sources", "fetch-resource", eshidis_id, "--allow-insecure-tls"],
+                    "timeout": 180,
+                },
+                {
+                    "name": f"download_files_{eshidis_id}",
+                    "args": [
+                        "sources",
+                        "download-attachment",
+                        eshidis_id,
+                        "--all",
+                        "--limit",
+                        "50",
+                        "--allow-insecure-tls",
+                    ],
+                    "timeout": 180,
+                },
+            ]
+        )
+    return run_cli_steps(steps, dashboard_scope="focus") if steps else {"ok": True, "steps": [], "dashboard": dashboard_payload(scope="focus")}
+
+
 def run_authority_fetch(row_key: str) -> dict[str, Any]:
     row = authority_row_by_key(row_key)
     if not row:
@@ -486,6 +507,12 @@ def run_authority_fetch(row_key: str) -> dict[str, Any]:
     for index, url in enumerate(urls):
         try:
             path, size_bytes = download_authority_document(url, target_dir, index)
+            analysis_payload, text_path, linked_eshidis_ids = inspect_authority_document(
+                path,
+                row=row,
+                attachment_url=url,
+                index=index,
+            )
             documents.append(
                 {
                     "row_key": row_key,
@@ -496,7 +523,11 @@ def run_authority_fetch(row_key: str) -> dict[str, Any]:
                     "local_path": str(path),
                     "original_filename": path.name,
                     "size_bytes": size_bytes,
+                    "sha256": sha256_file(path),
                     "retrieved_at": utc_now_iso(),
+                    "document_analysis": analysis_payload,
+                    "text_path": str(text_path) if text_path else None,
+                    "linked_eshidis_ids": linked_eshidis_ids,
                 }
             )
         except Exception as exc:  # pragma: no cover - defensive network boundary
@@ -508,9 +539,59 @@ def run_authority_fetch(row_key: str) -> dict[str, Any]:
         "downloaded": len(documents),
         "failed": len(failures),
         "failures": failures,
+        "linked_eshidis_ids": authority_linked_eshidis_ids(row_key, documents=documents),
         "document_index": index_payload,
         "dashboard": dashboard_payload(scope="focus"),
     }
+
+
+def inspect_authority_document(
+    path: Path,
+    *,
+    row: dict[str, Any],
+    attachment_url: str,
+    index: int,
+) -> tuple[dict[str, object] | None, Path | None, list[str]]:
+    if path.suffix.lower() == ".zip":
+        linked_ids = extract_eshidis_ids_from_text(
+            path.name,
+            row.get("title"),
+            row.get("authority_name"),
+            row.get("official_url"),
+            attachment_url,
+            *authority_zip_entry_names(path),
+        )
+        return None, None, linked_ids
+    analysis = analyze_document(path, original_name=path.name)
+    payload = analysis.to_dict()
+    full_text = payload.pop("full_text", None)
+    text_path = write_authority_text_artifact(str(row.get("row_key") or "authority"), index, full_text)
+    linked_ids = extract_eshidis_ids_from_text(
+        path.name,
+        row.get("title"),
+        row.get("authority_name"),
+        row.get("official_url"),
+        attachment_url,
+        full_text,
+    )
+    return payload, text_path, linked_ids
+
+
+def authority_zip_entry_names(path: Path) -> list[str]:
+    try:
+        with zipfile.ZipFile(path) as archive:
+            return archive.namelist()
+    except (OSError, zipfile.BadZipFile):
+        return []
+
+
+def write_authority_text_artifact(row_key: str, index: int, full_text: object) -> Path | None:
+    if not isinstance(full_text, str) or not full_text.strip():
+        return None
+    path = REPO_ROOT / "work/extracted_text/authority" / f"{safe_filename(row_key)}_{index}.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(full_text, encoding="utf-8")
+    return path
 
 
 def run_kimdis_fetch(*, official_id: str | None = None) -> dict[str, Any]:
@@ -1623,6 +1704,15 @@ def authority_documents_by_key() -> dict[str, list[dict[str, Any]]]:
     return grouped
 
 
+def authority_linked_eshidis_ids(row_key: str, *, documents: list[dict[str, Any]] | None = None) -> list[str]:
+    values: list[str] = []
+    for document in documents if documents is not None else authority_documents_by_key().get(row_key, []):
+        if not isinstance(document, dict):
+            continue
+        values.extend(str(value) for value in document.get("linked_eshidis_ids") or [] if str(value).strip())
+    return list(dict.fromkeys(values))
+
+
 def write_authority_document_index(row_key: str, documents: list[dict[str, Any]]) -> dict[str, Any]:
     path = authority_document_index_path()
     existing = authority_document_index_payload()
@@ -1652,6 +1742,10 @@ def download_authority_document(url: str, target_dir: Path, index: int) -> tuple
     path = target_dir / unique_archive_name(name, {item.name for item in target_dir.iterdir() if item.is_file()})
     path.write_bytes(body)
     return path, len(body)
+
+
+def sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def kimdis_open_proc_rows() -> list[dict[str, Any]]:
@@ -1811,10 +1905,12 @@ def sqlite_tender_rows() -> list[dict[str, Any]]:
 def decorate_tender_row(row: dict[str, Any]) -> dict[str, Any]:
     eshidis_id = str(row.get("eshidis_id") or "")
     row_key = str(row.get("row_key") or eshidis_id or row.get("display_id") or "")
+    linked_ids = [str(value) for value in row.get("linked_eshidis_ids") or [] if str(value).strip()]
     text = " ".join(
         str(row.get(key) or "")
         for key in ("title", "authority_name", "region", "row_text")
     )
+    official_status = "OFFICIAL_ESHIDIS" if eshidis_id else "LINKED_TO_ESHIDIS" if linked_ids else "CANDIDATE_NO_ESHIDIS_ID"
     return {
         **row,
         "row_key": row_key,
@@ -1828,8 +1924,19 @@ def decorate_tender_row(row: dict[str, Any]) -> dict[str, Any]:
         "deadline_sort": deadline_sort_key(str(row.get("current_deadline_at") or "")),
         "official_url": row.get("official_url") or (official_resource_url(eshidis_id) if eshidis_id else None),
         "supports_eshidis_actions": bool(row.get("supports_eshidis_actions", True) and eshidis_id),
+        "official_status": row.get("official_status") or official_status,
+        "official_status_label": official_status_label(str(row.get("official_status") or official_status)),
         "verified_active": False,
     }
+
+
+def official_status_label(status: str) -> str:
+    labels = {
+        "OFFICIAL_ESHIDIS": "Επίσημο ΕΣΗΔΗΣ",
+        "LINKED_TO_ESHIDIS": "Σύνδεση με ΕΣΗΔΗΣ",
+        "CANDIDATE_NO_ESHIDIS_ID": "Δεν βρέθηκε ακόμα ΕΣΗΔΗΣ",
+    }
+    return labels.get(status, status or "Άγνωστο")
 
 
 def document_preview_payload(eshidis_id: str) -> dict[str, Any]:
@@ -1919,15 +2026,28 @@ def authority_document_preview_payload(row_key: str) -> dict[str, Any]:
                 "label": preview_label(kind),
                 "available": local_path is not None,
                 "size_bytes": document.get("size_bytes"),
+                "sha256": document.get("sha256"),
                 "source_url": document.get("attachment_url"),
+                "text_sample": short_text_sample(
+                    _none_or_str(
+                        (document.get("document_analysis") or {}).get("text_sample")
+                        if isinstance(document.get("document_analysis"), dict)
+                        else None
+                    )
+                ),
                 "view_url": f"/api/authority-document-file?row_key={row_key}&index={index}" if local_path else document.get("attachment_url"),
             }
         )
+    linked_eshidis_ids = authority_linked_eshidis_ids(row_key, documents=documents)
+    linked_eshidis_file_count = sum(len(eshidis_document_paths(eshidis_id)) for eshidis_id in linked_eshidis_ids)
     return {
         "row_key": row_key,
         "source_label": "Φορέας",
         "official_url": row.get("official_url") or row.get("attachment_url"),
         "candidate_status": row.get("status"),
+        "official_status": "LINKED_TO_ESHIDIS" if linked_eshidis_ids else "NO_ESHIDIS_ID_FOUND",
+        "linked_eshidis_ids": linked_eshidis_ids,
+        "linked_eshidis_file_count": linked_eshidis_file_count,
         "documents": docs,
         "featured": [doc for doc in docs if doc["kind"] in {"declaration", "technical_description", "budget", "price_list"}],
     }
@@ -3166,6 +3286,9 @@ function renderDashboard(payload) {
     const linkedText = (tender.linked_eshidis_ids || []).length
       ? `<span class="pill">ΕΣΗΔΗΣ ${escapeHtml((tender.linked_eshidis_ids || []).join(', '))}</span>`
       : '';
+    const officialStatusText = tender.official_status_label
+      ? `<span class="pill">${escapeHtml(tender.official_status_label)}</span>`
+      : '';
     const aiText = tender.ai_triage?.decision
       ? `<span class="pill">${escapeHtml(tender.ai_triage.decision)}</span>`
       : '';
@@ -3176,7 +3299,7 @@ function renderDashboard(payload) {
     tr.innerHTML = `
       <td><strong>${escapeHtml(tender.display_id || tender.eshidis_id || '')}</strong></td>
       <td>${escapeHtml(tender.source_label || '')}</td>
-      <td class="tenderTitle">${escapeHtml(tender.title || '')}${tender.interest_reason ? `<span class="pill">${escapeHtml(tender.interest_reason)}</span>` : ''}${linkedText}${aiText}</td>
+      <td class="tenderTitle">${escapeHtml(tender.title || '')}${tender.interest_reason ? `<span class="pill">${escapeHtml(tender.interest_reason)}</span>` : ''}${officialStatusText}${linkedText}${aiText}</td>
       <td class="authorityCell">${escapeHtml(tender.authority_name || '')}</td>
       <td class="budgetCell">${escapeHtml(tender.budget_display || '')}</td>
       <td class="deadlineCell">${escapeHtml(tender.deadline_display || '')}</td>
@@ -3321,14 +3444,20 @@ async function dismissTender(rowKey) {
 async function renderAuthorityPreview(rowKey) {
   const payload = await api(`/api/authority-document-preview?row_key=${encodeURIComponent(rowKey)}`);
   const docs = payload.documents || [];
+  const linkedIds = payload.linked_eshidis_ids || [];
+  const linkedFileCount = Number(payload.linked_eshidis_file_count || 0);
   if (!docs.length) {
     $('previewBody').innerHTML = '<div class="emptyState">Υπάρχουν links εγγράφων στη σελίδα του φορέα. Πάτα Fetch για να κατέβουν τοπικά και μετά ZIP.</div>';
     return;
   }
-  $('previewBody').innerHTML = docs.map((doc) => `
+  const linkedBlock = linkedIds.length
+    ? `<div class="docItem linkedBox"><h4>Σύνδεση με ΕΣΗΔΗΣ</h4><p>Βρέθηκε Α/Α ΕΣΗΔΗΣ ${escapeHtml(linkedIds.join(', '))}. ${linkedFileCount ? `Υπάρχουν ήδη ${linkedFileCount} επίσημα αρχεία ΕΣΗΔΗΣ διαθέσιμα για zip.` : 'Το Fetch αυτής της γραμμής θα επιχειρήσει να κατεβάσει και τον επίσημο φάκελο ΕΣΗΔΗΣ.'}</p></div>`
+    : `<div class="docItem"><h4>Δεν βρέθηκε ακόμα ΕΣΗΔΗΣ</h4><p>Κρατάμε τη δημοσίευση του φορέα ως υποψήφια. Τα κατεβασμένα έντυπα ελέγχθηκαν για άρθρο 2.2, links και Α/Α ΕΣΗΔΗΣ.</p></div>`;
+  $('previewBody').innerHTML = linkedBlock + docs.map((doc) => `
     <article class="docItem">
       <h4>${escapeHtml(doc.label)}${doc.available ? '' : ' · δεν έχει κατέβει'}</h4>
       <p>${escapeHtml(doc.name || '')}</p>
+      ${doc.text_sample ? `<p>${escapeHtml(String(doc.text_sample).slice(0, 220))}</p>` : ''}
       <div class="docActions">
         ${doc.view_url ? `<a class="button tinyButton" href="${escapeHtml(doc.view_url)}" target="_blank" rel="noreferrer">Open</a>` : ''}
       </div>
