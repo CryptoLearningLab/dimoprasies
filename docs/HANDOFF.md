@@ -482,6 +482,12 @@ The system `python` command is not present in the remote environment; use
   offer form, and successfully fetches/downloads the official ESHIDIS folder.
   The row is removed from the active dashboard because the official ESHIDIS
   tender is expired/non-active.
+- Daily search preflight now ignores non-discovery templates/generic landing
+  pages as changed-source triggers and stores degraded fingerprints with
+  warnings. A temporary timeout/503 state with no relevant successful source
+  changes returns cached dashboard data instead of opening full discovery.
+  Latest smoke returned `SKIPPED_UNCHANGED_WITH_SOURCE_WARNINGS` with zero
+  discovery steps.
 
 ## Next Work
 

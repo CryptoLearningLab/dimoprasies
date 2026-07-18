@@ -125,6 +125,116 @@ authority_adapters:
     }
 
 
+def test_discovery_preflight_skips_when_only_failed_sources_are_degraded(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "work/derived").mkdir(parents=True)
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text("{}", encoding="utf-8")
+    previous_source = {
+        "source_id": "source_a",
+        "adapter": "html_listing",
+        "token": "same",
+        "date": "2026-07-18",
+        "count_hint": 1,
+    }
+    previous_sources = [
+        previous_source,
+        {"source_id": "source_b", "adapter": "html_listing", "token": "old", "date": None, "count_hint": None},
+        {"source_id": "source_c", "adapter": "html_listing", "token": "old", "date": None, "count_hint": None},
+        {"source_id": "source_d", "adapter": "html_listing", "token": "old", "date": None, "count_hint": None},
+    ]
+    (tmp_path / "work/derived/source_fingerprints.json").write_text(
+        json.dumps({"version": 1, "latest": {"ok": False, "hash": "old", "sources": previous_sources}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "quick_source_fingerprint",
+        lambda timeout_seconds=8: {
+            "ok": False,
+            "hash": "new",
+            "sources": [previous_source],
+            "errors": [{"source": "source_b", "message": "timeout"}],
+        },
+    )
+
+    result = ui_server.discovery_change_preflight()
+
+    assert result["skip"] is True
+    assert result["status"] == "SKIPPED_DEGRADED_NO_SUCCESSFUL_SOURCE_CHANGES"
+    assert result["changed_source_ids"] == []
+
+
+def test_discovery_preflight_ignores_non_discovery_source_changes(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "work/derived").mkdir(parents=True)
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "config/sources.yml").write_text(
+        """
+global_sources:
+  - id: eshidis_active_search
+    type: web_app
+    url: https://example.test/eshidis
+  - id: eshidis_tender_page
+    type: url_template
+    url: https://example.test/{ESHIDIS_ID}
+  - id: ted
+    type: web
+    url: https://example.test/ted
+authority_adapters: []
+""",
+        encoding="utf-8",
+    )
+    previous_sources = [
+        {"source_id": "eshidis_active_search", "adapter": "web_app", "token": "same", "date": None, "count_hint": None},
+        {"source_id": "eshidis_tender_page", "adapter": "url_template", "token": "old", "date": None, "count_hint": None},
+        {"source_id": "ted", "adapter": "web", "token": "old", "date": None, "count_hint": None},
+    ]
+    current_sources = [
+        {"source_id": "eshidis_active_search", "adapter": "web_app", "token": "same", "date": None, "count_hint": None},
+        {"source_id": "eshidis_tender_page", "adapter": "url_template", "token": "new", "date": None, "count_hint": None},
+        {"source_id": "ted", "adapter": "web", "token": "new", "date": None, "count_hint": None},
+    ]
+    (tmp_path / "work/derived/source_fingerprints.json").write_text(
+        json.dumps({"version": 1, "latest": {"ok": False, "hash": "old", "sources": previous_sources}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "quick_source_fingerprint",
+        lambda timeout_seconds=8: {
+            "ok": False,
+            "hash": "new",
+            "sources": current_sources,
+            "errors": [{"source": "diavgeia", "message": "timeout"}],
+        },
+    )
+
+    result = ui_server.discovery_change_preflight()
+
+    assert result["skip"] is True
+    assert result["changed_source_ids"] == []
+
+
+def test_latest_source_fingerprint_prefers_latest_degraded_baseline(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "work/derived").mkdir(parents=True)
+    (tmp_path / "work/derived/source_fingerprints.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "latest": {"ok": False, "hash": "degraded"},
+                "latest_complete": {"ok": True, "hash": "complete"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert ui_server.latest_source_fingerprint() == {"ok": False, "hash": "degraded"}
+
+
 def test_ui_labels_bounded_and_backfill_discovery_modes() -> None:
     assert "Η γρήγορη αναζήτηση είναι bounded" in INDEX_HTML
     assert 'id="backfillToggle"' in INDEX_HTML

@@ -1604,6 +1604,40 @@ Efpalio authority fetch: ok true, downloaded 6, failed 0, linked_eshidis_ids ['2
 official ESHIDIS 217922 fetch/download: both steps returned 0
 ```
 
+### Discovery preflight no-full-depth guard
+
+The daily UI search now avoids expensive full discovery when cheap source
+fingerprints are degraded by temporary source failures but no discovery-relevant
+successful source has changed.
+
+Implemented behavior:
+
+- `changed_source_ids` now ignores `url_template` entries and generic source
+  audit landing pages that are not daily discovery adapters.
+- The baseline comparison now uses the latest saved fingerprint, including a
+  degraded fingerprint with source warnings, instead of falling back only to an
+  older complete baseline.
+- A skipped preflight with warnings saves the current fingerprint so the same
+  degraded state does not repeatedly trigger work.
+- Daily discovery-relevant changes are limited to `eshidis_active_search`,
+  KIMDIS API families and configured authority adapters.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py -q
+.venv/bin/python -m pytest
+.venv/bin/python -c "import json; from tender_radar.ui_server import run_discovery_search; r=run_discovery_search(limit=100, backfill=False); print(json.dumps({'ok': r.get('ok'), 'skipped': r.get('skipped'), 'steps': [(s.get('name'), s.get('returncode')) for s in r.get('steps', [])], 'preflight_status': (r.get('source_preflight') or {}).get('status')}, ensure_ascii=False))"
+```
+
+Results:
+
+```text
+targeted UI tests: 49 passed
+full test suite: 133 passed
+bounded run smoke: ok true, skipped true, steps [], preflight_status SKIPPED_UNCHANGED_WITH_SOURCE_WARNINGS
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

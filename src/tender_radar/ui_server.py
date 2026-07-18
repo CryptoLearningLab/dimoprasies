@@ -673,6 +673,8 @@ def run_discovery_search(*, limit: int, backfill: bool = False) -> dict[str, Any
         if not backfill:
             preflight = discovery_change_preflight()
             if preflight.get("skip"):
+                if preflight.get("current"):
+                    save_source_fingerprint(preflight["current"])
                 return {
                     "ok": True,
                     "skipped": True,
@@ -728,7 +730,7 @@ def run_discovery_search(*, limit: int, backfill: bool = False) -> dict[str, Any
             records.append(record)
             pass_ok = expanded_result.get("returncode") == 0 and not warnings and record.get("success") is True
             if not backfill:
-                if pass_ok and preflight and preflight.get("current", {}).get("ok"):
+                if pass_ok and preflight and preflight.get("current"):
                     save_source_fingerprint(preflight["current"])
                 response = discovery_response(results, warnings, pass_ok, records, preflight)
                 response["linked_eshidis_enrichment"] = linked_enrichment
@@ -759,6 +761,7 @@ def discovery_change_preflight() -> dict[str, Any]:
     current = quick_source_fingerprint(timeout_seconds=8)
     previous = latest_source_fingerprint()
     reports_exist = (REPO_ROOT / "work/reports/expanded_discovery_report.json").exists()
+    changed_source_ids = _changed_source_ids(current=current, previous=previous)
     exact_skip = bool(
         reports_exist
         and current.get("ok")
@@ -772,17 +775,25 @@ def discovery_change_preflight() -> dict[str, Any]:
         and previous
         and _successful_sources_unchanged(current=current, previous=previous)
     )
-    skip = exact_skip or partial_skip
+    degraded_skip = bool(
+        reports_exist
+        and current.get("errors")
+        and previous
+        and not changed_source_ids
+    )
+    skip = exact_skip or partial_skip or degraded_skip
     status = "CHANGED_OR_NO_BASELINE"
     if exact_skip:
         status = "SKIPPED_UNCHANGED"
     elif partial_skip:
         status = "SKIPPED_UNCHANGED_WITH_SOURCE_WARNINGS"
+    elif degraded_skip:
+        status = "SKIPPED_DEGRADED_NO_SUCCESSFUL_SOURCE_CHANGES"
     return {
         "ok": current.get("ok"),
         "skip": skip,
         "status": status,
-        "changed_source_ids": _changed_source_ids(current=current, previous=previous),
+        "changed_source_ids": changed_source_ids,
         "current": current,
         "previous_hash": previous.get("hash") if previous else None,
         "current_hash": current.get("hash"),
@@ -800,9 +811,9 @@ def latest_source_fingerprint() -> dict[str, Any] | None:
         return None
     if not isinstance(payload, dict):
         return None
-    if isinstance(payload.get("latest_complete"), dict):
-        return payload["latest_complete"]
-    return payload.get("latest") if isinstance(payload.get("latest"), dict) else None
+    if isinstance(payload.get("latest"), dict):
+        return payload["latest"]
+    return payload.get("latest_complete") if isinstance(payload.get("latest_complete"), dict) else None
 
 
 def save_source_fingerprint(fingerprint: dict[str, Any]) -> None:
@@ -854,6 +865,7 @@ def _source_fingerprint_signature(source: dict[str, Any]) -> dict[str, Any]:
 def _changed_source_ids(*, current: dict[str, Any], previous: dict[str, Any] | None) -> list[str]:
     if not previous:
         return []
+    discovery_relevant_ids = selective_source_ids_from_config()
     previous_sources = {
         str(item.get("source_id") or ""): _source_fingerprint_signature(item)
         for item in previous.get("sources") or []
@@ -864,6 +876,8 @@ def _changed_source_ids(*, current: dict[str, Any], previous: dict[str, Any] | N
         if not isinstance(item, dict) or not item.get("source_id"):
             continue
         source_id = str(item.get("source_id") or "")
+        if source_id not in discovery_relevant_ids:
+            continue
         if previous_sources.get(source_id) != _source_fingerprint_signature(item):
             changed.append(source_id)
     return sorted(changed)
