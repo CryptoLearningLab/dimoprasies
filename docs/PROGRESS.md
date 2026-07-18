@@ -880,6 +880,11 @@ authority_adapter_first_scope: patras
 authority_adapter_supported_type: drupal_listing
 authority_smoke_candidates: 2
 authority_smoke_errors: 0
+authority_ui_fetch_zip_enabled: true
+authority_runtime_document_index: true
+authority_ignore_list_enabled: true
+sample_authority_row_downloaded_files: 9
+sample_authority_zip_bytes: 9736178
 ```
 
 ## Next Gate
@@ -920,6 +925,40 @@ config validate: OK for all configured YAML files
 targeted tests: 11 passed
 authority smoke: 2 focus authority candidates, 0 errors
 full test suite: 96 passed
+```
+
+## Latest Update - 2026-07-18 UI Authority Documents
+
+Enabled the daily dashboard actions for municipal/authority rows:
+
+- External row/source/document links open in a new tab.
+- Authority rows with discovered attachment URLs now show `Fetch`.
+- After fetch, authority rows expose local preview and ZIP from downloaded
+  municipal files.
+- Municipal downloads are stored under `work/download_audit/authority/` and
+  indexed in `work/derived/authority_documents.json`.
+- Added red `Δεν με ενδιαφέρει` row action backed by
+  `work/derived/ignored_tenders.json`.
+
+Verification:
+
+```bash
+.venv/bin/python -m tender_radar config validate
+.venv/bin/python -m pytest tests/test_ui_server.py tests/test_authority.py tests/test_expanded_report.py
+.venv/bin/python -m pytest
+.venv/bin/python -m tender_radar sources expanded-report --kimdis-pages 0 --authority-limit-per-source 4 --timeout 12 --report work/reports/authority_smoke.json --markdown-report work/reports/authority_smoke.md --allow-insecure-tls
+.venv/bin/python -c "import json; from tender_radar.ui_server import run_selected_fetch, document_zip_bytes; r=run_selected_fetch('AUTHORITY:AUTH-d448a0b21a42080a'); print(json.dumps({'ok': r.get('ok'), 'downloaded': r.get('downloaded'), 'failed': r.get('failed'), 'failures': r.get('failures')}, ensure_ascii=False)); name, body = document_zip_bytes('AUTHORITY:AUTH-d448a0b21a42080a'); print(name, 0 if body is None else len(body))"
+```
+
+Results:
+
+```text
+config validate: OK for all configured YAML files
+targeted tests: 39 passed
+full test suite: 99 passed
+authority smoke: 4 focus authority candidates, 0 errors
+authority row AUTH-d448a0b21a42080a: downloaded 9, failed 0
+authority ZIP: tender_AUTHORITY_AUTH-d448a0b21a42080a_documents.zip, 9736178 bytes
 ```
 
 ## Handoff Discipline

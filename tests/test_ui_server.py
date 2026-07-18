@@ -64,6 +64,8 @@ def test_dashboard_actions_use_fetch_and_zip_not_preview_buttons() -> None:
     assert "fetchTender" in APP_JS
     assert "/api/fetch-selected" in APP_JS
     assert "/api/document-zip" in APP_JS
+    assert "dismissTender" in APP_JS
+    assert "Δεν με ενδιαφέρει" in APP_JS
     assert "previewTender" not in APP_JS
 
 
@@ -72,6 +74,57 @@ def test_dashboard_rows_select_preview_on_click() -> None:
     assert "highlightSelectedRow" in APP_JS
     assert "row.addEventListener('click', () => selectTender(row.dataset.key, false))" in APP_JS
     assert "event.stopPropagation()" in APP_JS
+
+
+def test_dashboard_includes_authority_candidates_and_actions(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Πάτρα", "Πατρών"]
+    nuts: ["EL632"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps(
+            {
+                "focus_authority_candidates": [
+                    {
+                        "source": "AUTHORITY",
+                        "record_type": "AUTHORITY_WEB",
+                        "official_id": "AUTH-d448a0b21a42080a",
+                        "title": "Έργο Δήμου Πατρέων",
+                        "authority": "Δήμος Πατρέων",
+                        "source_url": "https://e-patras.gr/el/tender",
+                        "attachment_url": "https://e-patras.gr/sites/default/files/a.pdf",
+                        "attachment_urls": ["https://e-patras.gr/sites/default/files/a.pdf"],
+                        "matched_scopes": ["Δήμος Πατρέων"],
+                        "match_notes": ["e-Patras: PARSED"],
+                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    payload = dashboard_payload(scope="focus")
+
+    assert payload["summary"]["visible"] == 1
+    row = payload["tenders"][0]
+    assert row["source_label"] == "Φορέας"
+    assert row["supports_authority_actions"] is True
+    assert row["supports_eshidis_actions"] is False
+    assert row["row_key"] == "AUTHORITY:AUTH-d448a0b21a42080a"
+    assert row["attachment_urls"] == ["https://e-patras.gr/sites/default/files/a.pdf"]
 
 
 def test_long_actions_use_background_job_polling() -> None:
@@ -474,6 +527,89 @@ def test_document_zip_includes_all_eshidis_latest_local_files(tmp_path, monkeypa
     with zipfile.ZipFile(io.BytesIO(body)) as archive:
         assert sorted(archive.namelist()) == ["one.pdf", "two.pdf"]
         assert archive.read("one.pdf") == b"one"
+
+
+def test_authority_document_zip_includes_downloaded_files(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    document_dir = tmp_path / "work/download_audit/authority/AUTHORITY_AUTH-test"
+    document_dir.mkdir(parents=True)
+    document_path = document_dir / "municipal.pdf"
+    document_path.write_bytes(b"municipal")
+    (tmp_path / "work/derived").mkdir(parents=True)
+    (tmp_path / "work/derived/authority_documents.json").write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {
+                        "row_key": "AUTHORITY:AUTH-1234567890abcdef",
+                        "original_filename": "municipal.pdf",
+                        "local_path": str(document_path),
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    name, body = document_zip_bytes("AUTHORITY:AUTH-1234567890abcdef")
+
+    assert name == "tender_AUTHORITY_AUTH-1234567890abcdef_documents.zip"
+    assert body is not None
+    import io
+    import zipfile
+
+    with zipfile.ZipFile(io.BytesIO(body)) as archive:
+        assert archive.namelist() == ["municipal.pdf"]
+        assert archive.read("municipal.pdf") == b"municipal"
+
+
+def test_dismiss_tender_hides_row_from_dashboard(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Πάτρα", "Πατρών"]
+    nuts: ["EL632"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    row_key = "AUTHORITY:AUTH-1234567890abcdef"
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps(
+            {
+                "focus_authority_candidates": [
+                    {
+                        "source": "AUTHORITY",
+                        "record_type": "AUTHORITY_WEB",
+                        "official_id": "AUTH-1234567890abcdef",
+                        "title": "Έργο Δήμου Πατρέων",
+                        "authority": "Δήμος Πατρέων",
+                        "source_url": "https://e-patras.gr/el/tender",
+                        "attachment_urls": ["https://e-patras.gr/a.pdf"],
+                        "matched_scopes": ["Δήμος Πατρέων"],
+                        "match_notes": [],
+                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    assert dashboard_payload(scope="focus")["summary"]["visible"] == 1
+    result = ui_server.dismiss_tender(row_key)
+    payload = dashboard_payload(scope="focus")
+
+    assert result["ok"] is True
+    assert payload["summary"]["visible"] == 0
+    assert payload["summary"]["ignored"] == 1
 
 
 def test_discovery_search_steps_run_eshidis_then_expanded_kimdis() -> None:

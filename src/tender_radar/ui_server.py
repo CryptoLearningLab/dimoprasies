@@ -18,7 +18,8 @@ import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
+from urllib.request import Request, urlopen
 
 from tender_radar.config import load_config
 from tender_radar.discovery_watermark import (
@@ -109,6 +110,11 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             official_id = require_kimdis_id({"official_id": query.get("official_id", [""])[0]})
             self._send_json(kimdis_document_preview_payload(official_id))
             return
+        if parsed.path == "/api/authority-document-preview":
+            query = parse_qs(parsed.query)
+            row_key = require_authority_document_key({"row_key": query.get("row_key", [""])[0]})
+            self._send_json(authority_document_preview_payload(row_key))
+            return
         if parsed.path == "/api/document-file":
             query = parse_qs(parsed.query)
             attachment_id = int(query.get("attachment_id", ["0"])[0])
@@ -127,9 +133,19 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 return
             self._send_file(path)
             return
+        if parsed.path == "/api/authority-document-file":
+            query = parse_qs(parsed.query)
+            row_key = require_authority_document_key({"row_key": query.get("row_key", [""])[0]})
+            index = int(query.get("index", ["0"])[0])
+            path = authority_document_file_path(row_key, index)
+            if not path:
+                self._send_json({"error": "Authority document file is not available."}, status=404)
+                return
+            self._send_file(path)
+            return
         if parsed.path == "/api/document-zip":
             query = parse_qs(parsed.query)
-            identifier = require_known_document_identifier({"identifier": query.get("identifier", [""])[0]})
+            identifier = require_document_zip_identifier({"identifier": query.get("identifier", [""])[0]})
             archive_name, archive_body = document_zip_bytes(identifier)
             if not archive_body:
                 self._send_json({"error": "No downloaded documents are available for this tender."}, status=404)
@@ -187,8 +203,12 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 )
                 return
             if parsed.path == "/api/fetch-selected":
-                identifier = require_known_document_identifier(payload)
+                identifier = require_fetch_identifier(payload)
                 self._send_json(start_job("fetch-selected", run_selected_fetch, identifier), status=202)
+                return
+            if parsed.path == "/api/dismiss-tender":
+                row_key = require_row_key(payload)
+                self._send_json(dismiss_tender(row_key))
                 return
             if parsed.path == "/api/fetch-kimdis-open-proc":
                 official_id = str(payload.get("official_id") or "").strip() or None
@@ -389,6 +409,8 @@ def prune_jobs(*, now: float, max_age_seconds: int = 3600) -> None:
 
 
 def run_selected_fetch(identifier: str) -> dict[str, Any]:
+    if authority_row_by_key(identifier):
+        return run_authority_fetch(identifier)
     if is_kimdis_identifier(identifier):
         kimdis_result = run_kimdis_fetch(official_id=identifier)
         linked_ids = kimdis_linked_eshidis_ids(identifier)
@@ -442,6 +464,49 @@ def run_selected_fetch(identifier: str) -> dict[str, Any]:
         },
     ]
     return run_cli_steps(steps, dashboard_scope="focus")
+
+
+def run_authority_fetch(row_key: str) -> dict[str, Any]:
+    row = authority_row_by_key(row_key)
+    if not row:
+        return {"ok": False, "error": "Authority row is not present in the current expanded report."}
+    urls = [str(url) for url in row.get("attachment_urls") or [] if str(url).strip()]
+    if not urls and row.get("attachment_url"):
+        urls = [str(row.get("attachment_url"))]
+    if not urls:
+        return {"ok": False, "error": "No authority attachment URLs are known for this row."}
+    target_dir = authority_download_dir(row_key)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    documents = []
+    failures = []
+    for index, url in enumerate(urls):
+        try:
+            path, size_bytes = download_authority_document(url, target_dir, index)
+            documents.append(
+                {
+                    "row_key": row_key,
+                    "official_id": row.get("official_id"),
+                    "title": row.get("title"),
+                    "source_url": row.get("official_url"),
+                    "attachment_url": url,
+                    "local_path": str(path),
+                    "original_filename": path.name,
+                    "size_bytes": size_bytes,
+                    "retrieved_at": utc_now_iso(),
+                }
+            )
+        except Exception as exc:  # pragma: no cover - defensive network boundary
+            failures.append({"url": url, "message": str(exc)})
+    index_payload = write_authority_document_index(row_key, documents)
+    return {
+        "ok": not failures and bool(documents),
+        "row_key": row_key,
+        "downloaded": len(documents),
+        "failed": len(failures),
+        "failures": failures,
+        "document_index": index_payload,
+        "dashboard": dashboard_payload(scope="focus"),
+    }
 
 
 def run_kimdis_fetch(*, official_id: str | None = None) -> dict[str, Any]:
@@ -715,6 +780,45 @@ def require_known_document_identifier(payload: dict[str, Any]) -> str:
     return require_eshidis_id({"eshidis_id": value})
 
 
+def require_fetch_identifier(payload: dict[str, Any]) -> str:
+    value = str(payload.get("identifier") or payload.get("row_key") or "").strip()
+    if authority_row_by_key(value):
+        return value
+    if value.startswith("AUTHORITY:"):
+        return require_authority_row_key({"row_key": value})
+    return require_known_document_identifier({"identifier": value})
+
+
+def require_document_zip_identifier(payload: dict[str, Any]) -> str:
+    value = str(payload.get("identifier") or "").strip()
+    if value in authority_documents_by_key():
+        return value
+    if value.startswith("AUTHORITY:") or value.startswith("AUTH-"):
+        return value
+    return require_known_document_identifier({"identifier": value})
+
+
+def require_authority_row_key(payload: dict[str, Any]) -> str:
+    value = str(payload.get("row_key") or payload.get("identifier") or "").strip()
+    if re.fullmatch(r"AUTHORITY:AUTH-[0-9a-f]{16}", value) or re.fullmatch(r"AUTH-[0-9a-f]{16}", value):
+        return value if value.startswith("AUTHORITY:") else f"AUTHORITY:{value}"
+    raise ValueError("Authority row key must look like AUTHORITY:AUTH-xxxxxxxxxxxxxxxx.")
+
+
+def require_authority_document_key(payload: dict[str, Any]) -> str:
+    value = str(payload.get("row_key") or payload.get("identifier") or "").strip()
+    if authority_row_by_key(value) or value in authority_documents_by_key():
+        return value
+    return require_authority_row_key({"row_key": value})
+
+
+def require_row_key(payload: dict[str, Any]) -> str:
+    value = str(payload.get("row_key") or "").strip()
+    if not value or len(value) > 160 or not re.fullmatch(r"[A-Za-z0-9:_\-.]+", value):
+        raise ValueError("Invalid row key.")
+    return value
+
+
 def is_kimdis_identifier(value: str) -> bool:
     return re.fullmatch(r"\d{2}PROC\d{9}", str(value or "").strip()) is not None
 
@@ -761,7 +865,9 @@ def candidates_payload() -> dict[str, Any]:
 def dashboard_payload(scope: str = "focus", sort: str = "deadline_asc", as_of: date | None = None) -> dict[str, Any]:
     all_greece = scope == "all"
     profile = location_focus_profile()
+    ignored = ignored_tender_keys()
     rows = merged_tender_rows()
+    rows = [row for row in rows if str(row.get("row_key") or row.get("eshidis_id") or row.get("display_id") or "") not in ignored]
     active_rows = [row for row in rows if dashboard_row_is_active(row, as_of=as_of)]
     visible_rows = active_rows if all_greece else [row for row in active_rows if row["interest_match"]]
     visible_rows = sort_dashboard_rows(visible_rows, sort=sort)
@@ -775,6 +881,7 @@ def dashboard_payload(scope: str = "focus", sort: str = "deadline_asc", as_of: d
             "focus_matches": sum(1 for row in active_rows if row["interest_match"]),
             "verified_active": sum(1 for row in rows if row.get("verified_active")),
             "expired_hidden": len(rows) - len(active_rows),
+            "ignored": len(ignored),
         },
         "tenders": visible_rows,
         "discovery_run": latest_discovery_run_payload(),
@@ -783,6 +890,32 @@ def dashboard_payload(scope: str = "focus", sort: str = "deadline_asc", as_of: d
             "Discovery rows remain candidates until official detail/status verification."
         ),
     }
+
+
+def ignored_tenders_path() -> Path:
+    return REPO_ROOT / "work/derived/ignored_tenders.json"
+
+
+def ignored_tender_keys() -> set[str]:
+    path = ignored_tenders_path()
+    if not path.exists():
+        return set()
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {str(item.get("row_key") or "") for item in payload.get("ignored") or [] if isinstance(item, dict)}
+
+
+def dismiss_tender(row_key: str) -> dict[str, Any]:
+    path = ignored_tenders_path()
+    existing = []
+    if path.exists():
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        existing = [item for item in payload.get("ignored") or [] if isinstance(item, dict)]
+    if not any(item.get("row_key") == row_key for item in existing):
+        existing.append({"row_key": row_key, "ignored_at": utc_now_iso()})
+    payload = {"updated_at": utc_now_iso(), "ignored": existing}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True, "row_key": row_key, "ignored": len(existing), "dashboard": dashboard_payload(scope="focus")}
 
 
 def discovery_history_path() -> Path:
@@ -864,6 +997,10 @@ def authority_candidate_rows() -> list[dict[str, Any]]:
         is_kimdis = is_kimdis_identifier(official_id)
         is_eshidis = official_id.isdigit() and 5 <= len(official_id) <= 7
         row_key = f"KIMDIS:{official_id}" if is_kimdis else official_id if is_eshidis else f"AUTHORITY:{official_id}"
+        authority_docs = authority_documents_by_key().get(row_key, [])
+        attachment_urls = [str(url) for url in candidate.get("attachment_urls") or [] if str(url).strip()]
+        if not attachment_urls and candidate.get("attachment_url"):
+            attachment_urls = [str(candidate.get("attachment_url"))]
         rows.append(
             {
                 "source": "authority",
@@ -886,15 +1023,81 @@ def authority_candidate_rows() -> list[dict[str, Any]]:
                 ),
                 "official_url": candidate.get("source_url"),
                 "attachment_url": candidate.get("attachment_url"),
-                "download_url": candidate.get("attachment_url"),
+                "attachment_urls": attachment_urls,
+                "download_url": f"/api/authority-document-file?row_key={row_key}&index=0" if authority_docs else candidate.get("attachment_url"),
+                "preview_url": f"/api/authority-document-preview?row_key={row_key}" if authority_docs else None,
+                "has_local_documents": bool(authority_docs),
+                "local_document_count": len(authority_docs),
                 "supports_eshidis_actions": is_eshidis,
                 "supports_kimdis_actions": is_kimdis,
+                "supports_authority_actions": bool(attachment_urls),
                 "interest_match": bool(candidate.get("matched_scopes")),
                 "interest_reason": ", ".join([*(candidate.get("matched_scopes") or []), *(candidate.get("match_notes") or [])]),
                 "authority_record_type": record_type,
             }
         )
     return rows
+
+
+def authority_row_by_key(row_key: str) -> dict[str, Any] | None:
+    for row in authority_candidate_rows():
+        if row.get("row_key") == row_key:
+            return row
+    return None
+
+
+def authority_document_index_path() -> Path:
+    return REPO_ROOT / "work/derived/authority_documents.json"
+
+
+def authority_document_index_payload() -> dict[str, Any]:
+    path = authority_document_index_path()
+    if not path.exists():
+        return {"exists": False, "path": str(path), "documents": []}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def authority_documents_by_key() -> dict[str, list[dict[str, Any]]]:
+    payload = authority_document_index_payload()
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for document in payload.get("documents") or []:
+        if not isinstance(document, dict):
+            continue
+        row_key = str(document.get("row_key") or "")
+        if row_key:
+            grouped.setdefault(row_key, []).append(document)
+    return grouped
+
+
+def write_authority_document_index(row_key: str, documents: list[dict[str, Any]]) -> dict[str, Any]:
+    path = authority_document_index_path()
+    existing = authority_document_index_payload()
+    retained = [
+        item
+        for item in existing.get("documents", [])
+        if isinstance(item, dict) and item.get("row_key") != row_key
+    ]
+    payload = {
+        "updated_at": utc_now_iso(),
+        "documents": [*retained, *documents],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def authority_download_dir(row_key: str) -> Path:
+    return REPO_ROOT / "work/download_audit/authority" / safe_filename(row_key)
+
+
+def download_authority_document(url: str, target_dir: Path, index: int) -> tuple[Path, int]:
+    request = Request(url, headers={"User-Agent": "TenderRadar/0.1 authority-document-fetch"})
+    with urlopen(request, timeout=30) as response:
+        body = response.read()
+    name = safe_filename(unquote(Path(urlparse(url).path).name or f"document_{index + 1}.bin"))
+    path = target_dir / unique_archive_name(name, {item.name for item in target_dir.iterdir() if item.is_file()})
+    path.write_bytes(body)
+    return path, len(body)
 
 
 def kimdis_open_proc_rows() -> list[dict[str, Any]]:
@@ -1136,6 +1339,35 @@ def kimdis_document_preview_payload(official_id: str) -> dict[str, Any]:
     }
 
 
+def authority_document_preview_payload(row_key: str) -> dict[str, Any]:
+    row = authority_row_by_key(row_key) or {}
+    documents = authority_documents_by_key().get(row_key, [])
+    docs = []
+    for index, document in enumerate(documents):
+        local_path = normalize_local_path(_none_or_str(document.get("local_path")))
+        kind = preview_kind("", str(document.get("original_filename") or ""))
+        docs.append(
+            {
+                "index": index,
+                "name": document.get("original_filename"),
+                "kind": kind,
+                "label": preview_label(kind),
+                "available": local_path is not None,
+                "size_bytes": document.get("size_bytes"),
+                "source_url": document.get("attachment_url"),
+                "view_url": f"/api/authority-document-file?row_key={row_key}&index={index}" if local_path else document.get("attachment_url"),
+            }
+        )
+    return {
+        "row_key": row_key,
+        "source_label": "Φορέας",
+        "official_url": row.get("official_url") or row.get("attachment_url"),
+        "candidate_status": row.get("status"),
+        "documents": docs,
+        "featured": [doc for doc in docs if doc["kind"] in {"declaration", "technical_description", "budget", "price_list"}],
+    }
+
+
 def preview_document_from_row(row: sqlite3.Row) -> dict[str, Any]:
     attachment_id = int(row["attachment_id"])
     local_path = normalize_local_path(row["local_path"])
@@ -1176,6 +1408,13 @@ def kimdis_document_file_path(official_id: str) -> Path | None:
     return normalize_local_path(_none_or_str(document.get("local_path")))
 
 
+def authority_document_file_path(row_key: str, index: int) -> Path | None:
+    documents = authority_documents_by_key().get(row_key, [])
+    if index < 0 or index >= len(documents):
+        return None
+    return normalize_local_path(_none_or_str(documents[index].get("local_path")))
+
+
 def kimdis_linked_eshidis_ids(official_id: str) -> list[str]:
     document = kimdis_documents_by_official_id().get(official_id)
     if not document:
@@ -1189,11 +1428,15 @@ def kimdis_linked_eshidis_ids(official_id: str) -> list[str]:
 
 
 def document_zip_bytes(identifier: str) -> tuple[str, bytes | None]:
-    entries = (
-        kimdis_document_paths(identifier)
-        if is_kimdis_identifier(identifier)
-        else eshidis_document_paths(require_eshidis_id({"eshidis_id": identifier}))
-    )
+    if identifier in authority_documents_by_key():
+        entries = authority_document_paths(identifier)
+    elif identifier.startswith("AUTHORITY:") or identifier.startswith("AUTH-"):
+        authority_key = require_authority_row_key({"row_key": identifier})
+        entries = authority_document_paths(authority_key)
+    elif is_kimdis_identifier(identifier):
+        entries = kimdis_document_paths(identifier)
+    else:
+        entries = eshidis_document_paths(require_eshidis_id({"eshidis_id": identifier}))
     if not entries:
         return f"tender_{safe_filename(identifier)}_documents.zip", None
     buffer = io.BytesIO()
@@ -1248,6 +1491,15 @@ def kimdis_document_paths(official_id: str) -> list[tuple[str, Path]]:
     for eshidis_id in kimdis_linked_eshidis_ids(official_id):
         for preferred_name, path in eshidis_document_paths(eshidis_id):
             entries.append((f"ESHIDIS_{eshidis_id}_{preferred_name}", path))
+    return entries
+
+
+def authority_document_paths(row_key: str) -> list[tuple[str, Path]]:
+    entries: list[tuple[str, Path]] = []
+    for document in authority_documents_by_key().get(row_key, []):
+        path = normalize_local_path(_none_or_str(document.get("local_path")))
+        if path:
+            entries.append((str(document.get("original_filename") or path.name), path))
     return entries
 
 
@@ -1810,6 +2062,8 @@ button:hover, .button:hover { background: var(--accent-dark); }
 button:disabled { opacity: .55; cursor: wait; }
 .secondary { background: #edf1f5; color: #23303f; border: 1px solid var(--line); }
 .secondary:hover { background: #e1e7ee; }
+.danger { background: #b91c1c; color: white; }
+.danger:hover { background: #991b1b; }
 .nav {
   justify-content: start;
   background: transparent;
@@ -2334,8 +2588,9 @@ function renderDashboard(payload) {
     const rowKey = tender.row_key || tender.eshidis_id || tender.display_id || '';
     const isEshidis = Boolean(tender.supports_eshidis_actions);
     const isKimdis = Boolean(tender.supports_kimdis_actions);
-    const linkLabel = tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : 'ΕΣΗΔΗΣ';
-    const identifier = tender.official_id || tender.eshidis_id || tender.display_id || '';
+    const isAuthority = Boolean(tender.supports_authority_actions);
+    const linkLabel = tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : (tender.source_label === 'Φορέας' ? 'Φορέας' : 'ΕΣΗΔΗΣ');
+    const identifier = isAuthority ? rowKey : (tender.official_id || tender.eshidis_id || tender.display_id || '');
     const linkedText = (tender.linked_eshidis_ids || []).length
       ? `<span class="pill">ΕΣΗΔΗΣ ${escapeHtml((tender.linked_eshidis_ids || []).join(', '))}</span>`
       : '';
@@ -2353,8 +2608,9 @@ function renderDashboard(payload) {
       <td>
         <div class="actionStack">
           <a class="button secondary tinyButton" href="${escapeHtml(tender.official_url || tender.attachment_url || '#')}" target="_blank" rel="noreferrer">${linkLabel}</a>
-          ${(isEshidis || isKimdis) ? `<button class="tinyButton fetchTender" data-key="${escapeHtml(rowKey)}" data-id="${escapeHtml(identifier)}">Fetch</button>` : ''}
-          ${(isEshidis || isKimdis) ? `<a class="button secondary tinyButton" href="${escapeHtml(zipUrl)}" target="_blank" rel="noreferrer">ZIP</a>` : ''}
+          ${(isEshidis || isKimdis || isAuthority) ? `<button class="tinyButton fetchTender" data-key="${escapeHtml(rowKey)}" data-id="${escapeHtml(identifier)}">Fetch</button>` : ''}
+          ${(isEshidis || isKimdis || tender.has_local_documents) ? `<a class="button secondary tinyButton" href="${escapeHtml(zipUrl)}" target="_blank" rel="noreferrer">ZIP</a>` : ''}
+          <button class="tinyButton danger dismissTender" data-key="${escapeHtml(rowKey)}">Δεν με ενδιαφέρει</button>
         </div>
       </td>
     `;
@@ -2367,6 +2623,12 @@ function renderDashboard(payload) {
     button.addEventListener('click', (event) => {
       event.stopPropagation();
       fetchTenderDocuments(button.dataset.key, button.dataset.id);
+    });
+  });
+  document.querySelectorAll('.dismissTender').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      dismissTender(button.dataset.key);
     });
   });
   document.querySelectorAll('#tenderRows a').forEach((link) => {
@@ -2405,12 +2667,17 @@ async function selectTender(eshidisId, downloadFirst) {
   const tender = (state.dashboard?.tenders || []).find((item) => (item.row_key || item.eshidis_id) === eshidisId) || {};
   const supportsEshidis = Boolean(tender.supports_eshidis_actions);
   const supportsKimdis = Boolean(tender.supports_kimdis_actions);
+  const supportsAuthority = Boolean(tender.supports_authority_actions);
   const actualEshidisId = tender.eshidis_id || '';
   $('eshidisInput').value = supportsEshidis ? actualEshidisId : '';
   $('kimdisInput').value = supportsKimdis ? (tender.official_id || tender.display_id || '') : '';
   $('previewTitle').textContent = `${tender.display_id || actualEshidisId || eshidisId} · ${tender.title || ''}`;
-  $('officialLink').textContent = tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : 'ΕΣΗΔΗΣ';
+  $('officialLink').textContent = tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : (tender.source_label === 'Φορέας' ? 'Φορέας' : 'ΕΣΗΔΗΣ');
   $('officialLink').href = tender.official_url || tender.attachment_url || tender.download_url || '#';
+  if (supportsAuthority) {
+    await renderAuthorityPreview(tender.row_key || eshidisId);
+    return;
+  }
   if (supportsKimdis) {
     await renderKimdisPreview(tender.official_id || tender.display_id || eshidisId);
     return;
@@ -2418,8 +2685,8 @@ async function selectTender(eshidisId, downloadFirst) {
   if (!supportsEshidis) {
     $('previewBody').innerHTML = `
       <div class="emptyState">
-        Η γραμμή είναι ΚΗΜΔΗΣ ${escapeHtml(tender.status || 'candidate')} από το expanded report.
-        Δεν υπάρχει ακόμα τοπικό fetched αρχείο για preview. Χρησιμοποίησε το link ΚΗΜΔΗΣ για το επίσημο συνημμένο.
+        Η γραμμή είναι ${escapeHtml(tender.status || 'candidate')} από το expanded report.
+        Δεν υπάρχει ακόμα τοπικό fetched αρχείο για preview. Άνοιξε το link σε νέα καρτέλα για τα επίσημα στοιχεία της πηγής.
       </div>
     `;
     return;
@@ -2449,6 +2716,8 @@ async function fetchTenderDocuments(rowKey, identifier) {
   const tender = (state.dashboard?.tenders || []).find((item) => (item.row_key || item.eshidis_id) === rowKey) || {};
   if (isKimdisCode(identifier)) {
     await renderKimdisPreview(identifier);
+  } else if (String(identifier || '').startsWith('AUTHORITY:')) {
+    await renderAuthorityPreview(identifier);
   } else {
     await renderPreview(identifier);
   }
@@ -2459,6 +2728,34 @@ async function fetchTenderDocuments(rowKey, identifier) {
 
 function isKimdisCode(value) {
   return /^\\d{2}PROC\\d{9}$/.test(String(value || '').trim());
+}
+
+async function dismissTender(rowKey) {
+  if (!rowKey) return;
+  await api('/api/dismiss-tender', { method: 'POST', body: JSON.stringify({ row_key: rowKey }) });
+  if (state.selected === rowKey) {
+    state.selected = null;
+    resetPreview();
+  }
+  await loadDashboard();
+}
+
+async function renderAuthorityPreview(rowKey) {
+  const payload = await api(`/api/authority-document-preview?row_key=${encodeURIComponent(rowKey)}`);
+  const docs = payload.documents || [];
+  if (!docs.length) {
+    $('previewBody').innerHTML = '<div class="emptyState">Υπάρχουν links εγγράφων στη σελίδα του φορέα. Πάτα Fetch για να κατέβουν τοπικά και μετά ZIP.</div>';
+    return;
+  }
+  $('previewBody').innerHTML = docs.map((doc) => `
+    <article class="docItem">
+      <h4>${escapeHtml(doc.label)}${doc.available ? '' : ' · δεν έχει κατέβει'}</h4>
+      <p>${escapeHtml(doc.name || '')}</p>
+      <div class="docActions">
+        ${doc.view_url ? `<a class="button tinyButton" href="${escapeHtml(doc.view_url)}" target="_blank" rel="noreferrer">Open</a>` : ''}
+      </div>
+    </article>
+  `).join('');
 }
 
 async function renderKimdisPreview(officialId) {

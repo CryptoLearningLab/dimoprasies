@@ -387,9 +387,13 @@ The system `python` command is not present in the remote environment; use
   53 focus-related records are candidates, not `VERIFIED_ACTIVE` tenders.
 - Search/evaluation over KIMDIS text artifacts. The current search/evaluation
   pipeline still primarily uses SQLite ESHIDIS documents.
-- Municipal-source document downloading is still future work. The first
-  e-Patras authority adapter discovers candidate rows and document links, but
-  direct municipal file archiving still needs a dedicated download/index path.
+- Municipal-source document downloading exists for authority rows that expose
+  direct public attachment URLs. Files are stored under
+  `work/download_audit/authority/` and indexed in
+  `work/derived/authority_documents.json`. This is still separate from the
+  SQLite ESHIDIS attachment model.
+- User-dismissed dashboard rows are stored in
+  `work/derived/ignored_tenders.json` and skipped by row key.
 
 ## Next Work
 

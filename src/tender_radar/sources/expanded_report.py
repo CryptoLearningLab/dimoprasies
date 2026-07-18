@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 import json
 from pathlib import Path
@@ -49,6 +49,7 @@ class ExpandedTenderCandidate:
     match_notes: list[str]
     status: str
     status_reason: str
+    attachment_urls: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -116,6 +117,7 @@ def build_expanded_report(
                 match_notes=[f"{candidate.source_name}: {candidate.parser_status}"],
                 status=candidate.status,
                 status_reason=candidate.status_reason,
+                attachment_urls=candidate.attachment_urls,
             )
         )
     errors.extend(authority_errors)
@@ -285,6 +287,7 @@ def _fetch_kimdis_candidates(
                 if not reference:
                     continue
                 status, status_reason = _kimdis_status(item, str(family["record_type"]), as_of)
+                attachment_url = str(family["attachment_url"]).format(reference=reference)
                 candidates.append(
                     ExpandedTenderCandidate(
                         source="KIMDIS",
@@ -296,11 +299,12 @@ def _fetch_kimdis_candidates(
                         published_at=_none_or_str(item.get("submissionDate") or item.get("signedDate")),
                         submission_deadline=_none_or_str(item.get("finalSubmissionDate")),
                         source_url=url,
-                        attachment_url=str(family["attachment_url"]).format(reference=reference),
+                        attachment_url=attachment_url,
                         matched_scopes=_matched_scopes(item, scope_aliases),
                         match_notes=_match_notes(item, scope_aliases),
                         status=status,
                         status_reason=status_reason,
+                        attachment_urls=[attachment_url],
                     )
                 )
     return candidates, errors, page_stats

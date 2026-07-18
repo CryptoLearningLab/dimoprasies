@@ -255,3 +255,17 @@ These records are not active-status proof. When they expose an official
 KIMDIS `PROC` ADAM or ESHIDIS numeric id, the UI may use that explicit
 cross-reference for the existing official fetch path. Otherwise they remain
 `AUTHORITY_DISCOVERY_CANDIDATE` rows for human review.
+
+## D-031 - Municipal attachments use a separate runtime document index
+**Status:** Accepted
+
+Documents downloaded directly from municipal/authority pages are stored under
+`work/download_audit/authority/` and indexed in
+`work/derived/authority_documents.json`.
+
+They are available for preview and ZIP from the UI, but they are not imported
+as ESHIDIS attachments unless an explicit official ESHIDIS id is fetched
+through the existing official adapter.
+
+Dismissed dashboard rows are stored in `work/derived/ignored_tenders.json` and
+filtered out of subsequent dashboard payloads by row key.
