@@ -579,11 +579,32 @@ def extract_eshidis_ids_from_text(*values: object) -> list[str]:
             value = match.group(1)
             if value not in linked:
                 linked.append(value)
+    competition_pattern = r"(?:α\s*/?\s*α|αα)\W{0,20}διαγωνισμ\w*\W{0,20}(\d{5,7})(?!\d)"
+    for match in re.finditer(competition_pattern, normalized):
+        if not _has_eshidis_competition_context(normalized, match.start()):
+            continue
+        value = match.group(1)
+        if value not in linked:
+            linked.append(value)
     return linked
 
 
 def _normalize_eshidis_labels(value: str) -> str:
     return re.sub(r"ε\s*\.?\s*σ\s*\.?\s*η\s*\.?\s*δ\s*\.?\s*η\s*\.?\s*[σς]", "εσηδησ", value)
+
+
+def _has_eshidis_competition_context(text: str, position: int) -> bool:
+    context = text[max(0, position - 260) : position + 120]
+    return any(
+        marker in context
+        for marker in (
+            "publicworks.eprocurement.gov.gr",
+            "eprocurement.gov.gr",
+            "εσηδησ",
+            "εσηδης",
+            "ηλεκτρονικων δημοσιων συμβασεων",
+        )
+    )
 
 
 def _write_text_artifact(full_text: str | None, candidate: dict[str, Any], text_dir: Path | None) -> str | None:

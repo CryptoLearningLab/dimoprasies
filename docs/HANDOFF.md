@@ -251,7 +251,12 @@ That URL is temporary and should not be treated as stable infrastructure.
   `pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/<id>`, and
   the fully dotted acronym `Ε.Σ.Η.Δ.Η.Σ.`. A corpus check found 10 extracted
   text files with official resource URLs and extracted all 10/10. The latest
-  KIMDIS document index has 9 records with linked ESHIDIS ids.
+  KIMDIS document index has 10 records with linked ESHIDIS ids.
+- The extractor also handles guarded `Α/Α Διαγωνισμού <id>` text when nearby
+  context proves the ESHIDIS public works platform, e.g.
+  `publicworks.eprocurement.gov.gr` plus `(Α/Α Διαγωνισμού 221624)`. The
+  current corpus case `26PROC019405070` now links to `221624`; unguarded
+  `Α/Α Διαγωνισμού` numbers are ignored.
 - Single-ADAM KIMDIS fetches merge their updated document record into the
   existing KIMDIS document index instead of replacing the full index. KIMDIS
   previews expose a linked ESHIDIS file count so the UI distinguishes
@@ -279,7 +284,7 @@ Latest confirmed command:
 Result:
 
 ```text
-87 passed in 2.04s
+89 passed in 1.62s
 ```
 
 Latest KIMDIS PROC attachment fetch command:

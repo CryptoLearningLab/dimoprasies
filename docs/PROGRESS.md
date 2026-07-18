@@ -702,6 +702,24 @@
 - Result: all repository configs OK.
 - `.venv/bin/python -m pytest`
 - Result: 87 passed in 2.04s.
+- Added guarded extraction for `Α/Α Διαγωνισμού <id>` when the nearby context
+  proves the ESHIDIS/public works platform, such as `publicworks.eprocurement.gov.gr`,
+  `eprocurement.gov.gr`, `ΕΣΗΔΗΣ` or `Ηλεκτρονικών Δημοσίων Συμβάσεων`.
+  Unguarded `Α/Α Διαγωνισμού` numbers are ignored.
+- Corpus check found one current KIMDIS extracted text with this pattern:
+  `work/extracted_text/kimdis/26PROC019405070.txt`, now extracting `221624`.
+- KIMDIS document-index refresh after the guarded competition-number change:
+  `.venv/bin/python -m tender_radar sources fetch-kimdis-open-proc --expanded-report work/reports/expanded_discovery_report.json --config config/sources.yml --download-dir work/download_audit/kimdis --text-dir work/extracted_text/kimdis --document-index work/derived/kimdis_open_proc_documents.json --report work/reports/kimdis_open_proc_fetch_report.json --markdown-report work/reports/kimdis_open_proc_fetch_report.md --limit 50 --timeout 30 --allow-insecure-tls`
+- Result: 14 checked, 14 already present, 0 failed, 14 text extracted,
+  14 document evidence found, 10 records with linked ESHIDIS ids.
+- New linked example: `26PROC019405070 -> 221624`.
+- Verification for guarded competition-number extraction:
+  `.venv/bin/python -m pytest tests/test_kimdis_fetch.py tests/test_ui_server.py tests/test_cli.py`
+  returned `48 passed in 1.08s`.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m pytest`
+- Result: 89 passed in 1.62s.
 
 ## Coverage
 
@@ -743,6 +761,7 @@ ui_end_to_end_fetch_zip_confirmed_by_user: true
 kimdis_extracts_linked_eshidis_ids: true
 kimdis_extracts_dotted_eshidis_ids: true
 kimdis_extracts_official_resource_url_eshidis_ids: true
+kimdis_extracts_guarded_competition_eshidis_ids: true
 ui_kimdis_fetch_chains_linked_eshidis: true
 kimdis_zip_includes_linked_eshidis_downloads: true
 ui_linked_eshidis_file_count: true
@@ -775,7 +794,9 @@ focus_municipalities: 6
 sample_linked_eshidis_207024_files: 14
 official_resource_url_text_files_checked: 10
 official_resource_url_text_files_extracted: 10
-kimdis_records_with_linked_eshidis_ids: 9
+guarded_competition_text_files_checked: 1
+guarded_competition_text_files_extracted: 1
+kimdis_records_with_linked_eshidis_ids: 10
 ```
 
 ## Next Gate

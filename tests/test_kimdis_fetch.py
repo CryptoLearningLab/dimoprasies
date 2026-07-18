@@ -291,6 +291,22 @@ def test_extract_eshidis_ids_from_multiple_official_resource_urls() -> None:
     assert extract_eshidis_ids_from_text(text) == ["221566", "221556"]
 
 
+def test_extract_eshidis_ids_from_guarded_competition_number() -> None:
+    text = (
+        "Ο διαγωνισμός θα πραγματοποιηθεί με χρήση της πλατφόρμας του Εθνικού Συστήματος "
+        "Ηλεκτρονικών Δημοσίων Συμβάσεων (ΕΣΗΔΗΣ) μέσω της διαδικτυακής πύλης "
+        "https://publicworks.eprocurement.gov.gr (Α/Α Διαγωνισμού 221624)."
+    )
+
+    assert extract_eshidis_ids_from_text(text) == ["221624"]
+
+
+def test_extract_eshidis_ids_rejects_unguarded_competition_number() -> None:
+    text = "Πρακτικό επιτροπής με Α/Α Διαγωνισμού 221624 και προϋπολογισμό 250000."
+
+    assert extract_eshidis_ids_from_text(text) == []
+
+
 def test_kimdis_document_index_preserves_required_metadata(tmp_path) -> None:
     report = {
         "checked_at": "2026-07-17T00:00:00+00:00",

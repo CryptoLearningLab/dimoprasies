@@ -26,6 +26,7 @@ discovery runs remain candidate-only and never emit VERIFIED_ACTIVE
 KIMDIS linked ESHIDIS extraction handles dotted Ε.Σ.Η.ΔΗ.Σ Α/Α labels
 KIMDIS previews expose already-downloaded linked ESHIDIS file counts
 KIMDIS linked ESHIDIS extraction handles official resources/search/<id> URLs
+KIMDIS linked ESHIDIS extraction handles guarded Α/Α Διαγωνισμού labels
 ```
 
 ## Instruction
