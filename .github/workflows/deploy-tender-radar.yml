@@ -1,0 +1,39 @@
+name: Deploy Tender Radar
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: tender-radar-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to DigitalOcean droplet
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.TENDER_RADAR_SSH_KEY }}" > ~/.ssh/tender_radar_deploy_key
+          chmod 600 ~/.ssh/tender_radar_deploy_key
+          ssh-keyscan -H "${{ secrets.TENDER_RADAR_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy on droplet
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i ~/.ssh/tender_radar_deploy_key \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "${{ secrets.TENDER_RADAR_USER }}@${{ secrets.TENDER_RADAR_HOST }}" \
+            '/root/workspace/deploy-dimoprasies.sh'
