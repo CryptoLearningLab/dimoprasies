@@ -1,48 +1,53 @@
 # NEXT TASK
 
 Execute:
-`Configure stable HTTPS access for the droplet UI`
+`Harden document fetcher for new or suspect rows`
 
 ## Current Input
 
-The independent DigitalOcean droplet is running the Tender Radar UI at:
+The first infrastructure gates are now in place:
 
-```text
-http://165.227.143.152:8765/
-```
+- stable droplet runtime,
+- runtime `.env.local` with OpenAI and SMTP settings,
+- SQLite source/dismissal/notification state,
+- per-source poller with skip behavior,
+- production email alerts,
+- 6-hour systemd timer,
+- Caddy HTTPS access at `https://165.227.143.152.sslip.io/`.
 
-The UI is production-like and persistent, but browser access is currently plain
-HTTP on an IP address. Mobile browsers correctly show this as not secure.
-
-Email alerts are configured and verified:
-
-- SMTP env keys are present on the droplet.
-- Real scheduled-run smoke sent 33 rows successfully.
-- SQLite `notification_log` recorded 33 sent rows after success.
-- `tender-radar-scheduled.timer` is enabled and active.
-- The timer cadence is every 6 hours.
+The next product gate is document fetching. The system already has per-row
+fetch/zip behavior and ESHIDIS attachment download mechanisms, but the
+production scheduler needs a stricter document fetcher contract for new or
+suspect non-ESHIDIS rows.
 
 ## Instruction
 
 Implement the next small gate:
 
-1. Pick the least-surprising HTTPS path:
-   - preferred: user-owned domain/subdomain with DNS `A` record to
-     `165.227.143.152`;
-   - fallback: a temporary wildcard DNS hostname such as `sslip.io` only if the
-     user approves it.
-2. Install and configure a reverse proxy, preferably Caddy, on the droplet.
-3. Proxy HTTPS traffic to the existing local UI service on `127.0.0.1:8765`.
-4. Keep the UI service unchanged unless a proxy compatibility issue requires a
-   narrowly scoped fix.
-5. Confirm HTTP to HTTPS behavior and browser-safe TLS.
+1. Identify the current document fetch paths for:
+   - ESHIDIS rows,
+   - KIMDIS rows,
+   - municipal/regional authority rows.
+2. Ensure the scheduled path downloads documents only for rows that are new,
+   changed, unprocessed, or explicitly suspect.
+3. Persist document provenance in SQLite or a clearly documented migration
+   bridge:
+   - source row key,
+   - source URL,
+   - document URL,
+   - local path,
+   - SHA-256,
+   - fetched timestamp,
+   - fetch error when applicable.
+4. Preserve originals; do not delete previously downloaded files.
+5. Add focused tests for skip vs fetch decisions.
 
 ## Required Closeout
 
-1. Report the final HTTPS URL.
-2. Run curl checks for HTTP/HTTPS status.
-3. Confirm `tender-radar-ui.service` remains active.
-4. Confirm `tender-radar-scheduled.timer` remains enabled and active.
+1. Run targeted tests for the document fetcher changes.
+2. Run the full test suite if app code changes.
+3. Run one droplet smoke that proves unchanged rows do not re-download.
+4. Report changed files and verification commands.
 5. Update `docs/PROGRESS.md`.
 6. Update `docs/DECISIONS.md` only if a real decision was made.
 7. Update this file with the next single executable gate.

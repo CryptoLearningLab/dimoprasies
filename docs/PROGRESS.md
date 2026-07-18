@@ -2013,6 +2013,44 @@ latest scheduled report: work/reports/scheduled_poll_alert_latest.json
 latest scheduled tick: ok true, dry_run false, sent 0, new_count 0, skipped_already_sent 33, discovery skipped true
 ```
 
+### Stable HTTPS access on droplet
+
+Implemented behavior:
+
+- Installed Caddy on the DigitalOcean droplet.
+- Added a reverse proxy for:
+  `https://165.227.143.152.sslip.io/`
+- Changed `tender-radar-ui.service` with a systemd drop-in so the Python UI
+  listens only on `127.0.0.1:8765`.
+- Opened firewall ports `80/tcp` and `443/tcp`.
+- Removed the old public firewall allowance for `8765/tcp`.
+- Caddy obtained a public Let's Encrypt certificate successfully.
+
+Verification:
+
+```bash
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'caddy validate --config /etc/caddy/Caddyfile'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'curl -I --max-time 20 http://165.227.143.152.sslip.io/'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'curl -s -L --max-time 30 https://165.227.143.152.sslip.io/ | grep -o "Tender Radar" | head -1'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'cd /root/workspace/dimoprasies && curl -s -L --max-time 30 https://165.227.143.152.sslip.io/api/dashboard?scope=focus | .venv/bin/python -c "import sys,json; p=json.load(sys.stdin); print(p.get(\"summary\",{}).get(\"visible\"), p.get(\"summary\",{}).get(\"total_known\"))"'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'systemctl is-active tender-radar-ui.service && systemctl is-active caddy.service && systemctl is-enabled tender-radar-scheduled.timer && systemctl is-active tender-radar-scheduled.timer'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'ss -ltnp | grep -E ":(80|443|8765)" || true'
+```
+
+Results:
+
+```text
+Caddy config: valid
+HTTP: 308 redirect to https://165.227.143.152.sslip.io/
+HTTPS page smoke: Tender Radar
+HTTPS dashboard smoke: 33 visible, 89 total known
+tender-radar-ui.service: active
+caddy.service: active
+tender-radar-scheduled.timer: enabled, active
+listeners: 80/443 public via Caddy, 8765 localhost-only
+certificate: obtained successfully by Caddy/Let's Encrypt
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

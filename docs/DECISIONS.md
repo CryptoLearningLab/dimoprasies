@@ -479,3 +479,14 @@ sent rows after success.
 The current production timer runs every 6 hours through systemd and relies on
 SQLite `notification_log` to prevent duplicate alert sends to the same
 recipient.
+
+## D-048 - Droplet UI is exposed through HTTPS reverse proxy
+**Status:** Accepted
+
+The Tender Radar UI should not be accessed through a raw public application
+port. The droplet uses Caddy as a reverse proxy on ports 80/443, with automatic
+HTTPS certificates and HTTP-to-HTTPS redirects.
+
+The Python UI process listens on `127.0.0.1:8765` only. Public browser access
+goes through the HTTPS hostname, currently `165.227.143.152.sslip.io` until a
+user-owned domain or subdomain is configured.
