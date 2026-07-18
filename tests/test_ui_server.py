@@ -13,6 +13,7 @@ from tender_radar.ui_server import (
     configured_source_entries,
     dashboard_payload,
     document_zip_bytes,
+    email_alerts_payload,
     discovery_search_steps,
     format_budget,
     interest_reason,
@@ -36,7 +37,7 @@ from tender_radar.ui_server import (
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.1" in INDEX_HTML
+    assert "v0.1.2" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -45,6 +46,12 @@ def test_ui_exposes_source_polling_audit() -> None:
     assert "/api/source-polling" in APP_JS
     assert "renderSourcePolling" in APP_JS
     assert "refreshRuntimeViews" in APP_JS
+
+
+def test_ui_exposes_email_alert_button() -> None:
+    assert 'id="emailAlertsBtn"' in INDEX_HTML
+    assert "/api/email-alerts" in APP_JS
+    assert "Email νέων έργων" in INDEX_HTML
 
 
 def test_report_json_content_type_includes_utf8_charset() -> None:
@@ -341,6 +348,57 @@ authority_adapters:
     assert by_id["eshidis_active_search"]["selective_refresh_capable"] is True
     assert by_id["nafpaktos_tenders"]["last_error"] == "timeout"
     assert by_id["template_source"]["last_status"] == "NEVER_CHECKED"
+
+
+def test_email_alerts_payload_skips_rows_already_sent(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    monkeypatch.setattr(ui_server, "email_alert_recipient", lambda: "owner@example.test")
+    monkeypatch.setattr(
+        ui_server,
+        "dashboard_payload",
+        lambda scope="focus", sort="deadline_asc": {
+            "summary": {"visible": 2},
+            "tenders": [
+                {
+                    "row_key": "ESHIDIS:221744",
+                    "display_id": "221744",
+                    "source_label": "ΕΣΗΔΗΣ",
+                    "eshidis_id": "221744",
+                    "title": "Συντηρήσεις οδικού δικτύου",
+                    "authority_name": "Δήμος Αμφιλοχίας",
+                    "budget_display": "1.000.000",
+                    "deadline_display": "2026-08-07 10:00",
+                },
+                {
+                    "row_key": "KIMDIS:26PROC000000001",
+                    "display_id": "26PROC000000001",
+                    "source_label": "ΚΗΜΔΗΣ",
+                    "official_url": "https://example.test/notice",
+                    "title": "Αναπλάσεις",
+                    "authority_name": "Δήμος Ναυπακτίας",
+                    "budget_display": "500.000",
+                    "deadline_display": "2026-08-10",
+                },
+            ],
+        },
+    )
+    ui_server.record_notification_sent(
+        ui_server.runtime_db_path(),
+        row_key="ESHIDIS:221744",
+        channel="email",
+        recipient="owner@example.test",
+        subject="old",
+    )
+
+    payload = email_alerts_payload(dry_run=True)
+
+    assert payload["candidate_rows"] == 2
+    assert payload["new_count"] == 1
+    assert payload["skipped_already_sent"] == 1
+    assert payload["new_rows"][0]["row_key"] == "KIMDIS:26PROC000000001"
+    assert payload["skipped_rows"][0]["row_key"] == "ESHIDIS:221744"
+    assert "https://example.test/notice" in payload["text_body"]
 
 
 def test_ui_labels_bounded_and_backfill_discovery_modes() -> None:

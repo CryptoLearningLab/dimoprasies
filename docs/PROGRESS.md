@@ -1749,6 +1749,39 @@ full test suite: 146 passed
 local source polling smoke: configured_total 31, tracked_total 31, selective_capable_total 25, changed_total 4, selective_changed_total 2, error_total 4, selective_error_total 4, requires_identifier_total 4, never_checked_total 0
 ```
 
+### UI v0.1.2 and email alert de-duplication
+
+Implemented behavior:
+
+- Bumped the application version from `0.1.1` to `0.1.2` so live UI changes
+  are visibly identifiable.
+- Added `/api/email-alerts`, which consumes the current dashboard rows instead
+  of running discovery.
+- Email alert de-duplication uses SQLite `notification_log` per row key,
+  channel and recipient.
+- The email body includes clickable official URLs plus title, source label,
+  authority, budget and deadline.
+- The first UI screen now has `Email νέων έργων`; real sending requires SMTP
+  runtime configuration in env or `.env.local`. Dry-run does not mutate
+  `notification_log`.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_ui_exposes_email_alert_button tests/test_ui_server.py::test_email_alerts_payload_skips_rows_already_sent tests/test_ui_server.py::test_ui_exposes_source_polling_audit
+.venv/bin/python -m pytest
+.venv/bin/python -c "import json; from tender_radar.ui_server import email_alerts_payload; p=email_alerts_payload(recipient='smoke@example.test', dry_run=True); print(json.dumps({k:p[k] for k in ['candidate_rows','new_count','skipped_already_sent','sent','dry_run']}, ensure_ascii=False)); print((p['new_rows'][0] if p['new_rows'] else {}).get('official_url'))"
+```
+
+Results:
+
+```text
+targeted UI/email tests: 4 passed
+full test suite: 148 passed
+local email dry-run smoke: candidate_rows 29, new_count 29, skipped_already_sent 0, sent 0, dry_run true
+first dry-run link: https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/221566
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

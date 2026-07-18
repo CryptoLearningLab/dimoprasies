@@ -3,11 +3,14 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
+from email.message import EmailMessage
 import hashlib
 import io
 import json
 import mimetypes
+import os
 import re
+import smtplib
 import sqlite3
 import subprocess
 import sys
@@ -30,7 +33,9 @@ from tender_radar.db import (
     get_source_state,
     ignored_tender_keys as ignored_tender_keys_from_db,
     list_source_states,
+    notification_already_sent,
     record_source_run,
+    record_notification_sent,
     upsert_source_state,
 )
 from tender_radar.discovery_watermark import (
@@ -241,6 +246,13 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                     start_job("ai-triage", run_ai_triage, scope=scope, sort=sort, batch_size=batch_size),
                     status=202,
                 )
+                return
+            if parsed.path == "/api/email-alerts":
+                scope = str(payload.get("scope") or "focus")
+                sort = str(payload.get("sort") or "deadline_asc")
+                dry_run = bool(payload.get("dry_run", False))
+                recipient = str(payload.get("recipient") or "").strip() or None
+                self._send_json(start_job("email-alerts", run_email_alerts, scope=scope, sort=sort, recipient=recipient, dry_run=dry_run), status=202)
                 return
             if parsed.path == "/api/dismiss-tender":
                 row_key = require_row_key(payload)
@@ -1317,6 +1329,213 @@ def source_polling_payload() -> dict[str, Any]:
         "summary": summary,
         "rows": rows,
     }
+
+
+def run_email_alerts(
+    *,
+    scope: str = "focus",
+    sort: str = "deadline_asc",
+    recipient: str | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    payload = email_alerts_payload(scope=scope, sort=sort, recipient=recipient, dry_run=dry_run)
+    if dry_run or not payload["new_rows"]:
+        return payload
+    send_email_alert(payload["recipient"], payload["subject"], payload["text_body"], payload["html_body"])
+    sent_at = utc_now_iso()
+    for row in payload["new_rows"]:
+        record_notification_sent(
+            runtime_db_path(),
+            row_key=str(row["row_key"]),
+            channel="email",
+            recipient=payload["recipient"],
+            subject=payload["subject"],
+            sent_at=sent_at,
+            metadata={
+                "display_id": row.get("display_id"),
+                "source_label": row.get("source_label"),
+                "official_url": row.get("official_url"),
+            },
+        )
+    payload["sent"] = len(payload["new_rows"])
+    payload["sent_at"] = sent_at
+    return payload
+
+
+def email_alerts_payload(
+    *,
+    scope: str = "focus",
+    sort: str = "deadline_asc",
+    recipient: str | None = None,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    target = recipient or email_alert_recipient()
+    if not target:
+        raise ValueError("Email recipient is not configured. Set ALERT_EMAIL_TO or pass recipient.")
+    dashboard = dashboard_payload(scope=scope, sort=sort)
+    rows = [email_alert_row(row) for row in dashboard.get("tenders") or []]
+    rows = [row for row in rows if row["row_key"]]
+    skipped = [
+        row
+        for row in rows
+        if notification_already_sent(runtime_db_path(), row_key=row["row_key"], channel="email", recipient=target)
+    ]
+    skipped_keys = {row["row_key"] for row in skipped}
+    new_rows = [row for row in rows if row["row_key"] not in skipped_keys]
+    subject = f"Tender Radar: {len(new_rows)} νέα έργα"
+    text_body = render_email_text(new_rows)
+    html_body = render_email_html(new_rows)
+    return {
+        "ok": True,
+        "dry_run": dry_run,
+        "recipient": target,
+        "subject": subject,
+        "dashboard_summary": dashboard.get("summary") or {},
+        "candidate_rows": len(rows),
+        "new_count": len(new_rows),
+        "skipped_already_sent": len(skipped),
+        "sent": 0,
+        "new_rows": new_rows,
+        "skipped_rows": skipped,
+        "text_body": text_body,
+        "html_body": html_body,
+    }
+
+
+def email_alert_row(row: dict[str, Any]) -> dict[str, Any]:
+    row_key = str(row.get("row_key") or row.get("eshidis_id") or row.get("official_id") or row.get("display_id") or "")
+    official_url = official_url_for_row(row)
+    return {
+        "row_key": row_key,
+        "display_id": row.get("display_id") or row.get("eshidis_id") or row.get("official_id"),
+        "source_label": row.get("source_label"),
+        "title": row.get("title"),
+        "authority_name": row.get("authority_name"),
+        "budget_display": row.get("budget_display"),
+        "deadline_display": row.get("deadline_display"),
+        "official_url": official_url,
+    }
+
+
+def official_url_for_row(row: dict[str, Any]) -> str | None:
+    linked_ids = linked_eshidis_ids_for_row(row)
+    eshidis_id = str(row.get("eshidis_id") or (linked_ids[0] if linked_ids else "") or "").strip()
+    if eshidis_id:
+        return f"https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/{quote(eshidis_id)}"
+    for key in ("official_url", "source_url", "attachment_url", "download_url"):
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def render_email_text(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "Δεν υπάρχουν νέα έργα για αποστολή."
+    lines = ["Νέα έργα Tender Radar:", ""]
+    for index, row in enumerate(rows, start=1):
+        lines.extend(
+            [
+                f"{index}. {row.get('title') or ''}",
+                f"Α/Α: {row.get('display_id') or ''}",
+                f"Πηγή: {row.get('source_label') or ''}",
+                f"Φορέας: {row.get('authority_name') or ''}",
+                f"Προϋπολογισμός: {row.get('budget_display') or ''}",
+                f"Λήξη: {row.get('deadline_display') or ''}",
+                f"Link: {row.get('official_url') or ''}",
+                "",
+            ]
+        )
+    return "\n".join(lines).strip()
+
+
+def render_email_html(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "<p>Δεν υπάρχουν νέα έργα για αποστολή.</p>"
+    items = []
+    for row in rows:
+        link = row.get("official_url")
+        title = escape_html(row.get("title") or "")
+        title_html = f'<a href="{escape_html(link)}">{title}</a>' if link else title
+        items.append(
+            "<li>"
+            f"<strong>{title_html}</strong><br>"
+            f"Α/Α: {escape_html(row.get('display_id') or '')}<br>"
+            f"Πηγή: {escape_html(row.get('source_label') or '')}<br>"
+            f"Φορέας: {escape_html(row.get('authority_name') or '')}<br>"
+            f"Προϋπολογισμός: {escape_html(row.get('budget_display') or '')}<br>"
+            f"Λήξη: {escape_html(row.get('deadline_display') or '')}"
+            "</li>"
+        )
+    return "<h2>Νέα έργα Tender Radar</h2><ol>" + "".join(items) + "</ol>"
+
+
+def escape_html(value: object) -> str:
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
+def email_alert_recipient() -> str | None:
+    env = load_local_env()
+    return (
+        os.environ.get("ALERT_EMAIL_TO")
+        or os.environ.get("EMAIL_ALERT_TO")
+        or os.environ.get("EMAIL_TO")
+        or env.get("ALERT_EMAIL_TO")
+        or env.get("EMAIL_ALERT_TO")
+        or env.get("EMAIL_TO")
+    )
+
+
+def smtp_config() -> dict[str, str]:
+    env = load_local_env()
+    keys = {
+        "host": "SMTP_HOST",
+        "port": "SMTP_PORT",
+        "username": "SMTP_USERNAME",
+        "password": "SMTP_PASSWORD",
+        "from_email": "EMAIL_FROM",
+    }
+    config = {name: os.environ.get(env_key) or env.get(env_key) or "" for name, env_key in keys.items()}
+    missing = [name for name, value in config.items() if not value]
+    if missing:
+        raise ValueError(f"SMTP is not configured: missing {', '.join(missing)}.")
+    return config
+
+
+def send_email_alert(recipient: str, subject: str, text_body: str, html_body: str) -> None:
+    config = smtp_config()
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = config["from_email"]
+    message["To"] = recipient
+    message.set_content(text_body)
+    message.add_alternative(html_body, subtype="html")
+    port = int(config["port"])
+    with smtplib.SMTP(config["host"], port, timeout=30) as smtp:
+        smtp.starttls()
+        smtp.login(config["username"], config["password"])
+        smtp.send_message(message)
+
+
+def load_local_env() -> dict[str, str]:
+    path = REPO_ROOT / ".env.local"
+    if not path.exists():
+        return {}
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
 
 
 def quick_source_fingerprint(*, timeout_seconds: int = 8) -> dict[str, Any]:
@@ -3161,6 +3380,7 @@ INDEX_HTML = f"""<!doctype html>
             <span>Backfill safety</span>
           </label>
           <button id="discoverBtn">Νέα αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ</button>
+          <button id="emailAlertsBtn" class="secondary">Email νέων έργων</button>
         </div>
       </div>
 
@@ -4568,6 +4788,11 @@ $('discoverBtn').addEventListener('click', () => {
     { limit: $('limitInput').value, backfill },
     backfill ? 'Backfill αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ...' : 'Bounded αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ...'
   );
+});
+$('emailAlertsBtn').addEventListener('click', () => {
+  const scope = $('allGreeceToggle').checked ? 'all' : 'focus';
+  const sort = $('sortSelect').value || 'deadline_asc';
+  runAction('/api/email-alerts', { scope, sort, dry_run: false }, 'Αποστολή email για νέα έργα...');
 });
 $('fetchBtn').addEventListener('click', () => runAction('/api/fetch-resource', { eshidis_id: selectedId() }, 'Fetching official detail...'));
 $('downloadBtn').addEventListener('click', () => runAction('/api/download-all', { eshidis_id: selectedId() }, 'Downloading attachments...'));

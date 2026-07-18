@@ -417,3 +417,14 @@ source has no selective refresh path or there is no usable baseline.
 
 The legacy aggregate fingerprint JSON may still be written for compatibility,
 but the operational model is per-source state and per-source run audit.
+
+## D-043 - Email alerts consume dashboard state only
+**Status:** Accepted
+
+Email notification is a reporting action, not a discovery action. It consumes
+the already refreshed dashboard rows and must not run full-depth discovery,
+source polling, document fetching or AI classification as part of sending.
+
+Duplicate prevention is keyed by `row_key`, channel and recipient in SQLite
+`notification_log`. A row is recorded as sent only after a real send succeeds;
+dry-runs do not mutate notification state.
