@@ -110,7 +110,6 @@ scopes:
         negative_context: ["Δήμος Γλυφάδας", "Γλυφάδας Αττικής", "Αττική", "EL30", "Νότιος Τομέας Αθηνών"]
     sources:
       - "https://www.dorida.gr/blog/category/%CF%84%CE%B5%CE%BB%CE%B5%CF%85%CF%84%CE%B1%CE%AF%CE%B1-%CE%BD%CE%AD%CE%B1/%CF%80%CF%81%CE%BF%CE%BA%CE%B7%CF%81%CF%8D%CE%BE%CE%B5%CE%B9%CF%82"
-      - "https://www.dorida.gr/dimotiko-symvoulio/apofaseis-epitropon"
       - "https://diavgeia.gov.gr/f/DHMOSDORIDOS"
       - "https://diavgeia.gov.gr/f/D.L.T.DORIDOS"
 
@@ -202,32 +201,6 @@ authority_adapters:
       page: 1
       _fields: "id,date,link,title,excerpt,content"
 
-  - id: amfilochia_apofaseis_dimarchou
-    name: "Δήμος Αμφιλοχίας - Αποφάσεις Δημάρχου"
-    scope_id: amfilochia
-    scope_name: "Δήμος Αμφιλοχίας"
-    source_family: municipal_html
-    adapter: wordpress_category
-    url: "https://www.dimosamfilochias.gr/wp-json/wp/v2/posts"
-    query_params:
-      categories: 217
-      per_page: 20
-      page: 1
-      _fields: "id,date,link,title,excerpt,content"
-
-  - id: amfilochia_apofaseis_ds
-    name: "Δήμος Αμφιλοχίας - Αποφάσεις Δημοτικού Συμβουλίου"
-    scope_id: amfilochia
-    scope_name: "Δήμος Αμφιλοχίας"
-    source_family: municipal_html
-    adapter: wordpress_category
-    url: "https://www.dimosamfilochias.gr/wp-json/wp/v2/posts"
-    query_params:
-      categories: 251
-      per_page: 20
-      page: 1
-      _fields: "id,date,link,title,excerpt,content"
-
   - id: messolonghi_diagonismoi
     name: "Δήμος Ι.Π. Μεσολογγίου - Διαγωνισμοί"
     scope_id: messolonghi
@@ -264,17 +237,6 @@ authority_adapters:
       param: page
       start: 0
     extraction_note: "Parse public Drupal article listing; fetch detail pages for /sites/default/files document links."
-
-  - id: epatras_municipal_committee
-    name: "Δήμος Πατρέων - Αποφάσεις Δημοτικής Επιτροπής"
-    scope_id: patras
-    scope_name: "Δήμος Πατρέων"
-    source_family: municipal_html
-    adapter: drupal_listing
-    url: "https://e-patras.gr/el/e-democracy/decisions/municipal-committee-decisions"
-    pagination:
-      type: none_seen
-    extraction_note: "Decision/context source; records remain candidate-only unless cross-linked to official ESHIDIS/KIMDIS evidence."
 
   - id: deyap_prokurhxeis
     name: "ΔΕΥΑΠ - Προκηρύξεις"

@@ -64,6 +64,7 @@ def test_dashboard_actions_use_fetch_and_zip_not_preview_buttons() -> None:
     assert "fetchTender" in APP_JS
     assert "/api/fetch-selected" in APP_JS
     assert "/api/document-zip" in APP_JS
+    assert "preferredEshidis" in APP_JS
     assert "dismissTender" in APP_JS
     assert "Δεν με ενδιαφέρει" in APP_JS
     assert "previewTender" not in APP_JS
@@ -610,6 +611,94 @@ regions: []
     assert result["ok"] is True
     assert payload["summary"]["visible"] == 0
     assert payload["summary"]["ignored"] == 1
+
+
+def test_dashboard_uses_cached_ai_triage_to_hide_drops(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Πάτρα", "Πατρών"]
+    nuts: ["EL632"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps(
+            {
+                "focus_authority_candidates": [
+                    {
+                        "source": "AUTHORITY",
+                        "record_type": "AUTHORITY_WEB",
+                        "official_id": "AUTH-keep",
+                        "title": "Έργο Δήμου Πατρέων",
+                        "authority": "Δήμος Πατρέων",
+                        "source_url": "https://e-patras.gr/el/tender",
+                        "matched_scopes": ["Δήμος Πατρέων"],
+                        "match_notes": [],
+                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                    },
+                    {
+                        "source": "AUTHORITY",
+                        "record_type": "AUTHORITY_WEB",
+                        "official_id": "AUTH-drop",
+                        "title": "ΠΡΟΓΡΑΜΜΑ ΕΚΛΟΓΩΝ",
+                        "authority": "Δήμος Πατρέων",
+                        "source_url": "https://e-patras.gr/el/admin",
+                        "matched_scopes": ["Δήμος Πατρέων"],
+                        "match_notes": [],
+                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                    },
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/ai_triage_report.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "row_key": "AUTHORITY:AUTH-keep",
+                        "ai": {
+                            "decision": "KEEP_ACTIVE_TENDER",
+                            "confidence": 0.9,
+                            "reason": "έργο",
+                            "eshidis_id_candidates": [],
+                            "keep_for_daily_review": True,
+                        },
+                    },
+                    {
+                        "row_key": "AUTHORITY:AUTH-drop",
+                        "ai": {
+                            "decision": "DROP_ADMIN",
+                            "confidence": 0.9,
+                            "reason": "διοικητικό",
+                            "eshidis_id_candidates": [],
+                            "keep_for_daily_review": False,
+                        },
+                    },
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    payload = dashboard_payload(scope="focus")
+
+    assert payload["summary"]["visible"] == 1
+    assert payload["summary"]["triage_hidden"] == 1
+    assert payload["summary"]["triage_kept"] == 1
+    assert payload["tenders"][0]["row_key"] == "AUTHORITY:AUTH-keep"
+    assert payload["tenders"][0]["ai_triage"]["decision"] == "KEEP_ACTIVE_TENDER"
 
 
 def test_discovery_search_steps_run_eshidis_then_expanded_kimdis() -> None:

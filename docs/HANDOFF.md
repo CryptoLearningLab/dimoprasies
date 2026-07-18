@@ -398,8 +398,14 @@ The system `python` command is not present in the remote environment; use
   `sources ai-triage-report` command performs advisory AI classification over
   current dashboard rows and writes `work/reports/ai_triage_report.*`.
 - Latest AI triage dry run on the 128 visible focus rows kept/reviewed 39
-  rows and proposed dropping 89 rows, with 0 errors. The result is not yet
-  enforced in the dashboard.
+  rows and proposed dropping 89 rows, with 0 errors.
+- The dashboard preview now enforces cached AI triage by default: current
+  focus view is 39 visible rows with 89 AI-hidden rows kept in reports.
+- Removed the agreed noisy decision/context sources from active source config:
+  Αμφιλοχία mayor/council decisions, Δωρίδα committee decisions source link,
+  and Πάτρα municipal committee decisions.
+- Dashboard Fetch/ZIP now prefers a linked or AI-hinted ESHIDIS id when one is
+  available, so the primary path remains the official ESHIDIS folder.
 
 ## Next Work
 
@@ -407,7 +413,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Integrate advisory triage into the daily UI safely: load cached
-`ai_triage_report` results, show keep/review rows by default, expose a toggle
-for dropped/admin/source-context rows, and keep all raw source records in
-reports/provenance.
+Implement source watermark skip and notification delivery: persist per-source
+cheap-change watermarks, skip unchanged municipal/WP/Diavgeia/TED/KIMDIS
+sources before expensive fetches, and send a clickable email list with
+official ESHIDIS links for new/kept rows.

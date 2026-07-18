@@ -866,10 +866,14 @@ def dashboard_payload(scope: str = "focus", sort: str = "deadline_asc", as_of: d
     all_greece = scope == "all"
     profile = location_focus_profile()
     ignored = ignored_tender_keys()
+    triage = ai_triage_by_row_key()
     rows = merged_tender_rows()
     rows = [row for row in rows if str(row.get("row_key") or row.get("eshidis_id") or row.get("display_id") or "") not in ignored]
+    rows = [attach_ai_triage(row, triage) for row in rows]
     active_rows = [row for row in rows if dashboard_row_is_active(row, as_of=as_of)]
-    visible_rows = active_rows if all_greece else [row for row in active_rows if row["interest_match"]]
+    triage_hidden = [row for row in active_rows if row.get("ai_triage_hidden")]
+    triage_visible_rows = [row for row in active_rows if not row.get("ai_triage_hidden")]
+    visible_rows = triage_visible_rows if all_greece else [row for row in triage_visible_rows if row["interest_match"]]
     visible_rows = sort_dashboard_rows(visible_rows, sort=sort)
     return {
         "scope": "all" if all_greece else "focus",
@@ -881,6 +885,8 @@ def dashboard_payload(scope: str = "focus", sort: str = "deadline_asc", as_of: d
             "focus_matches": sum(1 for row in active_rows if row["interest_match"]),
             "verified_active": sum(1 for row in rows if row.get("verified_active")),
             "expired_hidden": len(rows) - len(active_rows),
+            "triage_hidden": len(triage_hidden),
+            "triage_kept": len(triage_visible_rows),
             "ignored": len(ignored),
         },
         "tenders": visible_rows,
@@ -889,6 +895,47 @@ def dashboard_payload(scope: str = "focus", sort: str = "deadline_asc", as_of: d
             "Focus filtering uses configured municipalities, regional units and NUTS hints. "
             "Discovery rows remain candidates until official detail/status verification."
         ),
+    }
+
+
+def ai_triage_report_path() -> Path:
+    return REPO_ROOT / "work/reports/ai_triage_report.json"
+
+
+def ai_triage_by_row_key() -> dict[str, dict[str, Any]]:
+    path = ai_triage_report_path()
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    triage: dict[str, dict[str, Any]] = {}
+    for row in payload.get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        row_key = str(row.get("row_key") or "")
+        ai = row.get("ai")
+        if row_key and isinstance(ai, dict):
+            triage[row_key] = ai
+    return triage
+
+
+def attach_ai_triage(row: dict[str, Any], triage: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    row_key = str(row.get("row_key") or row.get("eshidis_id") or row.get("display_id") or "")
+    ai = triage.get(row_key)
+    if not ai:
+        return {**row, "ai_triage": None, "ai_triage_hidden": False}
+    keep = bool(ai.get("keep_for_daily_review"))
+    return {
+        **row,
+        "ai_triage": {
+            "decision": ai.get("decision"),
+            "confidence": ai.get("confidence"),
+            "reason": ai.get("reason"),
+            "eshidis_id_candidates": ai.get("eshidis_id_candidates") or [],
+        },
+        "ai_triage_hidden": not keep,
     }
 
 
@@ -2589,27 +2636,37 @@ function renderDashboard(payload) {
     const isEshidis = Boolean(tender.supports_eshidis_actions);
     const isKimdis = Boolean(tender.supports_kimdis_actions);
     const isAuthority = Boolean(tender.supports_authority_actions);
-    const linkLabel = tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : (tender.source_label === 'Φορέας' ? 'Φορέας' : 'ΕΣΗΔΗΣ');
-    const identifier = isAuthority ? rowKey : (tender.official_id || tender.eshidis_id || tender.display_id || '');
+    const linkedIds = tender.linked_eshidis_ids || [];
+    const aiIds = tender.ai_triage?.eshidis_id_candidates || [];
+    const preferredEshidis = tender.eshidis_id || linkedIds[0] || aiIds[0] || '';
+    const sourceIdentifier = isAuthority ? rowKey : (tender.official_id || tender.eshidis_id || tender.display_id || '');
+    const fetchIdentifier = preferredEshidis || sourceIdentifier;
+    const linkLabel = preferredEshidis ? 'ΕΣΗΔΗΣ' : (tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : (tender.source_label === 'Φορέας' ? 'Φορέας' : 'ΕΣΗΔΗΣ'));
+    const officialHref = preferredEshidis
+      ? `https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/${encodeURIComponent(preferredEshidis)}`
+      : (tender.official_url || tender.attachment_url || '#');
     const linkedText = (tender.linked_eshidis_ids || []).length
       ? `<span class="pill">ΕΣΗΔΗΣ ${escapeHtml((tender.linked_eshidis_ids || []).join(', '))}</span>`
       : '';
-    const zipUrl = `/api/document-zip?identifier=${encodeURIComponent(identifier)}`;
+    const aiText = tender.ai_triage?.decision
+      ? `<span class="pill">${escapeHtml(tender.ai_triage.decision)}</span>`
+      : '';
+    const zipUrl = `/api/document-zip?identifier=${encodeURIComponent(fetchIdentifier)}`;
     const tr = document.createElement('tr');
     tr.dataset.key = rowKey;
     if (state.selected === rowKey) tr.classList.add('selectedRow');
     tr.innerHTML = `
       <td><strong>${escapeHtml(tender.display_id || tender.eshidis_id || '')}</strong></td>
       <td>${escapeHtml(tender.source_label || '')}</td>
-      <td class="tenderTitle">${escapeHtml(tender.title || '')}${tender.interest_reason ? `<span class="pill">${escapeHtml(tender.interest_reason)}</span>` : ''}${linkedText}</td>
+      <td class="tenderTitle">${escapeHtml(tender.title || '')}${tender.interest_reason ? `<span class="pill">${escapeHtml(tender.interest_reason)}</span>` : ''}${linkedText}${aiText}</td>
       <td class="authorityCell">${escapeHtml(tender.authority_name || '')}</td>
       <td class="budgetCell">${escapeHtml(tender.budget_display || '')}</td>
       <td class="deadlineCell">${escapeHtml(tender.deadline_display || '')}</td>
       <td>
         <div class="actionStack">
-          <a class="button secondary tinyButton" href="${escapeHtml(tender.official_url || tender.attachment_url || '#')}" target="_blank" rel="noreferrer">${linkLabel}</a>
-          ${(isEshidis || isKimdis || isAuthority) ? `<button class="tinyButton fetchTender" data-key="${escapeHtml(rowKey)}" data-id="${escapeHtml(identifier)}">Fetch</button>` : ''}
-          ${(isEshidis || isKimdis || tender.has_local_documents) ? `<a class="button secondary tinyButton" href="${escapeHtml(zipUrl)}" target="_blank" rel="noreferrer">ZIP</a>` : ''}
+          <a class="button secondary tinyButton" href="${escapeHtml(officialHref)}" target="_blank" rel="noreferrer">${linkLabel}</a>
+          ${(isEshidis || isKimdis || isAuthority || preferredEshidis) ? `<button class="tinyButton fetchTender" data-key="${escapeHtml(rowKey)}" data-id="${escapeHtml(fetchIdentifier)}">Fetch</button>` : ''}
+          ${(isEshidis || isKimdis || tender.has_local_documents || preferredEshidis) ? `<a class="button secondary tinyButton" href="${escapeHtml(zipUrl)}" target="_blank" rel="noreferrer">ZIP</a>` : ''}
           <button class="tinyButton danger dismissTender" data-key="${escapeHtml(rowKey)}">Δεν με ενδιαφέρει</button>
         </div>
       </td>
@@ -2669,11 +2726,14 @@ async function selectTender(eshidisId, downloadFirst) {
   const supportsKimdis = Boolean(tender.supports_kimdis_actions);
   const supportsAuthority = Boolean(tender.supports_authority_actions);
   const actualEshidisId = tender.eshidis_id || '';
+  const preferredEshidis = actualEshidisId || (tender.linked_eshidis_ids || [])[0] || (tender.ai_triage?.eshidis_id_candidates || [])[0] || '';
   $('eshidisInput').value = supportsEshidis ? actualEshidisId : '';
   $('kimdisInput').value = supportsKimdis ? (tender.official_id || tender.display_id || '') : '';
   $('previewTitle').textContent = `${tender.display_id || actualEshidisId || eshidisId} · ${tender.title || ''}`;
-  $('officialLink').textContent = tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : (tender.source_label === 'Φορέας' ? 'Φορέας' : 'ΕΣΗΔΗΣ');
-  $('officialLink').href = tender.official_url || tender.attachment_url || tender.download_url || '#';
+  $('officialLink').textContent = preferredEshidis ? 'ΕΣΗΔΗΣ' : (tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : (tender.source_label === 'Φορέας' ? 'Φορέας' : 'ΕΣΗΔΗΣ'));
+  $('officialLink').href = preferredEshidis
+    ? `https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/${encodeURIComponent(preferredEshidis)}`
+    : (tender.official_url || tender.attachment_url || tender.download_url || '#');
   if (supportsAuthority) {
     await renderAuthorityPreview(tender.row_key || eshidisId);
     return;

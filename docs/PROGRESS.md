@@ -1053,6 +1053,45 @@ targeted tests after structured-output hardening: 13 passed
 full test suite: 106 passed
 ```
 
+## Latest Update - 2026-07-18 Dashboard Triage Enforcement Preview
+
+Applied the reviewed source/UI changes for a preview build:
+
+- Removed noisy decision/context sources from active source config:
+  - Δήμος Αμφιλοχίας - Αποφάσεις Δημάρχου
+  - Δήμος Αμφιλοχίας - Αποφάσεις Δημοτικού Συμβουλίου
+  - Δήμος Δωρίδος - Αποφάσεις Επιτροπών source link
+  - Δήμος Πατρέων - Αποφάσεις Δημοτικής Επιτροπής
+- `dashboard_payload` now loads cached `work/reports/ai_triage_report.json`
+  when present.
+- Rows classified by AI as `DROP_*` are hidden from the default daily view,
+  while raw reports/provenance remain unchanged.
+- Dashboard rows expose the AI decision pill for visible rows.
+- When a KIMDIS/authority row has a linked or AI-hinted ESHIDIS id, the UI
+  prefers the ESHIDIS resource link, Fetch identifier and ZIP identifier.
+- All row/document links continue to open in a new browser tab/window.
+
+Verification:
+
+```bash
+.venv/bin/python -m tender_radar config validate
+.venv/bin/python -m pytest tests/test_ui_server.py tests/test_config.py
+.venv/bin/python -m pytest
+.venv/bin/python -c "from tender_radar.ui_server import dashboard_payload; import json; p=dashboard_payload(scope='focus'); print(json.dumps(p['summary'], ensure_ascii=False))"
+curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://cb7aaee390f414.lhr.life/
+```
+
+Results:
+
+```text
+config validate: OK for all configured YAML files
+targeted tests: 30 passed
+full test suite: 107 passed
+dashboard focus summary: total_known 148, visible 39, focus_matches 128,
+  expired_hidden 1, triage_hidden 89, ignored 2
+preview tunnel: 200 text/html; charset=utf-8
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:
