@@ -1142,6 +1142,49 @@ public tunnel dashboard summary: visible 56, triage_hidden 161
 full test suite: 107 passed
 ```
 
+### Hotfix - Fast source preflight before expensive discovery
+
+The UI `Νέα αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ` path now runs a cheap source
+fingerprint preflight before starting the expensive ESHIDIS/KIMDIS/authority
+discovery commands.
+
+Implemented behavior:
+
+- KIMDIS notice page 0 is checked through the public POST endpoint.
+- WordPress, Diavgeia and TED sources are checked with one-record API probes.
+- HTML/Drupal listing sources use `ETag`/`Last-Modified` when present, or a
+  stable token from the first relevant listing links instead of hashing the
+  whole dynamic page.
+- The preflight runs source checks in parallel.
+- If the current fingerprint matches the last saved baseline, the UI returns
+  `SKIPPED_UNCHANGED` and does not execute the expensive discovery steps.
+- Temporary preflight source failures are surfaced as warnings. If the
+  overlapping successful sources are unchanged, the UI can still fast-skip
+  with `SKIPPED_UNCHANGED_WITH_SOURCE_WARNINGS`.
+- Only clean fingerprints are allowed to replace the complete baseline after a
+  successful full discovery run, so partial source failures do not corrupt the
+  last complete comparison point.
+
+Live verification:
+
+```bash
+.venv/bin/python -c "from tender_radar.ui_server import quick_source_fingerprint, save_source_fingerprint; import time,json; t=time.time(); fp=quick_source_fingerprint(timeout_seconds=6); print(json.dumps({'seconds': round(time.time()-t, 2), 'ok': fp.get('ok'), 'sources': len(fp.get('sources', [])), 'errors': fp.get('errors')}, ensure_ascii=False)); save_source_fingerprint(fp)"
+.venv/bin/python -c "from tender_radar.ui_server import run_discovery_search; import json,time; t=time.time(); r=run_discovery_search(limit=100); print(json.dumps({'seconds': round(time.time()-t, 2), 'ok': r.get('ok'), 'skipped': r.get('skipped'), 'skip_reason': r.get('skip_reason'), 'preflight_status': (r.get('source_preflight') or {}).get('status'), 'errors': (r.get('source_preflight') or {}).get('errors'), 'steps': len(r.get('steps') or []), 'visible': ((r.get('dashboard') or {}).get('summary') or {}).get('visible'), 'focus_matches': ((r.get('dashboard') or {}).get('summary') or {}).get('focus_matches')}, ensure_ascii=False))"
+.venv/bin/python -m pytest tests/test_ui_server.py tests/test_cli.py
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+source fingerprint preflight: 2.54s, 19 reachable source probes, 3 temporary
+  Diavgeia 503 errors
+UI discovery search smoke: 4.24s, ok true, skipped true, steps 0,
+  status SKIPPED_UNCHANGED_WITH_SOURCE_WARNINGS, visible 56, focus_matches 217
+targeted tests: 42 passed
+full test suite: 114 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

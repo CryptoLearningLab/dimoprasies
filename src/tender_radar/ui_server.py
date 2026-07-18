@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
+import hashlib
 import io
 import json
 import mimetypes
@@ -18,7 +20,7 @@ import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, urlencode, unquote, urlparse
 from urllib.request import Request, urlopen
 
 from tender_radar.config import load_config
@@ -578,7 +580,24 @@ def run_discovery_search(*, limit: int, backfill: bool = False) -> dict[str, Any
         return {"ok": False, "error": "Another command is already running. Wait for it to finish."}
     results: list[dict[str, Any]] = []
     records: list[dict[str, Any]] = []
+    preflight: dict[str, Any] | None = None
     try:
+        if not backfill:
+            preflight = discovery_change_preflight()
+            if preflight.get("skip"):
+                return {
+                    "ok": True,
+                    "skipped": True,
+                    "skip_reason": "SKIPPED_UNCHANGED",
+                    "source_preflight": preflight,
+                    "steps": [],
+                    "warnings": [],
+                    "candidates": candidates_payload(),
+                    "expanded_report": expanded_report_payload(),
+                    "discovery_runs": [],
+                    "discovery_run": latest_discovery_run(discovery_history_path()),
+                    "dashboard": dashboard_payload(scope="focus"),
+                }
         mode = "backfill" if backfill else "bounded"
         current_limit = limit
         current_kimdis_pages = DEFAULT_KIMDIS_DISCOVERY_PAGES
@@ -615,8 +634,12 @@ def run_discovery_search(*, limit: int, backfill: bool = False) -> dict[str, Any
             records.append(record)
             pass_ok = expanded_result.get("returncode") == 0 and not warnings and record.get("success") is True
             if not backfill:
+                if pass_ok and preflight and preflight.get("current", {}).get("ok"):
+                    save_source_fingerprint(preflight["current"])
                 return discovery_response(results, warnings, pass_ok, records)
             if record.get("watermark", {}).get("complete"):
+                if pass_ok and preflight and preflight.get("current", {}).get("ok"):
+                    save_source_fingerprint(preflight["current"])
                 return discovery_response(results, warnings, pass_ok, records)
             if current_limit >= MAX_BACKFILL_ESHIDIS_LIMIT and current_kimdis_pages >= MAX_BACKFILL_KIMDIS_PAGES:
                 return discovery_response(results, warnings, False, records)
@@ -626,6 +649,275 @@ def run_discovery_search(*, limit: int, backfill: bool = False) -> dict[str, Any
         return {"ok": False, "error": f"Command timed out: {exc!r}", "steps": results, "discovery_runs": records}
     finally:
         COMMAND_LOCK.release()
+
+
+def source_fingerprint_path() -> Path:
+    return REPO_ROOT / "work/derived/source_fingerprints.json"
+
+
+def discovery_change_preflight() -> dict[str, Any]:
+    current = quick_source_fingerprint(timeout_seconds=8)
+    previous = latest_source_fingerprint()
+    reports_exist = (REPO_ROOT / "work/reports/expanded_discovery_report.json").exists()
+    exact_skip = bool(
+        reports_exist
+        and current.get("ok")
+        and previous
+        and previous.get("hash")
+        and previous.get("hash") == current.get("hash")
+    )
+    partial_skip = bool(
+        reports_exist
+        and current.get("errors")
+        and previous
+        and _successful_sources_unchanged(current=current, previous=previous)
+    )
+    skip = exact_skip or partial_skip
+    status = "CHANGED_OR_NO_BASELINE"
+    if exact_skip:
+        status = "SKIPPED_UNCHANGED"
+    elif partial_skip:
+        status = "SKIPPED_UNCHANGED_WITH_SOURCE_WARNINGS"
+    return {
+        "ok": current.get("ok"),
+        "skip": skip,
+        "status": status,
+        "current": current,
+        "previous_hash": previous.get("hash") if previous else None,
+        "current_hash": current.get("hash"),
+        "errors": current.get("errors") or [],
+    }
+
+
+def latest_source_fingerprint() -> dict[str, Any] | None:
+    path = source_fingerprint_path()
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if isinstance(payload.get("latest_complete"), dict):
+        return payload["latest_complete"]
+    return payload.get("latest") if isinstance(payload.get("latest"), dict) else None
+
+
+def save_source_fingerprint(fingerprint: dict[str, Any]) -> None:
+    path = source_fingerprint_path()
+    existing: dict[str, Any] = {}
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            existing = loaded if isinstance(loaded, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            existing = {}
+    payload = {"version": 1, "latest": fingerprint}
+    if fingerprint.get("ok"):
+        payload["latest_complete"] = fingerprint
+    elif isinstance(existing.get("latest_complete"), dict):
+        payload["latest_complete"] = existing["latest_complete"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _successful_sources_unchanged(*, current: dict[str, Any], previous: dict[str, Any]) -> bool:
+    previous_sources = {
+        str(item.get("source_id") or ""): _source_fingerprint_signature(item)
+        for item in previous.get("sources") or []
+        if isinstance(item, dict) and item.get("source_id")
+    }
+    current_sources = [
+        item for item in current.get("sources") or [] if isinstance(item, dict) and item.get("source_id")
+    ]
+    current_by_id = {str(item.get("source_id") or ""): item for item in current_sources}
+    overlap = sorted(set(previous_sources) & set(current_by_id))
+    if not previous_sources or len(overlap) < max(1, int(len(previous_sources) * 0.75)):
+        return False
+    return all(
+        previous_sources[source_id] == _source_fingerprint_signature(current_by_id[source_id])
+        for source_id in overlap
+    )
+
+
+def _source_fingerprint_signature(source: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "adapter": source.get("adapter"),
+        "token": source.get("token"),
+        "date": source.get("date"),
+        "count_hint": source.get("count_hint"),
+    }
+
+
+def quick_source_fingerprint(*, timeout_seconds: int = 8) -> dict[str, Any]:
+    config_path = REPO_ROOT / "config/sources.yml"
+    config = load_config(config_path) if config_path.exists() else {}
+    sources: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    tasks = [("khmdhs_notice", lambda: _kimdis_notice_fingerprint(timeout_seconds=timeout_seconds))]
+    for source in config.get("authority_adapters") or []:
+        if not isinstance(source, dict):
+            continue
+        tasks.append(
+            (
+                str(source.get("id") or "unknown"),
+                lambda source=source: _authority_source_fingerprint(source, timeout_seconds=timeout_seconds),
+            )
+        )
+    with ThreadPoolExecutor(max_workers=max(1, len(tasks))) as executor:
+        future_sources = {executor.submit(task): source_id for source_id, task in tasks}
+        for future in as_completed(future_sources):
+            source_id = future_sources[future]
+            try:
+                sources.append(future.result())
+            except Exception as exc:  # pragma: no cover - defensive network boundary
+                errors.append({"source": source_id, "message": str(exc)})
+    stable_sources = sorted(sources, key=lambda item: str(item.get("source_id") or ""))
+    digest = hashlib.sha256(json.dumps(stable_sources, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    return {
+        "ok": not errors,
+        "computed_at": utc_now_iso(),
+        "hash": digest,
+        "sources": stable_sources,
+        "errors": errors,
+        "status_note": "Cheap source fingerprint; unchanged means expensive discovery can reuse cached reports.",
+    }
+
+
+def _kimdis_notice_fingerprint(*, timeout_seconds: int) -> dict[str, Any]:
+    url = "https://cerpp.eprocurement.gov.gr/khmdhs-opendata/notice?page=0"
+    request = Request(
+        url,
+        data=json.dumps({"contractType": "10"}).encode("utf-8"),
+        headers={"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "TenderRadar/0.1 source-preflight"},
+        method="POST",
+    )
+    with urlopen(request, timeout=timeout_seconds) as response:
+        payload = json.loads(response.read().decode("utf-8", errors="replace"))
+    content = payload.get("content") if isinstance(payload.get("content"), list) else []
+    first = content[0] if content and isinstance(content[0], dict) else {}
+    return {
+        "source_id": "khmdhs_notice",
+        "adapter": "api_post",
+        "token": first.get("referenceNumber"),
+        "date": first.get("submissionDate") or first.get("finalSubmissionDate"),
+        "count_hint": len(content),
+    }
+
+
+def _authority_source_fingerprint(source: dict[str, Any], *, timeout_seconds: int) -> dict[str, Any]:
+    adapter = str(source.get("adapter") or "")
+    source_id = str(source.get("id") or "")
+    if adapter in {"wordpress_category", "wordpress_page_table", "diavgeia_api"}:
+        return _json_source_fingerprint(source, timeout_seconds=timeout_seconds)
+    if adapter == "ted_api":
+        return _ted_source_fingerprint(source, timeout_seconds=timeout_seconds)
+    return _html_source_fingerprint(source, timeout_seconds=timeout_seconds)
+
+
+def _json_source_fingerprint(source: dict[str, Any], *, timeout_seconds: int) -> dict[str, Any]:
+    params = dict(source.get("query_params") or {})
+    if str(source.get("adapter") or "") == "diavgeia_api":
+        params["size"] = 1
+        params["page"] = 0
+    elif "per_page" in params:
+        params["per_page"] = 1
+        params["page"] = 1
+    url = _url_with_params(str(source.get("url") or ""), params)
+    request = Request(url, headers={"Accept": "application/json", "User-Agent": "TenderRadar/0.1 source-preflight"})
+    with urlopen(request, timeout=timeout_seconds) as response:
+        payload = json.loads(response.read().decode("utf-8", errors="replace"))
+    first = _first_json_item(payload)
+    return {
+        "source_id": source.get("id"),
+        "adapter": source.get("adapter"),
+        "url": url,
+        "token": first.get("id") or first.get("ada") or first.get("decisionId") or first.get("link"),
+        "date": first.get("modified") or first.get("date") or first.get("submissionTimestamp") or first.get("issueDate"),
+    }
+
+
+def _ted_source_fingerprint(source: dict[str, Any], *, timeout_seconds: int) -> dict[str, Any]:
+    body = dict(source.get("body") or {})
+    body["limit"] = 1
+    body["page"] = 1
+    request = Request(
+        str(source.get("url") or ""),
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers={"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "TenderRadar/0.1 source-preflight"},
+        method="POST",
+    )
+    with urlopen(request, timeout=timeout_seconds) as response:
+        payload = json.loads(response.read().decode("utf-8", errors="replace"))
+    first = _first_json_item(payload)
+    return {
+        "source_id": source.get("id"),
+        "adapter": source.get("adapter"),
+        "token": first.get("publication-number") or first.get("notice-id") or first.get("id"),
+        "date": first.get("publication-date"),
+    }
+
+
+def _html_source_fingerprint(source: dict[str, Any], *, timeout_seconds: int) -> dict[str, Any]:
+    url = str(source.get("url") or "")
+    request = Request(url, headers={"Accept": "text/html", "User-Agent": "TenderRadar/0.1 source-preflight"})
+    with urlopen(request, timeout=timeout_seconds) as response:
+        body = response.read(300_000)
+        headers = response.headers
+    text = body.decode("utf-8", errors="replace")
+    token = headers.get("ETag") or headers.get("Last-Modified") or _html_listing_token(text)
+    return {
+        "source_id": source.get("id"),
+        "adapter": source.get("adapter"),
+        "url": url,
+        "token": token,
+    }
+
+
+def _html_listing_token(text: str) -> str:
+    anchors: list[dict[str, str]] = []
+    for match in re.finditer(r"<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", text, flags=re.IGNORECASE | re.DOTALL):
+        href = unquote(match.group(1)).strip()
+        if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+            continue
+        if re.search(r"(facebook|twitter|instagram|youtube|linkedin|wp-content/themes|wp-json)", href, flags=re.IGNORECASE):
+            continue
+        label = re.sub(r"<[^>]+>", " ", match.group(2))
+        label = re.sub(r"\s+", " ", label).strip()
+        haystack = f"{href} {label}"
+        if not re.search(
+            r"(pdf|zip|docx?|xlsx?|prokir|diagon|tender|διαγωνισ|διακηρ|προκηρ|πρόσκλη|προσκλη|αποφασ|απόφασ)",
+            haystack,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        anchors.append({"href": href, "label": label[:160]})
+        if len(anchors) >= 8:
+            break
+    if anchors:
+        return hashlib.sha256(json.dumps(anchors, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    compact = re.sub(r"\s+", " ", re.sub(r"<script\b.*?</script>|<style\b.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL))
+    return hashlib.sha256(compact[:20_000].encode("utf-8", errors="replace")).hexdigest()
+
+
+def _first_json_item(payload: Any) -> dict[str, Any]:
+    if isinstance(payload, list):
+        return payload[0] if payload and isinstance(payload[0], dict) else {}
+    if not isinstance(payload, dict):
+        return {}
+    for key in ("content", "decisions", "notices"):
+        value = payload.get(key)
+        if isinstance(value, list) and value and isinstance(value[0], dict):
+            return value[0]
+    return payload
+
+
+def _url_with_params(url: str, params: dict[str, Any]) -> str:
+    clean = {key: value for key, value in params.items() if value not in (None, "")}
+    if not clean:
+        return url
+    return f"{url}{'&' if '?' in url else '?'}{urlencode(clean)}"
 
 
 def discovery_response(

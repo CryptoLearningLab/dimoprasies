@@ -1,13 +1,14 @@
 # NEXT TASK
 
 Execute:
-`Add source watermark skip and clickable email notifications`
+`Add clickable email notifications and source skip reporting`
 
 ## Current Input
 
-The daily dashboard now loads cached AI triage and shows 39 focus rows by
-default, hiding 89 `DROP_*` rows from the main workflow while preserving raw
-reports/provenance.
+The daily dashboard now loads cached AI triage and uses a fast source
+fingerprint preflight before expensive discovery. A live smoke returned
+`skipped: true`, `steps: 0` in 4.24s with temporary Diavgeia 503 warnings
+instead of running the full discovery pipeline.
 
 Noisy decision/context sources removed from active source config:
 
@@ -18,22 +19,18 @@ Noisy decision/context sources removed from active source config:
 
 ## Instruction
 
-Implement the performance/notification gate:
+Implement the notification/reporting gate:
 
-1. Add per-source cheap-change watermarks under `work/derived/`.
-2. For WordPress sources, check latest `id/date` with `per_page=1` before
-   full fetch.
-3. For Diavgeia sources, check latest `ada/submissionTimestamp` with `size=1`
-   before full fetch.
-4. For TED, check latest publication token/date before full fetch.
-5. For KIMDIS, stop page scanning when known `referenceNumber` appears.
-6. For HTML/Drupal sources, use `ETag`/`Last-Modified` if available, otherwise
-   hash the first listing page.
-7. Do not update a watermark after a failed or partial source run.
-8. Keep unchanged sources visible in run reports as `SKIPPED_UNCHANGED`.
-9. Add email report generation with clickable rows and official ESHIDIS links
+1. Add email report generation with clickable rows and official ESHIDIS links
    for new/kept rows.
-10. Preserve raw reports/provenance, no title-only deduplication, no
+2. Show source preflight status in the UI technical result, including
+   `SKIPPED_UNCHANGED`, `SKIPPED_UNCHANGED_WITH_SOURCE_WARNINGS`, reachable
+   count and warning count.
+3. Add per-source skipped/fetched counts to discovery run reports where the
+   current data model supports it.
+4. Move KIMDIS stop-on-known-`referenceNumber` pagination into the CLI
+   expanded-report adapter, preserving bounded and backfill modes.
+5. Preserve raw reports/provenance, no title-only deduplication, no
     `VERIFIED_ACTIVE` promotion.
 
 ## Required Closeout

@@ -410,6 +410,13 @@ The system `python` command is not present in the remote environment; use
   and Πάτρα municipal committee decisions.
 - Dashboard Fetch/ZIP now prefers a linked or AI-hinted ESHIDIS id when one is
   available, so the primary path remains the official ESHIDIS folder.
+- The UI daily discovery path now starts with a parallel cheap source
+  fingerprint preflight. KIMDIS, WordPress, Diavgeia, TED and HTML/Drupal
+  sources expose lightweight tokens under `work/derived/source_fingerprints.json`.
+  If the tokens match the saved baseline, the UI returns cached dashboard data
+  with `SKIPPED_UNCHANGED` and does not run the expensive ESHIDIS/KIMDIS
+  discovery steps. Temporary source failures are reported as warnings and can
+  still fast-skip when the overlapping successful source tokens are unchanged.
 
 ## Next Work
 
@@ -417,7 +424,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Implement source watermark skip and notification delivery: persist per-source
-cheap-change watermarks, skip unchanged municipal/WP/Diavgeia/TED/KIMDIS
-sources before expensive fetches, and send a clickable email list with
-official ESHIDIS links for new/kept rows.
+Implement notification delivery and clearer skip reporting: send a clickable
+email list with official ESHIDIS links for new/kept rows, show per-source
+`SKIPPED_UNCHANGED`/warning counts in the UI result, and move deeper stop-on-
+known-id pagination into the CLI adapters where needed.

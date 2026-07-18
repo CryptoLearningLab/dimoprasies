@@ -772,6 +772,122 @@ def test_backfill_discovery_retries_until_previous_window_overlap(tmp_path, monk
     assert [args[args.index("--kimdis-pages") + 1] for args in expanded_calls] == ["20", "40"]
 
 
+def test_discovery_skips_when_source_fingerprint_is_unchanged(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text("timezone: Europe/Athens\nmunicipalities: []\nregions: []\n", encoding="utf-8")
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps({"focus_authority_candidates": [], "focus_open_proc_candidates": []}),
+        encoding="utf-8",
+    )
+    fingerprint = {"ok": True, "hash": "same", "sources": [], "errors": []}
+    ui_server.save_source_fingerprint(fingerprint)
+    monkeypatch.setattr(ui_server, "quick_source_fingerprint", lambda timeout_seconds=8: fingerprint)
+
+    def fail_run_cli_process(args, *, timeout):
+        raise AssertionError("expensive discovery should be skipped")
+
+    monkeypatch.setattr(ui_server, "run_cli_process", fail_run_cli_process)
+
+    result = run_discovery_search(limit=100)
+
+    assert result["ok"] is True
+    assert result["skipped"] is True
+    assert result["skip_reason"] == "SKIPPED_UNCHANGED"
+    assert result["source_preflight"]["status"] == "SKIPPED_UNCHANGED"
+
+
+def test_discovery_runs_when_source_fingerprint_changed(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text("timezone: Europe/Athens\nmunicipalities: []\nregions: []\n", encoding="utf-8")
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps({"focus_authority_candidates": [], "focus_open_proc_candidates": []}),
+        encoding="utf-8",
+    )
+    ui_server.save_source_fingerprint({"ok": True, "hash": "old", "sources": [], "errors": []})
+    monkeypatch.setattr(ui_server, "quick_source_fingerprint", lambda timeout_seconds=8: {"ok": True, "hash": "new", "sources": [], "errors": []})
+    calls = []
+
+    def fake_run_cli_process(args, *, timeout):
+        calls.append(args)
+        if args[:2] == ["sources", "discover-active"]:
+            (tmp_path / "work/reports/eshidis_active_candidates.json").write_text(
+                json.dumps({"candidates": []}),
+                encoding="utf-8",
+            )
+        if args[:2] == ["sources", "expanded-report"]:
+            (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+                json.dumps(
+                    {
+                        "summary": {"errors": 0, "total_candidates": 0, "focus_candidates": 0},
+                        "all_candidates": [],
+                        "focus_open_proc_candidates": [],
+                        "focus_candidates": [],
+                        "source_pages": [],
+                        "errors": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+        return {"ok": True, "returncode": 0, "command": " ".join(args), "stdout": '{"summary": {"errors": 0}}', "stderr": ""}
+
+    monkeypatch.setattr(ui_server, "run_cli_process", fake_run_cli_process)
+
+    result = run_discovery_search(limit=100)
+
+    assert result.get("skipped") is not True
+    assert [args[:2] for args in calls] == [["sources", "discover-active"], ["sources", "expanded-report"]]
+
+
+def test_discovery_skips_when_successful_sources_are_unchanged_with_preflight_errors(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text("timezone: Europe/Athens\nmunicipalities: []\nregions: []\n", encoding="utf-8")
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps({"focus_authority_candidates": [], "focus_open_proc_candidates": []}),
+        encoding="utf-8",
+    )
+    previous = {
+        "ok": True,
+        "hash": "baseline",
+        "sources": [
+            {"source_id": "a", "adapter": "wordpress_category", "token": "1", "date": "2026-07-18"},
+            {"source_id": "b", "adapter": "diavgeia_api", "token": "2", "date": "2026-07-18"},
+            {"source_id": "c", "adapter": "html_listing", "token": "3"},
+            {"source_id": "d", "adapter": "ted_api", "token": "4", "date": "2026-07-18"},
+        ],
+        "errors": [],
+    }
+    current = {
+        "ok": False,
+        "hash": "partial",
+        "sources": [
+            {"source_id": "a", "adapter": "wordpress_category", "token": "1", "date": "2026-07-18"},
+            {"source_id": "c", "adapter": "html_listing", "token": "3"},
+            {"source_id": "d", "adapter": "ted_api", "token": "4", "date": "2026-07-18"},
+        ],
+        "errors": [{"source": "b", "message": "HTTP Error 503"}],
+    }
+    ui_server.save_source_fingerprint(previous)
+    monkeypatch.setattr(ui_server, "quick_source_fingerprint", lambda timeout_seconds=8: current)
+
+    def fail_run_cli_process(args, *, timeout):
+        raise AssertionError("temporary source failure should not force full discovery")
+
+    monkeypatch.setattr(ui_server, "run_cli_process", fail_run_cli_process)
+
+    result = run_discovery_search(limit=100)
+
+    assert result["ok"] is True
+    assert result["skipped"] is True
+    assert result["source_preflight"]["status"] == "SKIPPED_UNCHANGED_WITH_SOURCE_WARNINGS"
+    assert result["source_preflight"]["errors"] == [{"source": "b", "message": "HTTP Error 503"}]
+
+
 def test_interest_reason_uses_locations_config() -> None:
     assert interest_reason("Έργο στον Δήμο Πατρέων EL632") == "Δήμος Πατρέων"
 

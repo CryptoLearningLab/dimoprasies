@@ -282,3 +282,20 @@ must not delete provenance, deduplicate by title, or promote rows to
 `VERIFIED_ACTIVE`. Production UI use should read cached triage results or run
 as a background job with polling, not make blocking model calls during normal
 dashboard rendering.
+
+## D-033 - Daily discovery starts with source fingerprint preflight
+**Status:** Accepted
+
+The UI daily discovery action runs a cheap source fingerprint preflight before
+starting expensive ESHIDIS/KIMDIS/authority discovery commands. If the latest
+source tokens match the saved baseline, the UI returns cached dashboard data
+with `SKIPPED_UNCHANGED` and runs no expensive steps.
+
+Temporary preflight failures stay visible as warnings. When the overlapping
+successful source tokens are unchanged, the UI may return
+`SKIPPED_UNCHANGED_WITH_SOURCE_WARNINGS` instead of forcing a full scan that
+would likely be slow or fail on the same unavailable source.
+
+Only clean fingerprints replace the complete baseline after a successful full
+discovery run. This preserves provenance and does not claim no-miss coverage
+for sources that were unavailable during preflight.
