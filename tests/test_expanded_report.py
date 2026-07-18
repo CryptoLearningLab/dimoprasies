@@ -359,3 +359,6 @@ scopes:
 
     assert report["summary"]["focus_open_proc_candidates"] == 1
     assert report["focus_open_proc_candidates"][0]["status"] == "SUBMISSION_OPEN_CANDIDATE"
+    assert len(report["source_pages"]) == 3
+    assert report["source_pages"][0]["source"] == "khmdhs_notice"
+    assert report["source_pages"][0]["items_returned"] == 1

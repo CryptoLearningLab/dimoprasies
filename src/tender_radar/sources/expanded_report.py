@@ -81,7 +81,7 @@ def build_expanded_report(
             }
         )
 
-    kimdis_candidates, kimdis_errors = _fetch_kimdis_candidates(
+    kimdis_candidates, kimdis_errors, kimdis_page_stats = _fetch_kimdis_candidates(
         scope_aliases,
         pages=kimdis_pages,
         timeout_seconds=timeout_seconds,
@@ -123,6 +123,7 @@ def build_expanded_report(
         "focus_open_proc_candidates": [candidate.to_dict() for candidate in focus_open_proc],
         "focus_candidates": [candidate.to_dict() for candidate in focus_candidates],
         "all_candidates": [candidate.to_dict() for candidate in unique_candidates],
+        "source_pages": kimdis_page_stats,
         "errors": errors,
         "deduplication": {
             "method": "official source id only",
@@ -192,10 +193,11 @@ def _fetch_kimdis_candidates(
     timeout_seconds: int,
     allow_insecure_tls: bool,
     as_of: date,
-) -> tuple[list[ExpandedTenderCandidate], list[dict[str, object]]]:
+) -> tuple[list[ExpandedTenderCandidate], list[dict[str, object]], list[dict[str, object]]]:
     context = ssl._create_unverified_context() if allow_insecure_tls else None
     candidates: list[ExpandedTenderCandidate] = []
     errors: list[dict[str, object]] = []
+    page_stats: list[dict[str, object]] = []
     body = json.dumps({"contractType": "10"}).encode("utf-8")
     for source_id, family in KIMDIS_FAMILIES.items():
         for page in range(max(0, pages)):
@@ -215,8 +217,27 @@ def _fetch_kimdis_candidates(
                     payload = json.loads(response.read().decode("utf-8", errors="replace"))
             except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
                 errors.append({"source": source_id, "url": url, "message": str(exc)})
+                page_stats.append(
+                    {
+                        "source": source_id,
+                        "record_type": family["record_type"],
+                        "page": page,
+                        "items_returned": None,
+                        "error": str(exc),
+                    }
+                )
                 continue
-            for item in payload.get("content") or []:
+            content = payload.get("content") or []
+            page_stats.append(
+                {
+                    "source": source_id,
+                    "record_type": family["record_type"],
+                    "page": page,
+                    "items_returned": len(content) if isinstance(content, list) else 0,
+                    "error": None,
+                }
+            )
+            for item in content:
                 if not isinstance(item, dict):
                     continue
                 reference = str(item.get("referenceNumber") or "")
@@ -241,7 +262,7 @@ def _fetch_kimdis_candidates(
                         status_reason=status_reason,
                     )
                 )
-    return candidates, errors
+    return candidates, errors, page_stats
 
 
 def _eshidis_candidates(payload: dict[str, Any], scope_aliases: dict[str, list[str]]) -> list[ExpandedTenderCandidate]:

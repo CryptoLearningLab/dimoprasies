@@ -1,7 +1,9 @@
 from pathlib import Path
+import json
 import time
 
 import tender_radar.ui_server as ui_server
+from tender_radar.discovery_watermark import append_discovery_run
 from tender_radar.ui_server import (
     APP_JS,
     DEFAULT_KIMDIS_DISCOVERY_PAGES,
@@ -16,6 +18,7 @@ from tender_radar.ui_server import (
     kimdis_document_preview_payload,
     parse_budget_from_row_text,
     preview_kind,
+    run_discovery_search,
     run_selected_fetch,
     short_text_sample,
     start_job,
@@ -45,6 +48,13 @@ def test_ui_uses_safer_discovery_defaults() -> None:
     expanded_args = steps[1]["args"]
     assert expanded_args[expanded_args.index("--kimdis-pages") + 1] == str(DEFAULT_KIMDIS_DISCOVERY_PAGES)
     assert DEFAULT_KIMDIS_DISCOVERY_PAGES == 20
+
+
+def test_ui_labels_bounded_and_backfill_discovery_modes() -> None:
+    assert "Η γρήγορη αναζήτηση είναι bounded" in INDEX_HTML
+    assert 'id="backfillToggle"' in INDEX_HTML
+    assert "Backfill safety" in INDEX_HTML
+    assert "discoverySafetyText" in APP_JS
 
 
 def test_dashboard_actions_use_fetch_and_zip_not_preview_buttons() -> None:
@@ -317,6 +327,61 @@ def test_discovery_search_steps_run_eshidis_then_expanded_kimdis() -> None:
     assert "work/reports/expanded_discovery_report.json" in steps[1]["args"]
     assert "2026-07-17" in steps[1]["args"]
     assert steps[1]["args"][steps[1]["args"].index("--kimdis-pages") + 1] == "20"
+
+
+def test_backfill_discovery_retries_until_previous_window_overlap(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        "timezone: Europe/Athens\nmunicipalities: []\nregions: []\n",
+        encoding="utf-8",
+    )
+    append_discovery_run(
+        tmp_path / "work/derived/discovery_runs.json",
+        {
+            "run_id": "previous",
+            "success": True,
+            "source_families": {"kimdis_proc": {"candidate_ids": ["26PROC000000001"]}},
+        },
+    )
+
+    calls = []
+
+    def fake_run_cli_process(args, *, timeout):
+        calls.append(args)
+        if args[:2] == ["sources", "discover-active"]:
+            (tmp_path / "work/reports/eshidis_active_candidates.json").write_text(
+                json.dumps({"candidates": [{"eshidis_id": "221800"}]}),
+                encoding="utf-8",
+            )
+        if args[:2] == ["sources", "expanded-report"]:
+            pages = int(args[args.index("--kimdis-pages") + 1])
+            official_id = "26PROC000000001" if pages > 20 else "26PROC000000002"
+            (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+                json.dumps(
+                    {
+                        "summary": {"errors": 0, "total_candidates": 1, "focus_candidates": 1},
+                        "all_candidates": [{"source": "KIMDIS", "record_type": "PROC", "official_id": official_id}],
+                        "focus_open_proc_candidates": [],
+                        "focus_candidates": [],
+                        "source_pages": [{"source": "khmdhs_notice", "record_type": "PROC", "page": 0, "items_returned": 50}],
+                        "errors": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+        return {"ok": True, "returncode": 0, "command": " ".join(args), "stdout": '{"summary": {"errors": 0}}', "stderr": ""}
+
+    monkeypatch.setattr(ui_server, "run_cli_process", fake_run_cli_process)
+
+    result = run_discovery_search(limit=100, backfill=True)
+
+    assert result["ok"] is True
+    assert len(result["discovery_runs"]) == 2
+    assert result["discovery_run"]["watermark"]["complete"] is True
+    expanded_calls = [args for args in calls if args[:2] == ["sources", "expanded-report"]]
+    assert [args[args.index("--kimdis-pages") + 1] for args in expanded_calls] == ["20", "40"]
 
 
 def test_interest_reason_uses_locations_config() -> None:

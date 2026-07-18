@@ -244,6 +244,15 @@ That URL is temporary and should not be treated as stable infrastructure.
   promotion.
 - KIMDIS row ZIP archives include the local KIMDIS document and any already
   downloaded latest ESHIDIS files for linked ESHIDIS ids.
+- Discovery watermark/backfill safety is implemented for the UI discovery
+  action. Each run writes runtime metadata to
+  `work/derived/discovery_runs.json`: mode, started/completed timestamps,
+  source family, ESHIDIS row limit, KIMDIS page depth, candidate ids, partial
+  failures, source exhaustion flags and previous-window overlap.
+- The UI now labels the quick scan as bounded and exposes a `Backfill safety`
+  checkbox. Backfill mode repeats discovery at increasing depth until it
+  reaches ids from the previous successful run window or hits the configured
+  maximum depth.
 
 ## Current Verification
 
@@ -256,7 +265,7 @@ Latest confirmed command:
 Result:
 
 ```text
-77 passed in 2.33s
+82 passed in 2.05s
 ```
 
 Latest KIMDIS PROC attachment fetch command:
@@ -325,8 +334,8 @@ The system `python` command is not present in the remote environment; use
 - Export generator for daily reports.
 - Scheduling/background daily run.
 - Deduplicated change detection across repeated scans.
-- Persisted discovery watermarks/backfill. Current discovery scans are deeper
-  than before but still bounded by row/page depth.
+- Persisted discovery watermarks/backfill exists for UI-triggered discovery.
+  Scheduling and notification of newly seen candidates is still missing.
 - Authentication-safe adapter for TEE subscription sources.
 - Production access model for UI beyond local/LAN/Tailscale/private tunnel.
 - Manual browser review of the redesigned first UI screen.
@@ -349,5 +358,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Add persisted discovery watermarks/backfill so weekly checks scan back to the
-last successful window before returning complete.
+Add scheduled discovery/report notification wiring so a cron/container job can
+run discovery, compare against the previous successful watermark and notify
+only for newly seen active candidates.

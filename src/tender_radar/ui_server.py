@@ -21,6 +21,13 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from tender_radar.config import load_config
+from tender_radar.discovery_watermark import (
+    append_discovery_run,
+    build_discovery_run_record,
+    latest_discovery_run,
+    latest_successful_discovery_run,
+    utc_now_iso,
+)
 from tender_radar.evaluation import normalize_evaluation_config, save_evaluation_config
 
 
@@ -29,6 +36,8 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_ESHIDIS_DISCOVERY_LIMIT = 100
 DEFAULT_KIMDIS_DISCOVERY_PAGES = 20
+MAX_BACKFILL_ESHIDIS_LIMIT = 500
+MAX_BACKFILL_KIMDIS_PAGES = 80
 COMMAND_LOCK = threading.Lock()
 JOBS_LOCK = threading.Lock()
 JOBS: dict[str, dict[str, Any]] = {}
@@ -150,7 +159,8 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             payload = self._read_json()
             if parsed.path == "/api/discover":
                 limit = int(payload.get("limit") or DEFAULT_ESHIDIS_DISCOVERY_LIMIT)
-                self._send_json(start_job("discover", run_discovery_search, limit=limit), status=202)
+                backfill = bool(payload.get("backfill"))
+                self._send_json(start_job("discover", run_discovery_search, limit=limit, backfill=backfill), status=202)
                 return
             if parsed.path == "/api/fetch-resource":
                 eshidis_id = require_eshidis_id(payload)
@@ -494,40 +504,118 @@ def run_cli_steps(steps: list[dict[str, Any]], *, dashboard_scope: str | None = 
         COMMAND_LOCK.release()
 
 
-def run_discovery_search(*, limit: int) -> dict[str, Any]:
+def run_discovery_search(*, limit: int, backfill: bool = False) -> dict[str, Any]:
     if limit < 1:
         raise ValueError("Search limit must be positive.")
     if not COMMAND_LOCK.acquire(blocking=False):
         return {"ok": False, "error": "Another command is already running. Wait for it to finish."}
-    steps = discovery_search_steps(limit=limit, as_of_date=date.today().isoformat())
     results: list[dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
     try:
-        for step in steps:
-            result = run_cli_process(step["args"], timeout=int(step["timeout"]))
-            result["name"] = step["name"]
-            results.append(result)
-        expanded_result = next((item for item in results if item.get("name") == "expanded_report"), {})
-        warnings = [
-            item
-            for item in results
-            if item.get("returncode") not in (0, None) or command_summary_errors(item) > 0
-        ]
-        return {
-            "ok": expanded_result.get("returncode") == 0 and not warnings,
-            "command": " && ".join(item["command"] for item in results),
-            "steps": results,
-            "warnings": warnings,
-            "candidates": candidates_payload(),
-            "expanded_report": expanded_report_payload(),
-            "dashboard": dashboard_payload(scope="focus"),
-        }
+        mode = "backfill" if backfill else "bounded"
+        current_limit = limit
+        current_kimdis_pages = DEFAULT_KIMDIS_DISCOVERY_PAGES
+        previous_success = latest_successful_discovery_run(discovery_history_path())
+        while True:
+            started_at = utc_now_iso()
+            pass_results = []
+            steps = discovery_search_steps(
+                limit=current_limit,
+                as_of_date=date.today().isoformat(),
+                kimdis_pages=current_kimdis_pages,
+            )
+            for step in steps:
+                result = run_cli_process(step["args"], timeout=int(step["timeout"]))
+                result["name"] = step["name"]
+                pass_results.append(result)
+                results.append(result)
+            completed_at = utc_now_iso()
+            expanded_result = next((item for item in pass_results if item.get("name") == "expanded_report"), {})
+            warnings = [
+                item
+                for item in pass_results
+                if item.get("returncode") not in (0, None) or command_summary_errors(item) > 0
+            ]
+            record = record_discovery_pass(
+                started_at=started_at,
+                completed_at=completed_at,
+                mode=mode,
+                eshidis_limit=current_limit,
+                kimdis_pages=current_kimdis_pages,
+                command_results=pass_results,
+                previous_success=previous_success,
+            )
+            records.append(record)
+            pass_ok = expanded_result.get("returncode") == 0 and not warnings and record.get("success") is True
+            if not backfill:
+                return discovery_response(results, warnings, pass_ok, records)
+            if record.get("watermark", {}).get("complete"):
+                return discovery_response(results, warnings, pass_ok, records)
+            if current_limit >= MAX_BACKFILL_ESHIDIS_LIMIT and current_kimdis_pages >= MAX_BACKFILL_KIMDIS_PAGES:
+                return discovery_response(results, warnings, False, records)
+            current_limit = min(MAX_BACKFILL_ESHIDIS_LIMIT, max(current_limit + 1, current_limit * 2))
+            current_kimdis_pages = min(MAX_BACKFILL_KIMDIS_PAGES, max(current_kimdis_pages + 1, current_kimdis_pages * 2))
     except subprocess.TimeoutExpired as exc:
-        return {"ok": False, "error": f"Command timed out: {exc!r}", "steps": results}
+        return {"ok": False, "error": f"Command timed out: {exc!r}", "steps": results, "discovery_runs": records}
     finally:
         COMMAND_LOCK.release()
 
 
-def discovery_search_steps(*, limit: int, as_of_date: str) -> list[dict[str, Any]]:
+def discovery_response(
+    results: list[dict[str, Any]],
+    warnings: list[dict[str, Any]],
+    ok: bool,
+    records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "ok": ok,
+        "command": " && ".join(item["command"] for item in results),
+        "steps": results,
+        "warnings": warnings,
+        "candidates": candidates_payload(),
+        "expanded_report": expanded_report_payload(),
+        "discovery_runs": records,
+        "discovery_run": records[-1] if records else None,
+        "dashboard": dashboard_payload(scope="focus"),
+    }
+
+
+def record_discovery_pass(
+    *,
+    started_at: str,
+    completed_at: str,
+    mode: str,
+    eshidis_limit: int,
+    kimdis_pages: int,
+    command_results: list[dict[str, Any]],
+    previous_success: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    history_path = discovery_history_path()
+    if previous_success is None:
+        previous_success = latest_successful_discovery_run(history_path)
+    record = build_discovery_run_record(
+        started_at=started_at,
+        completed_at=completed_at,
+        mode=mode,
+        eshidis_limit=eshidis_limit,
+        kimdis_pages=kimdis_pages,
+        command_results=command_results,
+        eshidis_report_path=REPO_ROOT / "work/reports/eshidis_active_candidates.json",
+        expanded_report_path=REPO_ROOT / "work/reports/expanded_discovery_report.json",
+        previous_success=previous_success,
+        max_eshidis_limit=MAX_BACKFILL_ESHIDIS_LIMIT,
+        max_kimdis_pages=MAX_BACKFILL_KIMDIS_PAGES,
+    )
+    append_discovery_run(history_path, record)
+    return record
+
+
+def discovery_search_steps(
+    *,
+    limit: int,
+    as_of_date: str,
+    kimdis_pages: int = DEFAULT_KIMDIS_DISCOVERY_PAGES,
+) -> list[dict[str, Any]]:
     return [
         {
             "name": "eshidis_discover",
@@ -552,7 +640,7 @@ def discovery_search_steps(*, limit: int, as_of_date: str) -> list[dict[str, Any
                 "expanded-report",
                 "--allow-insecure-tls",
                 "--kimdis-pages",
-                str(DEFAULT_KIMDIS_DISCOVERY_PAGES),
+                str(kimdis_pages),
                 "--timeout",
                 "20",
                 "--as-of-date",
@@ -681,11 +769,20 @@ def dashboard_payload(scope: str = "focus") -> dict[str, Any]:
             "verified_active": sum(1 for row in rows if row.get("verified_active")),
         },
         "tenders": visible_rows,
+        "discovery_run": latest_discovery_run_payload(),
         "note": (
             "Focus filtering uses configured municipalities, regional units and NUTS hints. "
             "Discovery rows remain candidates until official detail/status verification."
         ),
     }
+
+
+def discovery_history_path() -> Path:
+    return REPO_ROOT / "work/derived/discovery_runs.json"
+
+
+def latest_discovery_run_payload() -> dict[str, Any] | None:
+    return latest_discovery_run(discovery_history_path())
 
 
 def location_focus_profile() -> dict[str, Any]:
@@ -1367,7 +1464,8 @@ INDEX_HTML = """<!doctype html>
           <p class="eyebrow">Περιοχή αναζήτησης</p>
           <h3>Ναυπακτία, Δωρίδα, Θέρμο, Μεσολόγγι, Πάτρα και σχετικές Π.Ε.</h3>
           <p id="scopeText" class="mutedLine">Προεπιλογή: τοπική περιοχή ενδιαφέροντος από το config.</p>
-          <p class="mutedLine">Η αναζήτηση ελέγχει έως 100 ενεργές γραμμές ΕΣΗΔΗΣ και 20 σελίδες ΚΗΜΔΗΣ ανά οικογένεια εγγράφων.</p>
+          <p class="mutedLine">Η γρήγορη αναζήτηση είναι bounded: έως 100 ενεργές γραμμές ΕΣΗΔΗΣ και 20 σελίδες ΚΗΜΔΗΣ ανά οικογένεια εγγράφων.</p>
+          <p id="discoverySafetyText" class="mutedLine">Δεν υπάρχει ακόμα καταγεγραμμένο discovery watermark σε αυτό το runtime.</p>
         </div>
         <label class="switchLine">
           <input id="allGreeceToggle" type="checkbox">
@@ -1375,6 +1473,10 @@ INDEX_HTML = """<!doctype html>
         </label>
         <div class="toolbar inlineToolbar">
           <label>Βάθος ΕΣΗΔΗΣ <input id="limitInput" type="number" min="1" max="500" value="100"></label>
+          <label class="switchLine inlineSwitch">
+            <input id="backfillToggle" type="checkbox">
+            <span>Backfill safety</span>
+          </label>
           <button id="discoverBtn">Νέα αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ</button>
         </div>
       </div>
@@ -1642,6 +1744,10 @@ main { padding: 22px; min-width: 0; }
   min-width: 18px;
   width: 18px;
   height: 18px;
+}
+.inlineSwitch {
+  min-height: 38px;
+  margin: 0;
 }
 .inlineToolbar {
   grid-column: 1 / -1;
@@ -2102,6 +2208,7 @@ function renderDashboard(payload) {
   $('scopeText').textContent = payload.scope === 'all'
     ? 'Προβολή όλων των γνωστών/discovered έργων. Η πληρότητα παραμένει μετρήσιμη, όχι δεδομένη.'
     : `Προεπιλογή τοπικού ενδιαφέροντος: ${municipalityText}`;
+  renderDiscoverySafety(payload.discovery_run);
   const rows = $('tenderRows');
   rows.innerHTML = '';
   if (!payload.tenders.length) {
@@ -2154,6 +2261,21 @@ function renderDashboard(payload) {
   if (!state.selected || !payload.tenders.some((item) => (item.row_key || item.eshidis_id) === state.selected)) {
     selectTender(payload.tenders[0].row_key || payload.tenders[0].eshidis_id, false);
   }
+}
+
+function renderDiscoverySafety(run) {
+  if (!run) {
+    $('discoverySafetyText').textContent = 'Δεν υπάρχει ακόμα καταγεγραμμένο discovery watermark σε αυτό το runtime.';
+    return;
+  }
+  const depth = run.depth || {};
+  const watermark = run.watermark || {};
+  const status = run.success
+    ? 'τελευταίο run πλήρες'
+    : (run.source_success ? 'τελευταίο run χρειάζεται βαθύτερο backfill' : 'τελευταίο run με μερική αποτυχία πηγής');
+  const mode = run.mode === 'backfill' ? 'backfill' : 'bounded';
+  const complete = watermark.complete ? 'το προηγούμενο παράθυρο καλύφθηκε ή εξαντλήθηκε πηγή' : 'χρειάζεται βαθύτερο backfill';
+  $('discoverySafetyText').textContent = `${status} · ${mode} · ΕΣΗΔΗΣ ${depth.eshidis_limit || '-'} · ΚΗΜΔΗΣ ${depth.kimdis_pages_per_family || '-'} σελίδες · ${complete}`;
 }
 
 function resetPreview() {
@@ -2453,7 +2575,14 @@ function deleteRule() {
 
 $('refreshBtn').addEventListener('click', refresh);
 $('allGreeceToggle').addEventListener('change', () => loadDashboard().catch((error) => { $('statusText').textContent = String(error); }));
-$('discoverBtn').addEventListener('click', () => runAction('/api/discover', { limit: $('limitInput').value }, 'Νέα αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ...'));
+$('discoverBtn').addEventListener('click', () => {
+  const backfill = $('backfillToggle').checked;
+  runAction(
+    '/api/discover',
+    { limit: $('limitInput').value, backfill },
+    backfill ? 'Backfill αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ...' : 'Bounded αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ...'
+  );
+});
 $('fetchBtn').addEventListener('click', () => runAction('/api/fetch-resource', { eshidis_id: selectedId() }, 'Fetching official detail...'));
 $('downloadBtn').addEventListener('click', () => runAction('/api/download-all', { eshidis_id: selectedId() }, 'Downloading attachments...'));
 $('analyzeBtn').addEventListener('click', () => runAction('/api/analyze', { eshidis_id: selectedId() }, 'Analyzing documents...'));

@@ -631,6 +631,32 @@
 - Result: 77 passed in 2.33s.
 - `git diff --check`
 - Result: no whitespace errors.
+- Added runtime discovery watermark tracking in
+  `src/tender_radar/discovery_watermark.py`. Discovery runs persist metadata
+  to `work/derived/discovery_runs.json`, including started/completed time,
+  mode, source family, ESHIDIS row limit, KIMDIS page depth, candidate ids,
+  partial failures, source exhaustion flags and previous-window overlap.
+- `sources expanded-report` now includes KIMDIS `source_pages` metadata with
+  per-family page number, returned item count and page error, so backfill can
+  distinguish "needs deeper scan" from a documented empty page.
+- The UI discovery action supports two modes:
+  - bounded: one pass at the selected ESHIDIS limit and current KIMDIS default
+    depth;
+  - backfill safety: repeated passes with increasing ESHIDIS/KIMDIS depth
+    until the previous successful run window is reached or the configured
+    maximum depth is hit.
+- The dashboard shows the latest discovery watermark status, mode, depth and
+  whether a deeper backfill is needed. Partial source failures are stored in
+  the run record and exposed in the job result/dashboard payload.
+- Verification for discovery watermark/backfill:
+  `.venv/bin/python -m pytest tests/test_discovery_watermark.py tests/test_expanded_report.py tests/test_ui_server.py`
+  returned `34 passed in 0.63s`.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m pytest`
+- Result: 82 passed in 2.05s.
+- `git diff --check`
+- Result: no whitespace errors.
 
 ## Coverage
 
@@ -672,6 +698,9 @@ ui_end_to_end_fetch_zip_confirmed_by_user: true
 kimdis_extracts_linked_eshidis_ids: true
 ui_kimdis_fetch_chains_linked_eshidis: true
 kimdis_zip_includes_linked_eshidis_downloads: true
+discovery_run_history_json: true
+discovery_watermark_backfill: true
+discovery_source_page_stats: true
 source_whitelist_files: 2
 source_whitelist_entries_checked: 36
 source_whitelist_reachable: 29
@@ -699,9 +728,9 @@ focus_municipalities: 6
 
 ## Next Gate
 
-Build persisted discovery watermark and backfill safety so non-daily checks
-scan until the previous successful source window or documented source
-exhaustion instead of relying only on fixed row/page limits.
+Add scheduled discovery/report notification wiring for production-style use:
+run discovery on a fixed interval, compare against the latest successful
+watermark, and notify only for newly seen active candidates.
 
 ## Handoff Discipline
 

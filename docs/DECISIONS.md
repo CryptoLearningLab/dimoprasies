@@ -231,3 +231,15 @@ the fuller ESHIDIS detail and attachment folder.
 This creates provenance-linked records only. It does not merge KIMDIS and
 ESHIDIS records by title, and it does not promote any candidate to
 `VERIFIED_ACTIVE` without the separate status-verification gate.
+
+## D-029 - Discovery completeness is measured with runtime watermarks
+**Status:** Accepted
+
+Discovery runs persist runtime metadata under `work/derived/` with source
+family, depth, candidate ids, source errors and watermark status. A run is
+considered complete only when it has no source/command failures and it either
+reaches candidate ids from the previous successful run window or documents
+source exhaustion.
+
+Bounded demo scans remain available for speed, but they are labeled as
+bounded and do not imply no-miss coverage after a long gap.
