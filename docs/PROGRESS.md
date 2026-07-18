@@ -678,6 +678,30 @@
 - Result: all repository configs OK.
 - `.venv/bin/python -m pytest`
 - Result: 84 passed in 1.77s.
+- Added official ESHIDIS resource URL extraction for KIMDIS/declaration text:
+  `pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/<id>` and
+  short `resources/search/<id>` forms now produce linked ESHIDIS ids. This is
+  constrained to the official resource path, not arbitrary numeric URLs.
+- The linked ESHIDIS acronym normalizer now also covers the fully dotted form
+  `Ε.Σ.Η.Δ.Η.Σ.`.
+- Corpus check over `work/extracted_text/**/*.txt` found 10 files with
+  official `resources/search/<id>` URLs; after the change the extractor found
+  all URL ids in 10/10 files.
+- KIMDIS document-index refresh after the URL extraction change:
+  `.venv/bin/python -m tender_radar sources fetch-kimdis-open-proc --expanded-report work/reports/expanded_discovery_report.json --config config/sources.yml --download-dir work/download_audit/kimdis --text-dir work/extracted_text/kimdis --document-index work/derived/kimdis_open_proc_documents.json --report work/reports/kimdis_open_proc_fetch_report.json --markdown-report work/reports/kimdis_open_proc_fetch_report.md --limit 50 --timeout 30 --allow-insecure-tls`
+- Result: 14 checked, 14 already present, 0 failed, 14 text extracted,
+  14 document evidence found, 9 records with linked ESHIDIS ids.
+- Newly visible examples include `26PROC019449985 -> 221627`,
+  `26PROC019417347 -> 221691`, `26PROC019417050 -> 221684`, and
+  `26PROC019367864 -> 221566, 221556`. Conflicting/multiple official URL ids
+  are retained as separate linked candidates and are not silently corrected.
+- Verification for resource URL extraction:
+  `.venv/bin/python -m pytest tests/test_kimdis_fetch.py tests/test_ui_server.py tests/test_cli.py`
+  returned `46 passed in 0.90s`.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m pytest`
+- Result: 87 passed in 2.04s.
 
 ## Coverage
 
@@ -718,6 +742,7 @@ ui_clickable_preview_rows: true
 ui_end_to_end_fetch_zip_confirmed_by_user: true
 kimdis_extracts_linked_eshidis_ids: true
 kimdis_extracts_dotted_eshidis_ids: true
+kimdis_extracts_official_resource_url_eshidis_ids: true
 ui_kimdis_fetch_chains_linked_eshidis: true
 kimdis_zip_includes_linked_eshidis_downloads: true
 ui_linked_eshidis_file_count: true
@@ -748,6 +773,9 @@ unknown_statuses: 6
 unexplained_failures: 0
 focus_municipalities: 6
 sample_linked_eshidis_207024_files: 14
+official_resource_url_text_files_checked: 10
+official_resource_url_text_files_extracted: 10
+kimdis_records_with_linked_eshidis_ids: 9
 ```
 
 ## Next Gate

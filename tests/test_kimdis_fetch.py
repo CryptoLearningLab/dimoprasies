@@ -261,6 +261,36 @@ def test_extract_eshidis_ids_handles_dotted_acronym_and_adjacent_url() -> None:
     assert extract_eshidis_ids_from_text(text) == ["207024"]
 
 
+def test_extract_eshidis_ids_handles_dotted_full_acronym() -> None:
+    text = (
+        "Κάθε είδους επικοινωνία πραγματοποιείται μέσω της διαδικτυακής πύλης "
+        "www.promitheus.gov.gr του ΟΠΣ- Ε.Σ.Η.Δ.Η.Σ. Α/Α: 221627"
+    )
+
+    assert extract_eshidis_ids_from_text(text) == ["221627"]
+
+
+def test_extract_eshidis_ids_from_official_resource_url() -> None:
+    text = (
+        "Άρθρο 2.2 Προσφέρεται ελεύθερη πρόσβαση στα έγγραφα της σύμβασης μέσω του URL "
+        "http://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/221744 "
+        "(όπου ΧΧΧΧΧΧ συμπληρώνεται ο συστημικός αύξων αριθμός στο ΕΣΗΔΗΣ - Δημόσια Έργα)."
+    )
+
+    assert extract_eshidis_ids_from_text(text) == ["221744"]
+
+
+def test_extract_eshidis_ids_from_multiple_official_resource_urls() -> None:
+    text = (
+        "Συστημικός αριθμός 221566 και URL "
+        "http://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/221566. "
+        "Νεότερη αναφορά URL "
+        "http://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/221556."
+    )
+
+    assert extract_eshidis_ids_from_text(text) == ["221566", "221556"]
+
+
 def test_kimdis_document_index_preserves_required_metadata(tmp_path) -> None:
     report = {
         "checked_at": "2026-07-17T00:00:00+00:00",

@@ -560,6 +560,15 @@ def extract_eshidis_ids_from_text(*values: object) -> list[str]:
         return []
     normalized = _normalize_eshidis_labels(_normalize_text(text))
     linked: list[str] = []
+    url_patterns = [
+        r"pwgopendata\.eprocurement\.gov\.gr/actsearchergwn/resources/search/(\d{5,7})(?!\d)",
+        r"resources/search/(\d{5,7})(?!\d)",
+    ]
+    for pattern in url_patterns:
+        for match in re.finditer(pattern, normalized):
+            value = match.group(1)
+            if value not in linked:
+                linked.append(value)
     patterns = [
         r"(?:εσηδησ|εσηδης)\W{0,40}(?:α\s*/?\s*α)?\W{0,20}(\d{5,7})(?!\d)",
         r"(?:α\s*/?\s*α|αα)\W{0,40}(?:εσηδησ|εσηδης|συστημα(?:τοσ)?)\W{0,30}(\d{5,7})(?!\d)",
