@@ -10,6 +10,18 @@
 `tasks/NEXT_TASK.md`
 
 ## Completed Milestones
+- UI discovery flow now starts a real OpenAI-backed `sources ai-triage-report`
+  job from `/api/ai-triage` after bounded discovery, using the existing
+  `OPENAI_API_KEY` in `.env.local` without exposing the secret.
+- Bounded discovery then runs non-ESHIDIS candidate enrichment as a separate
+  background job: visible KIMDIS/authority rows are fetched, documents are
+  inspected for linked ESHIDIS ids and official ESHIDIS folders are fetched
+  when an id is found.
+- Candidate enrichment writes
+  `work/derived/candidate_enrichment_attempts.json` so unchanged rows are not
+  reprocessed on later runs.
+- Authority/TED numeric identifiers are no longer treated as official ESHIDIS
+  ids unless the row has explicit ESHIDIS/eprocurement provenance.
 - PHASE 0 repository bootstrap.
 - Python package skeleton under `src/tender_radar`.
 - Installable project metadata in `pyproject.toml`.

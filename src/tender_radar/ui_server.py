@@ -46,6 +46,7 @@ DEFAULT_AUTHORITY_LIMIT_PER_SOURCE = 10
 MAX_BACKFILL_ESHIDIS_LIMIT = 500
 MAX_BACKFILL_KIMDIS_PAGES = 80
 COMMAND_LOCK = threading.Lock()
+ENRICHMENT_LOCK = threading.Lock()
 JOBS_LOCK = threading.Lock()
 JOBS: dict[str, dict[str, Any]] = {}
 
@@ -210,6 +211,20 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/fetch-selected":
                 identifier = require_fetch_identifier(payload)
                 self._send_json(start_job("fetch-selected", run_selected_fetch, identifier), status=202)
+                return
+            if parsed.path == "/api/enrich-candidates":
+                scope = str(payload.get("scope") or "focus")
+                limit = int(payload.get("limit") or 50)
+                self._send_json(start_job("enrich-candidates", run_candidate_enrichment, scope=scope, limit=limit), status=202)
+                return
+            if parsed.path == "/api/ai-triage":
+                scope = str(payload.get("scope") or "focus")
+                sort = str(payload.get("sort") or "deadline_asc")
+                batch_size = int(payload.get("batch_size") or 20)
+                self._send_json(
+                    start_job("ai-triage", run_ai_triage, scope=scope, sort=sort, batch_size=batch_size),
+                    status=202,
+                )
                 return
             if parsed.path == "/api/dismiss-tender":
                 row_key = require_row_key(payload)
@@ -414,9 +429,19 @@ def prune_jobs(*, now: float, max_age_seconds: int = 3600) -> None:
 
 
 def run_selected_fetch(identifier: str) -> dict[str, Any]:
-    if authority_row_by_key(identifier):
+    authority_row = authority_row_by_key(identifier)
+    if authority_row:
         authority_result = run_authority_fetch(identifier)
-        linked_ids = authority_linked_eshidis_ids(identifier)
+        linked_ids = sorted(
+            {
+                *authority_linked_eshidis_ids(identifier),
+                *(
+                    [str(authority_row.get("eshidis_id"))]
+                    if str(authority_row.get("eshidis_id") or "").isdigit()
+                    else []
+                ),
+            }
+        )
         if not linked_ids:
             return {
                 **authority_result,
@@ -605,6 +630,187 @@ def run_kimdis_fetch(*, official_id: str | None = None) -> dict[str, Any]:
         official_id = require_kimdis_id({"official_id": official_id})
         args.extend(["--official-id", official_id])
     return run_cli_command(args)
+
+
+def run_ai_triage(*, scope: str = "focus", sort: str = "deadline_asc", batch_size: int = 20) -> dict[str, Any]:
+    safe_scope = scope if scope in {"focus", "all"} else "focus"
+    safe_sort = sort if sort in {"deadline_asc", "budget_desc"} else "deadline_asc"
+    safe_batch_size = max(1, min(int(batch_size), 50))
+    result = run_cli_command(
+        [
+            "sources",
+            "ai-triage-report",
+            "--scope",
+            safe_scope,
+            "--sort",
+            safe_sort,
+            "--batch-size",
+            str(safe_batch_size),
+            "--timeout",
+            "90",
+            "--report",
+            "work/reports/ai_triage_report.json",
+            "--markdown-report",
+            "work/reports/ai_triage_report.md",
+        ]
+    )
+    result["dashboard"] = dashboard_payload(scope=safe_scope, sort=safe_sort)
+    result["ai_triage_report"] = ai_triage_report_status()
+    return result
+
+
+def run_candidate_enrichment(*, scope: str = "focus", limit: int = 50) -> dict[str, Any]:
+    if limit < 1:
+        raise ValueError("Enrichment limit must be positive.")
+    if not ENRICHMENT_LOCK.acquire(blocking=False):
+        return {"ok": False, "error": "Another candidate enrichment is already running."}
+    attempt_records: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
+    try:
+        targets, skipped = candidate_enrichment_targets(scope=scope, limit=limit)
+        for target in targets:
+            identifier = str(target["identifier"])
+            result = run_selected_fetch(identifier)
+            linked_ids = [str(value) for value in result.get("linked_eshidis_ids") or [] if str(value).strip()]
+            record = {
+                "row_key": target["row_key"],
+                "identifier": identifier,
+                "kind": target["kind"],
+                "source_signature": target["source_signature"],
+                "attempted_at": utc_now_iso(),
+                "ok": result.get("ok") is not False,
+                "linked_eshidis_ids": linked_ids,
+                "official_fetch_ok": (result.get("eshidis_fetch") or {}).get("ok"),
+            }
+            attempt_records.append(record)
+            results.append(
+                {
+                    **record,
+                    "error": result.get("error"),
+                    "downloaded": result.get("downloaded"),
+                    "failed": result.get("failed"),
+                }
+            )
+        if attempt_records:
+            write_candidate_enrichment_attempts(attempt_records)
+        enriched = [item for item in results if item.get("linked_eshidis_ids")]
+        failed = [item for item in results if item.get("ok") is False]
+        return {
+            "ok": not failed,
+            "summary": {
+                "targets": len(targets),
+                "attempted": len(results),
+                "enriched_with_eshidis": len(enriched),
+                "failed": len(failed),
+                "skipped_previously_attempted": skipped,
+            },
+            "results": results,
+            "dashboard": dashboard_payload(scope=scope if scope in {"focus", "all"} else "focus"),
+        }
+    finally:
+        ENRICHMENT_LOCK.release()
+
+
+def candidate_enrichment_targets(*, scope: str = "focus", limit: int = 50) -> tuple[list[dict[str, str]], int]:
+    dashboard = dashboard_payload(scope=scope if scope in {"focus", "all"} else "focus")
+    attempts = candidate_enrichment_attempts()
+    canonical_ids = canonical_eshidis_ids_in_rows(merged_tender_rows())
+    targets: list[dict[str, str]] = []
+    skipped = 0
+    for row in dashboard.get("tenders") or []:
+        if str(row.get("source_label") or "") == "ΕΣΗΔΗΣ":
+            continue
+        row_key = str(row.get("row_key") or row.get("official_id") or row.get("display_id") or "").strip()
+        if not row_key:
+            continue
+        linked_ids = set(linked_eshidis_ids_for_row(row))
+        if linked_ids and linked_ids <= canonical_ids:
+            continue
+        signature = candidate_enrichment_signature(row)
+        previous = attempts.get(row_key)
+        if previous and previous.get("source_signature") == signature:
+            skipped += 1
+            continue
+        identifier = candidate_enrichment_identifier(row)
+        if not identifier:
+            continue
+        targets.append(
+            {
+                "row_key": row_key,
+                "identifier": identifier,
+                "kind": str(row.get("source_label") or ""),
+                "source_signature": signature,
+            }
+        )
+        if len(targets) >= limit:
+            break
+    return targets, skipped
+
+
+def candidate_enrichment_identifier(row: dict[str, Any]) -> str | None:
+    row_key = str(row.get("row_key") or "").strip()
+    official_id = str(row.get("official_id") or row.get("display_id") or "").strip()
+    if row.get("supports_authority_actions") and row_key:
+        return row_key
+    if row.get("supports_kimdis_actions") and is_kimdis_identifier(official_id):
+        return official_id
+    linked_ids = linked_eshidis_ids_for_row(row)
+    if linked_ids:
+        return linked_ids[0]
+    if str(row.get("eshidis_id") or "").isdigit():
+        return str(row.get("eshidis_id"))
+    return None
+
+
+def candidate_enrichment_signature(row: dict[str, Any]) -> str:
+    parts = [
+        row.get("row_key"),
+        row.get("official_id"),
+        row.get("display_id"),
+        row.get("title"),
+        row.get("authority_name"),
+        row.get("published_at"),
+        row.get("current_deadline_at"),
+        row.get("official_url"),
+        row.get("attachment_url"),
+        " ".join(str(value) for value in row.get("attachment_urls") or []),
+    ]
+    raw = "\n".join(str(value or "") for value in parts)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def candidate_enrichment_attempts_path() -> Path:
+    return REPO_ROOT / "work/derived/candidate_enrichment_attempts.json"
+
+
+def candidate_enrichment_attempts() -> dict[str, dict[str, Any]]:
+    path = candidate_enrichment_attempts_path()
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    attempts: dict[str, dict[str, Any]] = {}
+    for item in payload.get("attempts") or []:
+        if not isinstance(item, dict):
+            continue
+        row_key = str(item.get("row_key") or "").strip()
+        if row_key:
+            attempts[row_key] = item
+    return attempts
+
+
+def write_candidate_enrichment_attempts(attempt_records: list[dict[str, Any]]) -> None:
+    path = candidate_enrichment_attempts_path()
+    existing = candidate_enrichment_attempts()
+    for item in attempt_records:
+        row_key = str(item.get("row_key") or "").strip()
+        if row_key:
+            existing[row_key] = item
+    payload = {"updated_at": utc_now_iso(), "attempts": list(existing.values())}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def kimdis_fetch_args() -> list[str]:
@@ -1580,6 +1786,27 @@ def ai_triage_report_path() -> Path:
     return REPO_ROOT / "work/reports/ai_triage_report.json"
 
 
+def ai_triage_report_status() -> dict[str, Any]:
+    path = ai_triage_report_path()
+    if not path.exists():
+        return {"exists": False, "path": str(path)}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"exists": True, "path": str(path), "ok": False, "error": str(exc)}
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    return {
+        "exists": True,
+        "ok": int(summary.get("errors") or 0) == 0,
+        "path": str(path),
+        "markdown_path": str(REPO_ROOT / "work/reports/ai_triage_report.md"),
+        "generated_at": payload.get("generated_at"),
+        "model": payload.get("model"),
+        "input_rows": payload.get("input_rows"),
+        "summary": summary,
+    }
+
+
 def ai_triage_by_row_key() -> dict[str, dict[str, Any]]:
     path = ai_triage_report_path()
     if not path.exists():
@@ -1725,7 +1952,7 @@ def authority_candidate_rows() -> list[dict[str, Any]]:
         if not official_id:
             continue
         is_kimdis = is_kimdis_identifier(official_id)
-        is_eshidis = official_id.isdigit() and 5 <= len(official_id) <= 7
+        is_eshidis = authority_numeric_id_is_eshidis(official_id, candidate)
         row_key = f"KIMDIS:{official_id}" if is_kimdis else official_id if is_eshidis else f"AUTHORITY:{official_id}"
         authority_docs = authority_documents_by_key().get(row_key, [])
         attachment_urls = [str(url) for url in candidate.get("attachment_urls") or [] if str(url).strip()]
@@ -1800,6 +2027,34 @@ def non_tender_landing_row(row: dict[str, Any]) -> bool:
     if url.endswith("/erga-drasis"):
         return True
     return title in {"εργα & δρασεις", "εργα και δρασεις"}
+
+
+def authority_numeric_id_is_eshidis(official_id: str, candidate: dict[str, Any]) -> bool:
+    if not official_id.isdigit() or len(official_id) != 6:
+        return False
+    haystack = normalize_greek(
+        " ".join(
+            str(candidate.get(key) or "")
+            for key in ("source_url", "detail_url", "attachment_url", "row_text", "title")
+        )
+    )
+    if any(host in haystack for host in ("ted europa eu", "ted.europa.eu")) and not any(
+        marker in haystack for marker in ("εσηδης", "ε.σ.η.δη.σ", "actsearchergwn")
+    ):
+        return False
+    record_type = normalize_greek(str(candidate.get("record_type") or ""))
+    if record_type == "eshidis":
+        return True
+    return any(
+        marker in haystack
+        for marker in (
+            "εσηδης",
+            "ε.σ.η.δη.σ",
+            "ε σ η δ η σ",
+            "pwgopendata eprocurement gov gr",
+            "actsearchergwn",
+        )
+    )
 
 
 def authority_row_by_key(row_key: str) -> dict[str, Any] | None:
@@ -3652,12 +3907,52 @@ async function runAction(path, body, label) {
     const finalResult = result.result || result;
     $('statusText').textContent = finalResult.ok === false || result.status === 'failed' ? 'Τελείωσε με σφάλματα' : 'Ολοκληρώθηκε';
     await loadDashboard();
+    if (path === '/api/discover' && !body?.backfill && finalResult.ok !== false) {
+      startAiTriageThenEnrichment().catch((error) => {
+        $('statusText').textContent = `Σφάλμα AI ελέγχου: ${error}`;
+      });
+    }
   } catch (error) {
     $('commandOutput').textContent = String(error);
     $('statusText').textContent = 'Σφάλμα';
   } finally {
     setBusy(false, $('statusText').textContent);
   }
+}
+
+async function startAiTriageThenEnrichment() {
+  const scope = $('allGreeceToggle').checked ? 'all' : 'focus';
+  const sort = $('sortSelect').value || 'deadline_asc';
+  const initial = await api('/api/ai-triage', {
+    method: 'POST',
+    body: JSON.stringify({ scope, sort, batch_size: 20 }),
+  });
+  if (!initial.job_id) return;
+  $('statusText').textContent = 'AI έλεγχος έργων σε εξέλιξη';
+  const aiJob = await pollJob(initial.job_id, 'AI διαλογή έργων με OpenAI');
+  $('commandOutput').textContent = JSON.stringify(aiJob, null, 2);
+  await loadDashboard();
+  const aiResult = aiJob.result || {};
+  if (aiJob.status === 'failed' || aiResult.ok === false) {
+    $('statusText').textContent = 'AI έλεγχος απέτυχε · συνεχίζω με deterministic enrichment';
+  }
+  await startCandidateEnrichment();
+}
+
+async function startCandidateEnrichment() {
+  const scope = $('allGreeceToggle').checked ? 'all' : 'focus';
+  const initial = await api('/api/enrich-candidates', {
+    method: 'POST',
+    body: JSON.stringify({ scope, limit: 50 }),
+  });
+  if (!initial.job_id) return;
+  $('statusText').textContent = 'Αυτόματος έλεγχος μη-ΕΣΗΔΗΣ έργων σε εξέλιξη';
+  const job = await pollJob(initial.job_id, 'Αυτόματος εντοπισμός Α/Α ΕΣΗΔΗΣ');
+  $('commandOutput').textContent = JSON.stringify(job, null, 2);
+  const result = job.result || {};
+  const summary = result.summary || {};
+  $('statusText').textContent = `Έλεγχος ΕΣΗΔΗΣ: ${summary.enriched_with_eshidis || 0} συνδέθηκαν, ${summary.failed || 0} απέτυχαν`;
+  await loadDashboard();
 }
 
 async function pollJob(jobId, label) {

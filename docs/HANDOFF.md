@@ -81,6 +81,17 @@ and editable YAML/UI evaluation rules.
   - Tender
   - Rules
   - Reports
+- The UI bounded discovery button now chains three jobs:
+  1. source discovery/preflight,
+  2. real OpenAI-backed AI triage through `/api/ai-triage`
+     (`sources ai-triage-report`, key loaded from `.env.local`),
+  3. non-ESHIDIS candidate enrichment through `/api/enrich-candidates`.
+- Candidate enrichment uses the same selected-fetch path as manual Fetch:
+  KIMDIS/authority documents are downloaded, linked ESHIDIS ids are extracted
+  and official ESHIDIS detail/attachments are fetched when available.
+- Candidate enrichment attempts are cached in
+  `work/derived/candidate_enrichment_attempts.json` to avoid reprocessing
+  unchanged rows.
 - Windows launchers for local, LAN and Tailscale use.
 - Docker/Synology docs:
   - `Dockerfile`

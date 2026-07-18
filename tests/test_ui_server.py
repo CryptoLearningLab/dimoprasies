@@ -21,6 +21,9 @@ from tender_radar.ui_server import (
     parse_budget_from_row_text,
     preview_kind,
     quick_source_fingerprint,
+    candidate_enrichment_targets,
+    run_candidate_enrichment,
+    run_ai_triage,
     run_discovery_search,
     run_selected_fetch,
     short_text_sample,
@@ -967,6 +970,149 @@ def test_selected_kimdis_fetch_chains_linked_eshidis_download(monkeypatch) -> No
     assert captured["steps"][0]["args"] == ["sources", "fetch-resource", "221473", "--allow-insecure-tls"]
 
 
+def test_candidate_enrichment_targets_only_visible_non_eshidis_rows(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: nafpaktia
+    name: "Δήμος Ναυπακτίας"
+    aliases: ["Ναύπακτος"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/eshidis_active_candidates.json").write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {
+                        "eshidis_id": "221473",
+                        "title": "Έργο Ναυπάκτου",
+                        "authority_name": "Δήμος Ναυπακτίας",
+                        "submission_deadline": "20-08-2026 10:00:00",
+                        "row_text": "Ναύπακτος",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps(
+            {
+                "focus_open_proc_candidates": [
+                    {
+                        "official_id": "26PROC000000001",
+                        "title": "Διακήρυξη έργου Ναυπάκτου",
+                        "authority": "Δήμος Ναυπακτίας",
+                        "attachment_url": "https://example.test/26PROC000000001.pdf",
+                        "matched_scopes": ["Δήμος Ναυπακτίας"],
+                        "status": "SUBMISSION_OPEN_CANDIDATE",
+                    }
+                ],
+                "focus_authority_candidates": [
+                    {
+                        "record_type": "AUTHORITY_WEB",
+                        "official_id": "AUTH-work",
+                        "title": "Περίληψη έργου Ναυπάκτου",
+                        "authority": "Δήμος Ναυπακτίας",
+                        "source_url": "https://example.test/work",
+                        "attachment_url": "https://example.test/work.pdf",
+                        "attachment_urls": ["https://example.test/work.pdf"],
+                        "matched_scopes": ["Δήμος Ναυπακτίας"],
+                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    targets, skipped = candidate_enrichment_targets(scope="focus", limit=10)
+
+    assert skipped == 0
+    assert sorted(target["identifier"] for target in targets) == ["26PROC000000001", "AUTHORITY:AUTH-work"]
+
+
+def test_candidate_enrichment_uses_selected_fetch_and_records_attempts(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        ui_server,
+        "candidate_enrichment_targets",
+        lambda scope, limit: (
+            [
+                {
+                    "row_key": "KIMDIS:26PROC000000001",
+                    "identifier": "26PROC000000001",
+                    "kind": "ΚΗΜΔΗΣ",
+                    "source_signature": "sig-1",
+                },
+                {
+                    "row_key": "AUTHORITY:AUTH-work",
+                    "identifier": "AUTHORITY:AUTH-work",
+                    "kind": "Φορέας",
+                    "source_signature": "sig-2",
+                },
+            ],
+            0,
+        ),
+    )
+
+    def fake_selected_fetch(identifier):
+        calls.append(identifier)
+        return {"ok": True, "linked_eshidis_ids": ["221473"] if identifier.startswith("26PROC") else []}
+
+    monkeypatch.setattr(ui_server, "run_selected_fetch", fake_selected_fetch)
+    monkeypatch.setattr(ui_server, "dashboard_payload", lambda scope="focus": {"scope": scope, "summary": {}, "tenders": []})
+
+    result = run_candidate_enrichment(scope="focus", limit=10)
+    attempts = ui_server.candidate_enrichment_attempts()
+
+    assert result["ok"] is True
+    assert calls == ["26PROC000000001", "AUTHORITY:AUTH-work"]
+    assert result["summary"]["attempted"] == 2
+    assert result["summary"]["enriched_with_eshidis"] == 1
+    assert attempts["KIMDIS:26PROC000000001"]["linked_eshidis_ids"] == ["221473"]
+    assert attempts["AUTHORITY:AUTH-work"]["source_signature"] == "sig-2"
+
+
+def test_ai_triage_job_runs_openai_backed_cli_and_refreshes_dashboard(monkeypatch) -> None:
+    captured = {}
+
+    def fake_run_cli_command(args):
+        captured["args"] = args
+        return {"ok": True, "returncode": 0, "stdout": '{"summary": {"errors": 0}}'}
+
+    monkeypatch.setattr(ui_server, "run_cli_command", fake_run_cli_command)
+    monkeypatch.setattr(ui_server, "dashboard_payload", lambda scope="focus", sort="deadline_asc": {"scope": scope, "sort": sort})
+    monkeypatch.setattr(
+        ui_server,
+        "ai_triage_report_status",
+        lambda: {"exists": True, "ok": True, "model": "gpt-4.1-mini", "summary": {"errors": 0}},
+    )
+
+    result = run_ai_triage(scope="focus", sort="deadline_asc", batch_size=20)
+
+    assert result["ok"] is True
+    assert captured["args"][:2] == ["sources", "ai-triage-report"]
+    assert captured["args"][captured["args"].index("--scope") + 1] == "focus"
+    assert captured["args"][captured["args"].index("--batch-size") + 1] == "20"
+    assert result["ai_triage_report"]["model"] == "gpt-4.1-mini"
+
+
+def test_discover_ui_starts_ai_triage_before_candidate_enrichment() -> None:
+    assert "/api/ai-triage" in APP_JS
+    assert "startAiTriageThenEnrichment" in APP_JS
+    assert APP_JS.index("await pollJob(initial.job_id, 'AI διαλογή έργων με OpenAI')") < APP_JS.index("await startCandidateEnrichment()")
+
+
 def test_selected_authority_fetch_extracts_linked_eshidis_and_chains_official_download(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "config").mkdir()
@@ -1323,6 +1469,21 @@ regions:
     payload = dashboard_payload(scope="focus", apply_triage=False)
 
     assert payload["summary"]["visible"] == 0
+
+
+def test_authority_numeric_id_requires_eshidis_provenance() -> None:
+    assert ui_server.authority_numeric_id_is_eshidis(
+        "217922",
+        {"record_type": "ESHIDIS", "title": "Περίληψη διακήρυξης"},
+    )
+    assert ui_server.authority_numeric_id_is_eshidis(
+        "217922",
+        {"record_type": "AUTHORITY_WEB", "row_text": "ΟΠΣ Ε.Σ.Η.ΔΗ.Σ Α/Α: 217922"},
+    )
+    assert not ui_server.authority_numeric_id_is_eshidis(
+        "600334",
+        {"record_type": "ESHIDIS", "source_url": "https://ted.europa.eu/el/notice/-/detail/449222-2026", "title": "κωδικός ΟΠΣ 600334"},
+    )
 
 
 def test_dashboard_filters_cached_non_public_works_authority_rows_without_gate_metadata(tmp_path, monkeypatch) -> None:

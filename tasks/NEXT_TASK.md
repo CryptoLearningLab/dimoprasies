@@ -1,48 +1,37 @@
 # NEXT TASK
 
 Execute:
-`Expose unresolved linked ESHIDIS attempts in the UI`
+`Expose AI triage and candidate enrichment status in the UI`
 
 ## Current Input
 
-The UI discovery pipeline now performs canonical linked-ESHIDIS enrichment:
+The UI bounded discovery flow now chains:
 
-- source preflight can skip unchanged sources before expensive discovery,
-- selective refresh runs only changed delta-capable sources,
-- KIMDIS/authority rows pass a deterministic public-works gate,
-- non-ESHIDIS documents/source text can produce `linked_eshidis_ids`,
-- missing linked ids are fetched through the official ESHIDIS detail and
-  attachment commands,
-- KIMDIS/authority duplicates are hidden only after the linked id appears as a
-  real canonical ESHIDIS dashboard row,
-- failed unresolved linked ids are logged in
-  `work/derived/linked_eshidis_fetch_attempts.json` and skipped on later
-  bounded searches.
+1. bounded/selective discovery,
+2. OpenAI-backed `sources ai-triage-report` through `/api/ai-triage`,
+3. non-ESHIDIS candidate enrichment through `/api/enrich-candidates`.
 
-Current smoke found one unresolved linked id:
-
-- `221365`: `sources fetch-resource` succeeded, but
-  `sources download-attachment --all` failed with `No attachment rows
-  selected.`
+The AI report is written to `work/reports/ai_triage_report.json` and the
+candidate enrichment ledger is written to
+`work/derived/candidate_enrichment_attempts.json`.
 
 ## Instruction
 
-Implement a small UI/status gate for unresolved linked ESHIDIS attempts:
+Implement a small UI/status gate:
 
-1. Show unresolved linked ESHIDIS attempt status on candidate previews and/or
-   row pills without hiding the source candidate.
-2. Add a clear manual retry path for a single unresolved linked ESHIDIS id.
-3. Keep the bounded search fast by preserving the attempt ledger skip behavior.
-4. Do not mark unresolved ids as `VERIFIED_ACTIVE`.
-5. Preserve raw KIMDIS/authority provenance and do not dedupe by title.
+1. Show whether the latest visible rows are filtered by a fresh AI triage
+   report or an older cached report.
+2. Show candidate enrichment summary: attempted, enriched, failed and skipped.
+3. Add a manual retry path for one row that clears only that row's enrichment
+   attempt and reruns fetch/enrichment.
+4. Keep bounded search fast; do not introduce full-depth discovery into this
+   flow.
+5. Do not expose or log the OpenAI API key.
 
 ## Required Closeout
 
-At the end of the task:
-
 1. Run targeted UI tests and `.venv/bin/python -m pytest`.
-2. Run a bounded local smoke and report attempted/enriched/failed/skipped
-   counts.
+2. Run a bounded local smoke and report AI/enrichment status.
 3. Update `docs/PROGRESS.md`.
 4. Update `docs/DECISIONS.md` only if a real decision was made.
 5. Update this file with the next single executable gate.
