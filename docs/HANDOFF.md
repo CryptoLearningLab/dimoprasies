@@ -399,8 +399,12 @@ The system `python` command is not present in the remote environment; use
   current dashboard rows and writes `work/reports/ai_triage_report.*`.
 - Latest AI triage dry run on the 128 visible focus rows kept/reviewed 39
   rows and proposed dropping 89 rows, with 0 errors.
-- The dashboard preview now enforces cached AI triage by default: current
-  focus view is 39 visible rows with 89 AI-hidden rows kept in reports.
+- The dashboard preview now enforces cached AI triage by default. After the
+  latest discovery and AI refresh, current focus view is 56 visible rows with
+  161 AI-hidden rows kept in reports.
+- `sources ai-triage-report` uses `dashboard_payload(..., apply_triage=False)`
+  so an AI refresh classifies the full current focus set instead of reusing an
+  already filtered dashboard payload.
 - Removed the agreed noisy decision/context sources from active source config:
   Αμφιλοχία mayor/council decisions, Δωρίδα committee decisions source link,
   and Πάτρα municipal committee decisions.

@@ -1092,6 +1092,56 @@ dashboard focus summary: total_known 148, visible 39, focus_matches 128,
 preview tunnel: 200 text/html; charset=utf-8
 ```
 
+### Hotfix - AI triage cache refresh after new discovery
+
+After a new discovery run, the existing `ai_triage_report` cache could become
+stale. The `sources ai-triage-report` command was also reading the already
+triage-filtered dashboard payload, so newly discovered rows without AI
+classification remained visible.
+
+Fix:
+
+- `dashboard_payload(..., apply_triage=False)` now exposes unfiltered active
+  dashboard rows for internal report generation.
+- `sources ai-triage-report` uses `apply_triage=False`, so AI refreshes classify
+  the full current focus set.
+- UI/dashboard calls keep `apply_triage=True` by default.
+
+Current regenerated AI triage over the latest focus set:
+
+```text
+AI input rows: 217
+KEEP_ACTIVE_TENDER: 14
+REVIEW_TENDER_CANDIDATE: 32
+EARLY_SIGNAL: 10
+DROP_OUT_OF_SCOPE_SUPPLY_SERVICE: 67
+DROP_ADMIN: 85
+DROP_NOT_PUBLIC_WORKS: 9
+kept/review/early total: 56
+dropped total: 161
+errors: 0
+```
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py tests/test_cli.py
+.venv/bin/python -m tender_radar sources ai-triage-report --scope focus --batch-size 20 --timeout 90 --report work/reports/ai_triage_report.json --markdown-report work/reports/ai_triage_report.md
+.venv/bin/python -c "from tender_radar.ui_server import dashboard_payload; import json; p=dashboard_payload(scope='focus'); print(json.dumps(p['summary'], ensure_ascii=False))"
+curl -s https://be7e9f6c65a95b.lhr.life/api/dashboard?scope=focus | .venv/bin/python -c "import sys,json; p=json.load(sys.stdin); print(p['summary'])"
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted tests: 39 passed
+dashboard focus summary: total_known 224, visible 56, focus_matches 217,
+  expired_hidden 1, triage_hidden 161, ignored 2
+public tunnel dashboard summary: visible 56, triage_hidden 161
+full test suite: 107 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

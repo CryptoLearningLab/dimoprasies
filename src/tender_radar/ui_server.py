@@ -862,11 +862,17 @@ def candidates_payload() -> dict[str, Any]:
     }
 
 
-def dashboard_payload(scope: str = "focus", sort: str = "deadline_asc", as_of: date | None = None) -> dict[str, Any]:
+def dashboard_payload(
+    scope: str = "focus",
+    sort: str = "deadline_asc",
+    as_of: date | None = None,
+    *,
+    apply_triage: bool = True,
+) -> dict[str, Any]:
     all_greece = scope == "all"
     profile = location_focus_profile()
     ignored = ignored_tender_keys()
-    triage = ai_triage_by_row_key()
+    triage = ai_triage_by_row_key() if apply_triage else {}
     rows = merged_tender_rows()
     rows = [row for row in rows if str(row.get("row_key") or row.get("eshidis_id") or row.get("display_id") or "") not in ignored]
     rows = [attach_ai_triage(row, triage) for row in rows]

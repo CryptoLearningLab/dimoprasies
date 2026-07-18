@@ -700,6 +700,10 @@ regions: []
     assert payload["tenders"][0]["row_key"] == "AUTHORITY:AUTH-keep"
     assert payload["tenders"][0]["ai_triage"]["decision"] == "KEEP_ACTIVE_TENDER"
 
+    unfiltered = dashboard_payload(scope="focus", apply_triage=False)
+    assert unfiltered["summary"]["visible"] == 2
+    assert unfiltered["summary"]["triage_hidden"] == 0
+
 
 def test_discovery_search_steps_run_eshidis_then_expanded_kimdis() -> None:
     steps = discovery_search_steps(limit=25, as_of_date="2026-07-17")

@@ -475,7 +475,7 @@ def _sources_ai_triage_report(args: argparse.Namespace) -> int:
     from tender_radar.ai_triage import build_ai_triage_report, write_ai_triage_report
     from tender_radar.ui_server import dashboard_payload
 
-    dashboard = dashboard_payload(scope=args.scope, sort=args.sort)
+    dashboard = dashboard_payload(scope=args.scope, sort=args.sort, apply_triage=False)
     rows = dashboard.get("tenders") if isinstance(dashboard.get("tenders"), list) else []
     report = build_ai_triage_report(
         [row for row in rows if isinstance(row, dict)],
