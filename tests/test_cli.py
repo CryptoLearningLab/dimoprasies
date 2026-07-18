@@ -26,6 +26,24 @@ class CliTests(unittest.TestCase):
             self.assertEqual(0, main(["db", "init", "--path", str(db_path)]))
             self.assertTrue(db_path.exists())
 
+    def test_runtime_help_lists_scheduled_run(self) -> None:
+        output = StringIO()
+        with redirect_stdout(output):
+            with self.assertRaises(SystemExit) as exc:
+                main(["runtime", "--help"])
+        self.assertEqual(0, exc.exception.code)
+        self.assertIn("scheduled-run", output.getvalue())
+
+    def test_scheduled_run_parser_supports_dry_run(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["runtime", "scheduled-run", "--dry-run", "--limit", "10"])
+
+        self.assertEqual("runtime", args.command)
+        self.assertEqual("scheduled-run", args.runtime_command)
+        self.assertTrue(args.dry_run)
+        self.assertEqual(10, args.limit)
+
     def test_sources_help_lists_live_fetch_commands(self) -> None:
         output = StringIO()
         with redirect_stdout(output):

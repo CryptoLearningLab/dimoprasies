@@ -69,6 +69,30 @@ def build_parser() -> argparse.ArgumentParser:
     db_init = db_sub.add_parser("init", help="Initialize SQLite database.")
     db_init.add_argument("--path", default="data/tender_radar.sqlite", help="SQLite database path.")
 
+    runtime_parser = subparsers.add_parser("runtime", help="Runtime automation commands.")
+    runtime_sub = runtime_parser.add_subparsers(dest="runtime_command")
+    scheduled_run = runtime_sub.add_parser(
+        "scheduled-run",
+        help="Run bounded poll, AI triage, enrichment and email alert sequence.",
+    )
+    scheduled_run.add_argument("--scope", choices=["focus", "all"], default="focus")
+    scheduled_run.add_argument("--sort", choices=["deadline_asc", "budget_desc"], default="deadline_asc")
+    scheduled_run.add_argument("--limit", type=int, default=100, help="Bounded ESHIDIS discovery limit.")
+    scheduled_run.add_argument("--ai-batch-size", type=int, default=20)
+    scheduled_run.add_argument("--enrichment-limit", type=int, default=50)
+    scheduled_run.add_argument("--recipient", default=None, help="Override alert recipient.")
+    scheduled_run.add_argument("--dry-run", action="store_true", help="Do not send email or mutate notification state.")
+    scheduled_run.add_argument(
+        "--report",
+        default="work/reports/scheduled_poll_alert_latest.json",
+        help="JSON audit report output path.",
+    )
+    scheduled_run.add_argument(
+        "--markdown-report",
+        default="work/reports/scheduled_poll_alert_latest.md",
+        help="Markdown audit report output path.",
+    )
+
     documents_parser = subparsers.add_parser("documents", help="Document analysis commands.")
     documents_sub = documents_parser.add_subparsers(dest="documents_command")
     documents_analyze = documents_sub.add_parser(
@@ -379,6 +403,8 @@ def main(argv: list[str] | None = None) -> int:
         return _print_schema()
     if args.command == "db" and args.db_command == "init":
         return _db_init(Path(args.path))
+    if args.command == "runtime" and args.runtime_command == "scheduled-run":
+        return _runtime_scheduled_run(args)
     if args.command == "documents" and args.documents_command == "analyze":
         return _documents_analyze(args)
     if args.command == "search" and args.search_command == "run":
@@ -438,6 +464,24 @@ def _db_init(db_path: Path) -> int:
     initialize(db_path)
     _emit_json({"db_path": str(db_path), "initialized": True})
     return 0
+
+
+def _runtime_scheduled_run(args: argparse.Namespace) -> int:
+    from tender_radar.ui_server import run_scheduled_poll_and_alert
+
+    payload = run_scheduled_poll_and_alert(
+        scope=args.scope,
+        sort=args.sort,
+        limit=args.limit,
+        ai_batch_size=args.ai_batch_size,
+        enrichment_limit=args.enrichment_limit,
+        recipient=args.recipient,
+        dry_run=args.dry_run,
+        report_path=Path(args.report),
+        markdown_report_path=Path(args.markdown_report),
+    )
+    _emit_json(payload)
+    return 0 if payload.get("ok") else 1
 
 
 def _sources_health(allow_insecure_tls: bool = False) -> int:

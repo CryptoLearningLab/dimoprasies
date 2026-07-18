@@ -1782,6 +1782,38 @@ local email dry-run smoke: candidate_rows 29, new_count 29, skipped_already_sent
 first dry-run link: https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/221566
 ```
 
+### UI v0.1.3 scheduled poll and alert
+
+Implemented behavior:
+
+- Bumped the application version from `0.1.2` to `0.1.3` so the live header
+  identifies the scheduler build.
+- Added `tender-radar runtime scheduled-run`, a bounded runtime entry point for
+  the droplet scheduler.
+- The scheduled command runs the daily sequence only: bounded discovery with
+  `backfill=False`, AI triage, linked-candidate enrichment and email alerts.
+- The scheduled command writes JSON and Markdown audit artifacts with source
+  counts, changed sources, skipped sources, source errors, stage summaries and
+  email new/skipped/sent counts.
+- Added systemd unit/timer templates under `deploy/systemd/` for a 6-hour
+  droplet schedule guarded by `flock`.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_scheduled_poll_and_alert_writes_audit_reports tests/test_cli.py::CliTests::test_runtime_help_lists_scheduled_run tests/test_cli.py::CliTests::test_scheduled_run_parser_supports_dry_run
+.venv/bin/python -m pytest
+.venv/bin/python -m tender_radar runtime scheduled-run --dry-run --recipient smoke@example.test --limit 1 --ai-batch-size 5 --enrichment-limit 1 --report work/reports/scheduled_poll_alert_smoke.json --markdown-report work/reports/scheduled_poll_alert_smoke.md
+```
+
+Results:
+
+```text
+targeted scheduler/version tests: 4 passed
+full test suite: 151 passed
+local scheduled dry-run smoke: ok true, dry_run true, changed_source_ids ['diavgeia_pde', 'diavgeia_pste'], source_errors 4, email candidate_rows 27, new_count 27, sent 0
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

@@ -428,3 +428,15 @@ source polling, document fetching or AI classification as part of sending.
 Duplicate prevention is keyed by `row_key`, channel and recipient in SQLite
 `notification_log`. A row is recorded as sent only after a real send succeeds;
 dry-runs do not mutate notification state.
+
+## D-044 - Scheduled runs are bounded and audited
+**Status:** Accepted
+
+The droplet scheduler uses `tender-radar runtime scheduled-run` as the single
+automation entry point. It runs bounded daily discovery with `backfill=False`,
+then AI triage, linked-candidate enrichment and email alerts.
+
+Each scheduled run writes JSON and Markdown audit artifacts containing source
+polling counts, changed sources, skipped sources, source errors and email
+new/skipped/sent counts. Full-depth/backfill discovery remains an explicit
+manual action, not the default 6-hour schedule.

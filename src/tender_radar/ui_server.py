@@ -1362,6 +1362,165 @@ def run_email_alerts(
     return payload
 
 
+def run_scheduled_poll_and_alert(
+    *,
+    scope: str = "focus",
+    sort: str = "deadline_asc",
+    limit: int = DEFAULT_ESHIDIS_DISCOVERY_LIMIT,
+    ai_batch_size: int = 20,
+    enrichment_limit: int = 50,
+    recipient: str | None = None,
+    dry_run: bool = False,
+    report_path: Path | None = None,
+    markdown_report_path: Path | None = None,
+) -> dict[str, Any]:
+    started_at = utc_now_iso()
+    errors: list[dict[str, Any]] = []
+    discovery = run_discovery_search(limit=limit, backfill=False)
+    if discovery.get("ok") is False:
+        errors.append({"stage": "discovery", "message": str(discovery.get("error") or "discovery failed")})
+
+    ai_result: dict[str, Any] = {"ok": True, "skipped": False}
+    enrichment: dict[str, Any] = {"ok": True, "skipped": False}
+    email_result: dict[str, Any] = {"ok": True, "skipped": False}
+    if discovery.get("ok") is not False:
+        ai_result = run_ai_triage(scope=scope, sort=sort, batch_size=ai_batch_size)
+        if ai_result.get("ok") is False:
+            errors.append({"stage": "ai_triage", "message": str(ai_result.get("error") or "AI triage failed")})
+        enrichment = run_candidate_enrichment(scope=scope, limit=enrichment_limit)
+        if enrichment.get("ok") is False:
+            errors.append({"stage": "enrichment", "message": str(enrichment.get("error") or "candidate enrichment failed")})
+        try:
+            email_result = run_email_alerts(scope=scope, sort=sort, recipient=recipient, dry_run=dry_run)
+        except Exception as exc:
+            email_result = {"ok": False, "error": str(exc), "dry_run": dry_run}
+            errors.append({"stage": "email_alerts", "message": str(exc)})
+
+    source_polling = source_polling_payload()
+    completed_at = utc_now_iso()
+    changed_source_ids = (discovery.get("source_preflight") or {}).get("changed_source_ids") or []
+    changed_source_id_set = {str(source_id) for source_id in changed_source_ids}
+    payload: dict[str, Any] = {
+        "ok": not errors,
+        "dry_run": dry_run,
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "scope": scope,
+        "sort": sort,
+        "limit": limit,
+        "source_polling_summary": source_polling.get("summary") or {},
+        "changed_source_ids": changed_source_ids,
+        "skipped_sources": [
+            row["source_id"]
+            for row in source_polling.get("rows") or []
+            if row.get("last_status") == "SKIPPED_UNCHANGED" and str(row.get("source_id") or "") not in changed_source_id_set
+        ],
+        "source_errors": [
+            {"source_id": row.get("source_id"), "error": row.get("last_error")}
+            for row in source_polling.get("rows") or []
+            if row.get("last_error")
+        ],
+        "discovery": summarize_scheduled_stage(discovery),
+        "ai_triage": summarize_scheduled_stage(ai_result),
+        "enrichment": summarize_scheduled_stage(enrichment),
+        "email": summarize_email_result(email_result),
+        "errors": errors,
+    }
+    write_scheduled_run_reports(payload, report_path=report_path, markdown_report_path=markdown_report_path)
+    return payload
+
+
+def summarize_scheduled_stage(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ok": result.get("ok"),
+        "skipped": result.get("skipped"),
+        "error": result.get("error"),
+        "steps": [
+            {"name": step.get("name"), "returncode": step.get("returncode")}
+            for step in result.get("steps") or []
+            if isinstance(step, dict)
+        ],
+        "summary": result.get("summary") or (result.get("dashboard") or {}).get("summary") or {},
+    }
+
+
+def summarize_email_result(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ok": result.get("ok"),
+        "dry_run": result.get("dry_run"),
+        "recipient": result.get("recipient"),
+        "candidate_rows": result.get("candidate_rows"),
+        "new_count": result.get("new_count"),
+        "skipped_already_sent": result.get("skipped_already_sent"),
+        "sent": result.get("sent"),
+        "error": result.get("error"),
+    }
+
+
+def scheduled_report_default_path() -> Path:
+    return REPO_ROOT / "work/reports/scheduled_poll_alert_latest.json"
+
+
+def scheduled_markdown_default_path() -> Path:
+    return REPO_ROOT / "work/reports/scheduled_poll_alert_latest.md"
+
+
+def write_scheduled_run_reports(
+    payload: dict[str, Any],
+    *,
+    report_path: Path | None = None,
+    markdown_report_path: Path | None = None,
+) -> None:
+    json_path = report_path or scheduled_report_default_path()
+    markdown_path = markdown_report_path or scheduled_markdown_default_path()
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(render_scheduled_run_markdown(payload), encoding="utf-8")
+
+
+def render_scheduled_run_markdown(payload: dict[str, Any]) -> str:
+    source_summary = payload.get("source_polling_summary") or {}
+    email = payload.get("email") or {}
+    lines = [
+        "# Scheduled Poll and Alert",
+        "",
+        f"- Started: {payload.get('started_at')}",
+        f"- Completed: {payload.get('completed_at')}",
+        f"- Dry run: {payload.get('dry_run')}",
+        f"- OK: {payload.get('ok')}",
+        "",
+        "## Sources",
+        "",
+        f"- Configured: {source_summary.get('configured_total')}",
+        f"- Selective capable: {source_summary.get('selective_capable_total')}",
+        f"- Changed: {source_summary.get('changed_total')}",
+        f"- Selective changed: {source_summary.get('selective_changed_total')}",
+        f"- Skipped unchanged: {source_summary.get('unchanged_total')}",
+        f"- Errors: {source_summary.get('error_total')}",
+        "",
+        "## Email",
+        "",
+        f"- Candidate rows: {email.get('candidate_rows')}",
+        f"- New rows: {email.get('new_count')}",
+        f"- Already sent: {email.get('skipped_already_sent')}",
+        f"- Sent: {email.get('sent')}",
+        "",
+        "## Changed Sources",
+        "",
+    ]
+    changed = payload.get("changed_source_ids") or []
+    lines.extend(f"- {source_id}" for source_id in changed)
+    if not changed:
+        lines.append("- none")
+    lines.extend(["", "## Errors", ""])
+    errors = payload.get("errors") or []
+    lines.extend(f"- {item.get('stage')}: {item.get('message')}" for item in errors)
+    if not errors:
+        lines.append("- none")
+    return "\n".join(lines) + "\n"
+
+
 def email_alerts_payload(
     *,
     scope: str = "focus",

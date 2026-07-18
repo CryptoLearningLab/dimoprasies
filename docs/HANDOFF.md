@@ -506,7 +506,7 @@ The system `python` command is not present in the remote environment; use
 - SQLite runtime state tables now exist for source fingerprints/runs, permanent
   tender dismissals and notification-send de-duplication. The UI dismissal path
   writes to SQLite while still reading the legacy ignored-tenders JSON file.
-- The UI now displays version `v0.1.2` in the header. Source preflight writes
+- The UI now displays version `v0.1.3` in the header. Source preflight writes
   per-source state/run audit to SQLite and reads SQLite before the legacy
   fingerprint JSON. Errors and changed fingerprints are source-specific and
   do not automatically force global full-depth discovery.
@@ -518,6 +518,13 @@ The system `python` command is not present in the remote environment; use
   current dashboard only. It uses SQLite `notification_log` to skip rows
   already sent to the same recipient. Real sending requires SMTP env vars;
   dry-run does not mutate notification state.
+- `tender-radar runtime scheduled-run` is the droplet automation entry point.
+  It runs bounded discovery with `backfill=False`, AI triage, linked-candidate
+  enrichment and email alerts, then writes
+  `work/reports/scheduled_poll_alert_latest.json` and `.md`.
+- Systemd templates live in `deploy/systemd/tender-radar-scheduled.service`
+  and `deploy/systemd/tender-radar-scheduled.timer`; the timer cadence is every
+  6 hours and the service is guarded by `flock`.
 
 ## Next Work
 
@@ -525,7 +532,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Implement the 6-hour cron/scheduler gate that runs the bounded poll/discovery,
-AI triage/enrichment and email alert path without manual UI clicks, while
-preserving per-source audit rows and avoiding full-depth discovery unless
-explicitly requested.
+Verify production `.env.local` on the droplet without printing secrets, install
+or refresh the systemd timer, run a droplet-side scheduled dry-run smoke, and
+perform one real email-send smoke only if the required email env keys exist.

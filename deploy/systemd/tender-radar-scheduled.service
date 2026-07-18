@@ -1,0 +1,11 @@
+[Unit]
+Description=Tender Radar scheduled poll and alert
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/workspace/dimoprasies
+EnvironmentFile=-/root/workspace/dimoprasies/.env.local
+ExecStart=/usr/bin/flock -n /tmp/tender-radar-scheduled.lock /root/workspace/dimoprasies/.venv/bin/python -m tender_radar runtime scheduled-run --scope focus --sort deadline_asc --limit 100 --ai-batch-size 20 --enrichment-limit 50 --report work/reports/scheduled_poll_alert_latest.json --markdown-report work/reports/scheduled_poll_alert_latest.md
+TimeoutStartSec=1800

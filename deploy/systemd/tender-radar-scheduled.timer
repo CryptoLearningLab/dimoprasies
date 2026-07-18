@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Tender Radar scheduled poll and alert every 6 hours
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+Persistent=true
+Unit=tender-radar-scheduled.service
+
+[Install]
+WantedBy=timers.target
