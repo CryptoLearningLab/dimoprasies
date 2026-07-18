@@ -1405,6 +1405,44 @@ live source preflight: 31 configured, 27 attempted, 24 reached, 4 templates,
 full test suite: 122 passed
 ```
 
+### Hotfix - Delta refresh instead of full discovery for changed ESHIDIS/KIMDIS/source rows
+
+The UI discovery orchestration no longer treats `eshidis_active_search` as a
+non-selective source that forces a full discovery whenever its fingerprint
+changes.
+
+Implemented behavior:
+
+- `eshidis_active_search`, `khmdhs_notice`, `khmdhs_auction`,
+  `khmdhs_contract` and configured authority adapter ids are delta-capable for
+  UI discovery orchestration.
+- If only `eshidis_active_search` changes, the UI runs only
+  `sources discover-active` and then `sources expanded-report` with
+  `--previous-report`, `--kimdis-source-id __none__` and
+  `--authority-source-id __none__`.
+- If only one KIMDIS family changes, the UI runs only `sources expanded-report`
+  for that KIMDIS family and retains unchanged ESHIDIS/authority/KIMDIS rows
+  from the previous report.
+- If only one authority source changes, the existing selective authority path
+  remains in place.
+- Full discovery is still used only when there is no previous baseline, no
+  identified changed source ids, backfill is explicitly requested, or a changed
+  source id is outside the delta-capable set.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted tests: 40 passed
+full test suite: 123 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

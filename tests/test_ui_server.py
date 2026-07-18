@@ -1071,7 +1071,7 @@ def test_discovery_runs_when_source_fingerprint_changed(tmp_path, monkeypatch) -
     assert [args[:2] for args in calls] == [["sources", "discover-active"], ["sources", "expanded-report"]]
 
 
-def test_discovery_full_refreshes_when_nonselective_global_source_changed(tmp_path, monkeypatch) -> None:
+def test_discovery_selectively_refreshes_eshidis_only_when_eshidis_source_changed(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "config").mkdir()
     (tmp_path / "work/reports").mkdir(parents=True)
@@ -1109,6 +1109,9 @@ def test_discovery_full_refreshes_when_nonselective_global_source_changed(tmp_pa
                 encoding="utf-8",
             )
         if args[:2] == ["sources", "expanded-report"]:
+            assert args[args.index("--kimdis-source-id") + 1] == "__none__"
+            assert args[args.index("--authority-source-id") + 1] == "__none__"
+            assert args[args.index("--previous-report") + 1] == "work/reports/expanded_discovery_report.json"
             (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
                 json.dumps(
                     {
@@ -1232,6 +1235,66 @@ authority_adapters:
                         "focus_open_proc_candidates": [],
                         "focus_candidates": [],
                         "source_pages": [{"source": "epatras_tenders", "status": "FETCHED_CHANGED"}],
+                        "errors": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+        return {"ok": True, "returncode": 0, "command": " ".join(args), "stdout": '{"summary": {"errors": 0}}', "stderr": ""}
+
+    monkeypatch.setattr(ui_server, "run_cli_process", fake_run_cli_process)
+
+    result = run_discovery_search(limit=100)
+
+    assert result["ok"] is True
+    assert [args[:2] for args in calls] == [["sources", "expanded-report"]]
+
+
+def test_discovery_selectively_refreshes_changed_kimdis_family(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text("timezone: Europe/Athens\nmunicipalities: []\nregions: []\n", encoding="utf-8")
+    (tmp_path / "config/sources.yml").write_text("authority_adapters: []\n", encoding="utf-8")
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps({"focus_authority_candidates": [], "focus_open_proc_candidates": [], "all_candidates": []}),
+        encoding="utf-8",
+    )
+    ui_server.save_source_fingerprint(
+        {
+            "ok": True,
+            "hash": "old",
+            "sources": [{"source_id": "khmdhs_auction", "adapter": "api_post", "token": "old"}],
+            "errors": [],
+        }
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "quick_source_fingerprint",
+        lambda timeout_seconds=8: {
+            "ok": True,
+            "hash": "new",
+            "sources": [{"source_id": "khmdhs_auction", "adapter": "api_post", "token": "new"}],
+            "errors": [],
+        },
+    )
+    calls = []
+
+    def fake_run_cli_process(args, *, timeout):
+        calls.append(args)
+        assert args[:2] != ["sources", "discover-active"]
+        if args[:2] == ["sources", "expanded-report"]:
+            assert args[args.index("--kimdis-source-id") + 1] == "khmdhs_auction"
+            assert args[args.index("--authority-source-id") + 1] == "__none__"
+            assert args[args.index("--previous-report") + 1] == "work/reports/expanded_discovery_report.json"
+            (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+                json.dumps(
+                    {
+                        "summary": {"errors": 0, "total_candidates": 0, "focus_candidates": 0},
+                        "all_candidates": [],
+                        "focus_open_proc_candidates": [],
+                        "focus_candidates": [],
+                        "source_pages": [{"source": "khmdhs_auction", "status": "FETCHED_CHANGED"}],
                         "errors": [],
                     }
                 ),

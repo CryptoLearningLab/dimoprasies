@@ -341,3 +341,17 @@ URLs, declaration article `2.2` references to ESHIDIS/eprocurement, guarded
 
 Plain numeric strings or plain `Α/Α Συστήματος` without those contexts are not
 treated as ESHIDIS ids.
+
+## D-037 - UI discovery uses delta-capable source refresh before full discovery
+**Status:** Accepted
+
+The daily UI search should not run full discovery when source fingerprint
+preflight identifies only changed sources that have a known selective refresh
+path. `eshidis_active_search`, KIMDIS families and configured authority
+adapters are treated as delta-capable. The changed source is refreshed and the
+expanded report is merged with the previous report for sources marked
+unchanged.
+
+Full discovery remains the fallback only when there is no previous baseline,
+changed source ids cannot be identified, backfill is explicitly requested, or
+the changed source is outside the delta-capable set.

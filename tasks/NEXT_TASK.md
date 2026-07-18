@@ -10,6 +10,9 @@ non-ESHIDIS refresh and canonical ESHIDIS duplicate suppression.
 The preflight counts all configured source entries: 31 configured entries in
 the current `config/sources.yml`, 27 directly attempted endpoints and 4
 identifier templates.
+Changed `eshidis_active_search`, KIMDIS families and authority adapters now use
+delta refresh orchestration; unchanged source rows are retained from the
+previous report instead of forcing full discovery.
 
 Generic PDE landing rows such as `Έργα & Δράσεις` /
 `https://pde.gov.gr/el/erga-drasis/` are excluded from the dashboard.

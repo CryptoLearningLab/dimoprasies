@@ -1064,14 +1064,15 @@ def discovery_search_steps(
     steps: list[dict[str, Any]] = []
     changed_source_ids = set(source_preflight.get("changed_source_ids") or []) if source_preflight else set()
     has_previous_baseline = bool(source_preflight and source_preflight.get("previous_hash"))
-    selective_capable_ids = {"khmdhs_notice"} | authority_source_ids_from_config()
+    selective_capable_ids = selective_source_ids_from_config()
     selective_refresh = (
         selective
         and has_previous_baseline
         and bool(changed_source_ids)
         and changed_source_ids <= selective_capable_ids
     )
-    if not selective_refresh:
+    should_refresh_eshidis = (not selective_refresh) or "eshidis_active_search" in changed_source_ids
+    if should_refresh_eshidis:
         steps.append(
             {
                 "name": "eshidis_discover",
@@ -1110,12 +1111,12 @@ def discovery_search_steps(
     ]
     if selective_refresh:
         expanded_args.extend(["--previous-report", "work/reports/expanded_discovery_report.json"])
-        kimdis_source_ids = sorted(source_id for source_id in changed_source_ids if source_id == "khmdhs_notice")
+        changed_kimdis_source_ids = sorted(source_id for source_id in changed_source_ids if source_id in kimdis_selective_source_ids())
         authority_source_ids = sorted(source_id for source_id in changed_source_ids if source_id in authority_source_ids_from_config())
-        if not kimdis_source_ids:
+        if not changed_kimdis_source_ids:
             expanded_args.extend(["--kimdis-source-id", "__none__"])
         else:
-            for source_id in kimdis_source_ids:
+            for source_id in changed_kimdis_source_ids:
                 expanded_args.extend(["--kimdis-source-id", source_id])
         if not authority_source_ids:
             expanded_args.extend(["--authority-source-id", "__none__"])
@@ -1130,6 +1131,14 @@ def discovery_search_steps(
         },
     )
     return steps
+
+
+def selective_source_ids_from_config() -> set[str]:
+    return {"eshidis_active_search"} | kimdis_selective_source_ids() | authority_source_ids_from_config()
+
+
+def kimdis_selective_source_ids() -> set[str]:
+    return {"khmdhs_notice", "khmdhs_auction", "khmdhs_contract"}
 
 
 def authority_source_ids_from_config() -> set[str]:

@@ -447,6 +447,11 @@ The system `python` command is not present in the remote environment; use
 - Selective refresh is only used for changed source ids that have a selective
   refresh path. If a non-selective global source changes, the UI runs full
   discovery.
+- `eshidis_active_search`, `khmdhs_notice`, `khmdhs_auction`,
+  `khmdhs_contract` and configured authority adapter ids now have a delta
+  refresh path in the UI discovery orchestration. A changed ESHIDIS fingerprint
+  runs only ESHIDIS discovery plus expanded-report merge with the previous
+  report; unchanged KIMDIS/authority rows are retained instead of re-fetched.
 
 ## Next Work
 
