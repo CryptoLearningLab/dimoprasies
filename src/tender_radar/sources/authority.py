@@ -629,9 +629,9 @@ def _official_reference(text: str, fallback_url: str, *, fallback_id: str | None
 
 def _extract_contextual_eshidis_id(text: str) -> str | None:
     patterns = [
-        r"(?:Ε\.?\s*Σ\.?\s*Η\.?\s*Δ\.?\s*Η\.?\s*Σ\.?|ΕΣΗΔΗΣ|ΟΠΣ)\s*(?:Α/?Α|αριθ(?:μός|\.?)|διαγωνισμού)?\s*[:#-]?\s*(\d{5,7})",
-        r"/(?:resources/search|search)/(\d{5,7})(?:\b|/)",
-        r"(?:Α/?Α\s+Διαγωνισμού)\s*(\d{5,7})",
+        r"(?:Ε\.?\s*Σ\.?\s*Η\.?\s*Δ\.?\s*Η\.?\s*Σ\.?|ΕΣΗΔΗΣ|ΕΙΣΗΔΗΣ|ΟΠΣ)\s*(?:Α/?Α|αριθ(?:μός|\.?)|διαγωνισμού)?\s*[:#-]?\s*(\d{6})",
+        r"/(?:resources/search|search)/(\d{6})(?:\b|/)",
+        r"(?:Α/?Α\s+Διαγωνισμού)\s*(\d{6})",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)

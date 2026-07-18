@@ -426,6 +426,11 @@ The system `python` command is not present in the remote environment; use
   the primary representative. KIMDIS/authority rows that explicitly link to an
   existing ESHIDIS id are hidden from the main dashboard and counted as
   `duplicate_hidden`; raw reports/provenance remain intact.
+- ESHIDIS id extraction from fetched KIMDIS documents is now context-first:
+  primary 6-digit ids from official `resources/search/<id>` URLs, article
+  `2.2`/guarded `Α/Α Διαγωνισμού` contexts, and `ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ
+  ΠΡΟΣΦΟΡΑΣ` files with `Α/Α ΣΥΣΤΗΜΑΤΟΣ`. Broad 7-digit matching is removed;
+  5-digit ids are accepted only with explicit ESHIDIS context.
 
 ## Next Work
 

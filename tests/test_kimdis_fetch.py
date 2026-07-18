@@ -310,6 +310,28 @@ def test_extract_eshidis_ids_from_guarded_competition_number() -> None:
     assert extract_eshidis_ids_from_text(text) == ["221624"]
 
 
+def test_extract_eshidis_ids_from_economic_offer_form_system_number() -> None:
+    text = (
+        "ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ "
+        "ΔΗΜΟΣ ΔΩΡΙΔΟΣ ΔΙΕΥΘΥΝΣΗ ΤΕΧΝΙΚΩΝ ΥΠΗΡΕΣΙΩΝ "
+        "Α/Α ΣΥΣΤΗΜΑΤΟΣ: 216631 "
+        "Το παρόν παράχθηκε με χρήση του ΕΣΗΔΗΣ."
+    )
+
+    assert extract_eshidis_ids_from_text(text) == ["216631"]
+
+
+def test_extract_eshidis_ids_rejects_system_number_without_offer_or_eshidis_context() -> None:
+    text = "Α/Α Συστήματος: 216631. Προϋπολογισμός 162384,70."
+
+    assert extract_eshidis_ids_from_text(text) == []
+
+
+def test_extract_eshidis_ids_allows_legacy_five_digits_only_with_explicit_eshidis() -> None:
+    assert extract_eshidis_ids_from_text("ΟΠΣ ΕΣΗΔΗΣ Α/Α 76928.") == ["76928"]
+    assert extract_eshidis_ids_from_text("Α/Α Διαγωνισμού 76928.") == []
+
+
 def test_extract_eshidis_ids_rejects_unguarded_competition_number() -> None:
     text = "Πρακτικό επιτροπής με Α/Α Διαγωνισμού 221624 και προϋπολογισμό 250000."
 

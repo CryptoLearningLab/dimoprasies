@@ -325,3 +325,19 @@ This is deterministic duplicate suppression, not title-only deduplication and
 not AI deletion. The suppressed source row remains in raw reports/provenance.
 SQLite-only stale ESHIDIS metadata without a deadline does not suppress a
 KIMDIS row, because it may be the only actionable document row.
+
+## D-036 - ESHIDIS id extraction is context-first
+**Status:** Accepted
+
+The current ESHIDIS id extractor treats 6-digit ids as the primary modern
+pattern and no longer uses broad 7-digit matching. Five-digit ids are accepted
+only as a narrow legacy fallback when the nearby text explicitly says ESHIDIS.
+
+Accepted high-confidence contexts include official `resources/search/<id>`
+URLs, declaration article `2.2` references to ESHIDIS/eprocurement, guarded
+`Α/Α Διαγωνισμού <id>` text near ESHIDIS/publicworks wording, and
+`ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ` documents containing `Α/Α ΣΥΣΤΗΜΑΤΟΣ:
+<6 digits>`.
+
+Plain numeric strings or plain `Α/Α Συστήματος` without those contexts are not
+treated as ESHIDIS ids.

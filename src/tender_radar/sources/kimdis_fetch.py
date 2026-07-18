@@ -561,9 +561,10 @@ def extract_eshidis_ids_from_text(*values: object) -> list[str]:
     normalized = _normalize_eshidis_labels(_normalize_text(text))
     url_ids: list[str] = []
     context_ids: list[str] = []
+    economic_offer_context = "εντυπο οικονομικη" in normalized and "προσφορα" in normalized
     url_patterns = [
-        r"pwgopendata\.eprocurement\.gov\.gr/actsearchergwn/resources/search/(\d{5,7})(?!\d)",
-        r"resources/search/(\d{5,7})(?!\d)",
+        r"pwgopendata\.eprocurement\.gov\.gr/actsearchergwn/resources/search/(\d{6})(?!\d)",
+        r"resources/search/(\d{6})(?!\d)",
     ]
     for pattern in url_patterns:
         for match in re.finditer(pattern, normalized):
@@ -571,22 +572,42 @@ def extract_eshidis_ids_from_text(*values: object) -> list[str]:
             if value not in url_ids:
                 url_ids.append(value)
     patterns = [
-        r"(?:εσηδησ|εσηδης)\W{0,40}(?:α\s*/?\s*α)?\W{0,20}(\d{5,7})(?!\d)",
-        r"(?:α\s*/?\s*α|αα)\W{0,40}(?:εσηδησ|εσηδης|συστημα(?:τοσ)?)\W{0,30}(\d{5,7})(?!\d)",
-        r"(?:συστημα(?:τοσ)?)\W{0,40}(?:εσηδησ|εσηδης)?\W{0,20}(?:α\s*/?\s*α|αα)?\W{0,20}(\d{5,7})(?!\d)",
+        r"(?:εσηδησ|εσηδης)\W{0,40}(?:α\s*/?\s*α)?\W{0,20}(\d{6})(?!\d)",
+        r"(?:α\s*/?\s*α|αα)\W{0,40}(?:εσηδησ|εσηδης)\W{0,30}(\d{6})(?!\d)",
+        r"(?:συστημα(?:τοσ)?)\W{0,40}(?:εσηδησ|εσηδης)\W{0,20}(?:α\s*/?\s*α|αα)?\W{0,20}(\d{6})(?!\d)",
     ]
     for pattern in patterns:
         for match in re.finditer(pattern, normalized):
             value = match.group(1)
             if value not in context_ids:
                 context_ids.append(value)
-    competition_pattern = r"(?:α\s*/?\s*α|αα)\W{0,20}διαγωνισμ\w*\W{0,20}(\d{5,7})(?!\d)"
+    if economic_offer_context:
+        economic_patterns = [
+            r"(?:α\s*/?\s*α|αα)\W{0,20}συστημα(?:τοσ)?\W{0,20}(\d{6})(?!\d)",
+            r"συστημικ(?:ος|ου)?\W{0,20}αριθμ\w*\W{0,20}(\d{6})(?!\d)",
+        ]
+        for pattern in economic_patterns:
+            for match in re.finditer(pattern, normalized):
+                value = match.group(1)
+                if value not in context_ids:
+                    context_ids.append(value)
+    competition_pattern = r"(?:α\s*/?\s*α|αα)\W{0,20}διαγωνισμ\w*\W{0,20}(\d{6})(?!\d)"
     for match in re.finditer(competition_pattern, normalized):
         if not _has_eshidis_competition_context(normalized, match.start()):
             continue
         value = match.group(1)
         if value not in context_ids:
             context_ids.append(value)
+    if not context_ids:
+        legacy_patterns = [
+            r"(?:εσηδησ|εσηδης)\W{0,40}(?:α\s*/?\s*α)?\W{0,20}(\d{5})(?!\d)",
+            r"(?:α\s*/?\s*α|αα)\W{0,40}(?:εσηδησ|εσηδης)\W{0,30}(\d{5})(?!\d)",
+        ]
+        for pattern in legacy_patterns:
+            for match in re.finditer(pattern, normalized):
+                value = match.group(1)
+                if value not in context_ids:
+                    context_ids.append(value)
     return context_ids or url_ids
 
 

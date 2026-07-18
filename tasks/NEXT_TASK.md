@@ -17,6 +17,10 @@ that source and retains skipped sources from the previous expanded report.
 Dashboard duplicate suppression also exists: linked KIMDIS/authority rows are
 hidden when an active/canonical ESHIDIS row for the same id is present.
 
+ESHIDIS id extraction is now context-first: official resource URLs and article
+`2.2` style references use 6-digit primary ids, `ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ
+ΠΡΟΣΦΟΡΑΣ` can expose `Α/Α ΣΥΣΤΗΜΑΤΟΣ`, and broad 7-digit matching is removed.
+
 Noisy decision/context sources removed from active source config:
 
 - Δήμος Αμφιλοχίας - Αποφάσεις Δημάρχου

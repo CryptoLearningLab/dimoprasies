@@ -1262,6 +1262,44 @@ dashboard focus summary: total_known 255, visible 47, focus_matches 208,
 full test suite: 112 passed
 ```
 
+### Hotfix - Context-first ESHIDIS id extraction from tender documents
+
+The KIMDIS document inspection extractor now treats 6-digit ESHIDIS ids as the
+primary modern pattern and removed broad 7-digit matching. It keeps a narrow
+5-digit legacy fallback only when the text explicitly says ESHIDIS.
+
+Implemented behavior:
+
+- Official `pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/<id>`
+  links are parsed as 6-digit ESHIDIS ids.
+- Article `2.2` style declaration text remains covered through the official
+  URL and guarded `Α/Α Διαγωνισμού <id>` patterns when nearby context contains
+  ESHIDIS/eprocurement wording.
+- `ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ` documents now allow `Α/Α ΣΥΣΤΗΜΑΤΟΣ: <6 digits>`
+  to be treated as a linked ESHIDIS id.
+- Plain `Α/Α Συστήματος` without economic-offer or ESHIDIS context is rejected.
+- The uploaded sample economic offer form extracted `216631`; the public
+  ESHIDIS resource URL returned HTTP 200 and showed the same system number,
+  title and Δήμος Δωρίδος authority.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_kimdis_fetch.py tests/test_authority.py
+.venv/bin/python -c "from pathlib import Path; from pypdf import PdfReader; from tender_radar.sources.kimdis_fetch import extract_eshidis_ids_from_text; p=Path('/tmp/codex-remote-attachments/019f70df-c848-7e11-8bea-04f60ee7ca6d/19109841-FF1E-42E4-B9B2-E62BF040A88A/1-ΕΝΤΥΠΟ-ΟΙΚΟΝΟΜΙΚΗΣ-ΠΡΟΣΦΟΡΑΣ-ΕΙΣΗΔΗΣ.pdf'); text='\n'.join(page.extract_text() or '' for page in PdfReader(str(p)).pages); print(extract_eshidis_ids_from_text(p.name, text))"
+curl -L -s -o /tmp/eshidis_216631.html -w '%{http_code} %{content_type} %{time_total}\n' 'https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/216631'
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted tests: 26 passed
+uploaded economic offer form: ['216631']
+official ESHIDIS resource 216631: 200 text/html;charset=UTF-8
+full test suite: 115 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:
