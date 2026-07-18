@@ -1061,6 +1061,7 @@ def kimdis_document_preview_payload(official_id: str) -> dict[str, Any]:
         "view_url": f"/api/kimdis-document-file?official_id={official_id}" if local_path else None,
     }
     linked_eshidis_ids = [str(value) for value in document.get("linked_eshidis_ids") or [] if str(value).strip()]
+    linked_eshidis_file_count = sum(len(eshidis_document_paths(eshidis_id)) for eshidis_id in linked_eshidis_ids)
     return {
         "official_id": official_id,
         "source_label": "ΚΗΜΔΗΣ",
@@ -1068,6 +1069,7 @@ def kimdis_document_preview_payload(official_id: str) -> dict[str, Any]:
         "candidate_status": document.get("candidate_status"),
         "verification_status": document.get("verification_status"),
         "linked_eshidis_ids": linked_eshidis_ids,
+        "linked_eshidis_file_count": linked_eshidis_file_count,
         "documents": [doc],
         "featured": [doc],
     }
@@ -2351,12 +2353,13 @@ async function renderKimdisPreview(officialId) {
   const payload = await api(`/api/kimdis-document-preview?official_id=${encodeURIComponent(officialId)}`);
   const docs = payload.documents || [];
   const linkedIds = payload.linked_eshidis_ids || [];
+  const linkedFileCount = Number(payload.linked_eshidis_file_count || 0);
   if (!docs.length) {
     $('previewBody').innerHTML = '<div class="emptyState">Δεν υπάρχει ακόμα structured ΚΗΜΔΗΣ preview για αυτό το ΑΔΑΜ.</div>';
     return;
   }
   const linkedBlock = linkedIds.length
-    ? `<div class="docItem linkedBox"><h4>Σύνδεση με ΕΣΗΔΗΣ</h4><p>Βρέθηκε Α/Α ΕΣΗΔΗΣ ${escapeHtml(linkedIds.join(', '))}. Το Fetch αυτής της γραμμής κατεβάζει και τον επίσημο φάκελο ΕΣΗΔΗΣ.</p></div>`
+    ? `<div class="docItem linkedBox"><h4>Σύνδεση με ΕΣΗΔΗΣ</h4><p>Βρέθηκε Α/Α ΕΣΗΔΗΣ ${escapeHtml(linkedIds.join(', '))}. ${linkedFileCount ? `Υπάρχουν ήδη ${linkedFileCount} επίσημα αρχεία ΕΣΗΔΗΣ διαθέσιμα για zip.` : 'Το Fetch αυτής της γραμμής θα επιχειρήσει να κατεβάσει και τον επίσημο φάκελο ΕΣΗΔΗΣ.'}</p></div>`
     : '';
   $('previewBody').innerHTML = linkedBlock + docs.map((doc) => `
     <article class="docItem">

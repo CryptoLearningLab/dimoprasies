@@ -242,6 +242,14 @@ That URL is temporary and should not be treated as stable infrastructure.
   and `download-attachment --all` for any linked ESHIDIS id found. This is a
   provenance cross-reference only, not title-based merge or active-status
   promotion.
+- The linked ESHIDIS extractor also handles dotted official acronym text such
+  as `Ε.Σ.Η.ΔΗ.Σ Α/Α :207024` near Promitheus/eProcurement links. The verified
+  KIMDIS example `26PROC019429074` now links to ESHIDIS `207024`, which has
+  14 latest local ESHIDIS files available for ZIP.
+- Single-ADAM KIMDIS fetches merge their updated document record into the
+  existing KIMDIS document index instead of replacing the full index. KIMDIS
+  previews expose a linked ESHIDIS file count so the UI distinguishes
+  "linked id found" from "downloaded ESHIDIS files already available".
 - KIMDIS row ZIP archives include the local KIMDIS document and any already
   downloaded latest ESHIDIS files for linked ESHIDIS ids.
 - Discovery watermark/backfill safety is implemented for the UI discovery
@@ -265,7 +273,7 @@ Latest confirmed command:
 Result:
 
 ```text
-82 passed in 2.05s
+84 passed in 1.77s
 ```
 
 Latest KIMDIS PROC attachment fetch command:

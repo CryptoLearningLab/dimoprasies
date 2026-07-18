@@ -157,11 +157,39 @@ def write_kimdis_fetch_report(report: dict[str, Any], report_path: Path, markdow
         markdown_path.write_text(render_kimdis_fetch_markdown(report), encoding="utf-8")
 
 
-def write_kimdis_document_index(report: dict[str, Any], index_path: Path) -> dict[str, Any]:
+def write_kimdis_document_index(
+    report: dict[str, Any],
+    index_path: Path,
+    *,
+    merge_existing: bool = False,
+) -> dict[str, Any]:
     index = kimdis_document_index(report)
+    if merge_existing and index_path.exists():
+        index = _merge_kimdis_document_index(_read_json(index_path), index)
     index_path.parent.mkdir(parents=True, exist_ok=True)
     index_path.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
     return index
+
+
+def _merge_kimdis_document_index(existing: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
+    merged_documents: dict[str, dict[str, Any]] = {}
+    for source in (existing, update):
+        documents = source.get("documents") if isinstance(source.get("documents"), list) else []
+        for document in documents:
+            if not isinstance(document, dict):
+                continue
+            official_id = str(document.get("official_id") or "").strip()
+            if official_id:
+                merged_documents[official_id] = document
+    return {
+        **existing,
+        "generated_at": update.get("generated_at") or existing.get("generated_at"),
+        "source_report": update.get("source_report") or existing.get("source_report"),
+        "fetch_report_summary": update.get("fetch_report_summary") or existing.get("fetch_report_summary") or {},
+        "status_note": update.get("status_note") or existing.get("status_note"),
+        "deduplication": update.get("deduplication") or existing.get("deduplication") or {},
+        "documents": list(merged_documents.values()),
+    }
 
 
 def kimdis_document_index(report: dict[str, Any]) -> dict[str, Any]:
@@ -530,25 +558,23 @@ def extract_eshidis_ids_from_text(*values: object) -> list[str]:
     text = " ".join(str(value or "") for value in values)
     if not text.strip():
         return []
-    normalized = _normalize_text(text)
+    normalized = _normalize_eshidis_labels(_normalize_text(text))
     linked: list[str] = []
-    for match in re.finditer(r"(?<!\d)(\d{5,7})(?!\d)", normalized):
-        start, end = match.span(1)
-        context = normalized[max(0, start - 90) : start]
-        if not _eshidis_context(context):
-            continue
-        value = match.group(1)
-        if value not in linked:
-            linked.append(value)
+    patterns = [
+        r"(?:εσηδησ|εσηδης)\W{0,40}(?:α\s*/?\s*α)?\W{0,20}(\d{5,7})(?!\d)",
+        r"(?:α\s*/?\s*α|αα)\W{0,40}(?:εσηδησ|εσηδης|συστημα(?:τοσ)?)\W{0,30}(\d{5,7})(?!\d)",
+        r"(?:συστημα(?:τοσ)?)\W{0,40}(?:εσηδησ|εσηδης)?\W{0,20}(?:α\s*/?\s*α|αα)?\W{0,20}(\d{5,7})(?!\d)",
+    ]
+    for pattern in patterns:
+        for match in re.finditer(pattern, normalized):
+            value = match.group(1)
+            if value not in linked:
+                linked.append(value)
     return linked
 
 
-def _eshidis_context(context: str) -> bool:
-    if "εσηδη" in context:
-        return True
-    if "συστημα" in context or "συστηματος" in context:
-        return "α/α" in context or "αα" in context or "διαγωνισ" in context
-    return False
+def _normalize_eshidis_labels(value: str) -> str:
+    return re.sub(r"ε\s*\.?\s*σ\s*\.?\s*η\s*\.?\s*δ\s*\.?\s*η\s*\.?\s*[σς]", "εσηδησ", value)
 
 
 def _write_text_artifact(full_text: str | None, candidate: dict[str, Any], text_dir: Path | None) -> str | None:
@@ -668,6 +694,14 @@ def _none_or_str(value: object) -> str | None:
     if value in (None, ""):
         return None
     return str(value)
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _cell(value: object) -> str:

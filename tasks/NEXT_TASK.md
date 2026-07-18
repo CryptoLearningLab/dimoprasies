@@ -23,6 +23,8 @@ backfill safety mode persists discovery run metadata
 backfill increases ESHIDIS/KIMDIS depth until previous successful run window is reached or max depth is hit
 KIMDIS expanded report includes source_pages metadata for page-level exhaustion evidence
 discovery runs remain candidate-only and never emit VERIFIED_ACTIVE
+KIMDIS linked ESHIDIS extraction handles dotted Ε.Σ.Η.ΔΗ.Σ Α/Α labels
+KIMDIS previews expose already-downloaded linked ESHIDIS file counts
 ```
 
 ## Instruction

@@ -657,6 +657,27 @@
 - Result: 82 passed in 2.05s.
 - `git diff --check`
 - Result: no whitespace errors.
+- Tightened KIMDIS-to-ESHIDIS id extraction for official documents that write
+  the system acronym with punctuation, e.g. `Ε.Σ.Η.ΔΗ.Σ Α/Α :207024`, even
+  when the numeric id is adjacent to a following URL. The extractor remains
+  label-based and does not accept unrelated 5-7 digit values without nearby
+  ESHIDIS/system context.
+- Single-ADAM KIMDIS fetches now merge their updated document record into the
+  existing KIMDIS document index instead of replacing the whole index. This
+  keeps per-row refetches from hiding other already indexed KIMDIS rows.
+- KIMDIS preview payloads now include `linked_eshidis_file_count`, and the UI
+  tells the user whether linked ESHIDIS files are already available for ZIP or
+  whether Fetch will attempt the official-folder download.
+- Live verification for `26PROC019429074` extracted linked ESHIDIS id
+  `207024`; the local SQLite/download state has 14 latest ESHIDIS files for
+  `207024`.
+- Verification for dotted ESHIDIS extraction and UI preview count:
+  `.venv/bin/python -m pytest tests/test_kimdis_fetch.py tests/test_ui_server.py tests/test_cli.py`
+  returned `43 passed in 1.06s`.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m pytest`
+- Result: 84 passed in 1.77s.
 
 ## Coverage
 
@@ -696,8 +717,10 @@ ui_job_poll_interval_seconds: 5
 ui_clickable_preview_rows: true
 ui_end_to_end_fetch_zip_confirmed_by_user: true
 kimdis_extracts_linked_eshidis_ids: true
+kimdis_extracts_dotted_eshidis_ids: true
 ui_kimdis_fetch_chains_linked_eshidis: true
 kimdis_zip_includes_linked_eshidis_downloads: true
+ui_linked_eshidis_file_count: true
 discovery_run_history_json: true
 discovery_watermark_backfill: true
 discovery_source_page_stats: true
@@ -724,6 +747,7 @@ verified_active_matches: 0
 unknown_statuses: 6
 unexplained_failures: 0
 focus_municipalities: 6
+sample_linked_eshidis_207024_files: 14
 ```
 
 ## Next Gate

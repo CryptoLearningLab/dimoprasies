@@ -168,11 +168,57 @@ regions: []
 def test_dashboard_exposes_local_kimdis_preview_and_download(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "config").mkdir()
+    (tmp_path / "data").mkdir()
     (tmp_path / "work/reports").mkdir(parents=True)
     (tmp_path / "work/derived").mkdir(parents=True)
     pdf_path = tmp_path / "work/download_audit/kimdis/26PROC000000001/26PROC000000001.pdf"
     pdf_path.parent.mkdir(parents=True)
     pdf_path.write_bytes(b"%PDF")
+    linked_pdf_path = tmp_path / "work/download_audit/eshidis/221473/spec.pdf"
+    linked_pdf_path.parent.mkdir(parents=True)
+    linked_pdf_path.write_bytes(b"%PDF")
+    import sqlite3
+
+    db_path = tmp_path / "data/tender_radar.sqlite"
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE tenders (
+              id INTEGER PRIMARY KEY,
+              eshidis_id TEXT,
+              title TEXT,
+              authority_name TEXT,
+              region TEXT,
+              budget_with_vat REAL,
+              current_deadline_at TEXT,
+              status TEXT,
+              status_confidence REAL
+            );
+            CREATE TABLE attachments (
+              id INTEGER PRIMARY KEY,
+              tender_id INTEGER,
+              original_name TEXT,
+              local_path TEXT,
+              is_latest INTEGER
+            );
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO tenders (
+              id, eshidis_id, title, authority_name, region,
+              budget_with_vat, current_deadline_at, status, status_confidence
+            ) VALUES (1, '221473', 'Linked ΕΣΗΔΗΣ', 'ΔΗΜΟΣ ΝΑΥΠΑΚΤΙΑΣ', NULL, NULL, NULL, 'UNKNOWN', 0.0)
+            """
+        )
+        connection.execute(
+            "INSERT INTO attachments (tender_id, original_name, local_path, is_latest) VALUES (1, 'spec.pdf', ?, 1)",
+            (str(linked_pdf_path.relative_to(tmp_path)),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
     (tmp_path / "config/locations.yml").write_text(
         """
 timezone: Europe/Athens
@@ -239,6 +285,7 @@ regions: []
     assert payload["tenders"][0]["preview_url"] == "/api/kimdis-document-preview?official_id=26PROC000000001"
     assert payload["tenders"][0]["linked_eshidis_ids"] == ["221473"]
     assert preview["linked_eshidis_ids"] == ["221473"]
+    assert preview["linked_eshidis_file_count"] == 1
     assert preview["documents"][0]["label"] == "Διακήρυξη"
     assert preview["documents"][0]["view_url"] == "/api/kimdis-document-file?official_id=26PROC000000001"
     assert file_path == pdf_path.resolve()

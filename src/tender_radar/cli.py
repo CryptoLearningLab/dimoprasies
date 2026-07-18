@@ -462,7 +462,11 @@ def _sources_fetch_kimdis_open_proc(args: argparse.Namespace) -> int:
     )
     write_kimdis_fetch_report(report, report_path, markdown_path)
     document_index_path = Path(args.document_index) if args.document_index else None
-    document_index = write_kimdis_document_index(report, document_index_path) if document_index_path else None
+    document_index = (
+        write_kimdis_document_index(report, document_index_path, merge_existing=bool(args.official_id))
+        if document_index_path
+        else None
+    )
     _emit_json(
         {
             "report_path": str(report_path),

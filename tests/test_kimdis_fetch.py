@@ -251,6 +251,16 @@ def test_extract_eshidis_ids_requires_eshidis_or_system_context() -> None:
     assert extract_eshidis_ids_from_text("Προϋπολογισμός 250000 και ημερομηνία 202607") == []
 
 
+def test_extract_eshidis_ids_handles_dotted_acronym_and_adjacent_url() -> None:
+    text = (
+        "Ονομασία: Κάθε είδους επικοινωνία πραγματοποιείται μέσω της διαδικτυακής πύλης "
+        "www.promitheus.gov.gr του ΟΠΣ Ε.Σ.Η.ΔΗ.Σ Α/Α :207024www.promitheus.gov.gr "
+        "URL: http://pwgopendata.eprocurement.gov.gr"
+    )
+
+    assert extract_eshidis_ids_from_text(text) == ["207024"]
+
+
 def test_kimdis_document_index_preserves_required_metadata(tmp_path) -> None:
     report = {
         "checked_at": "2026-07-17T00:00:00+00:00",
@@ -294,6 +304,41 @@ def test_kimdis_document_index_preserves_required_metadata(tmp_path) -> None:
     assert index["documents"][0]["candidate_status"] == "SUBMISSION_OPEN_CANDIDATE"
     assert index["documents"][0]["linked_eshidis_ids"] == ["221473"]
     assert reloaded["deduplication"]["title_only_merge"] is False
+
+
+def test_kimdis_document_index_can_merge_single_official_update(tmp_path) -> None:
+    index_path = tmp_path / "index.json"
+    index_path.write_text(
+        json.dumps(
+            {
+                "generated_at": "old",
+                "documents": [
+                    {"official_id": "26PROC000000001", "title": "old one"},
+                    {"official_id": "26PROC000000002", "title": "old two"},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    update_report = {
+        "checked_at": "new",
+        "shortlist": [
+            {
+                "official_id": "26PROC000000002",
+                "title": "new two",
+                "linked_eshidis_ids": ["207024"],
+            }
+        ],
+    }
+
+    index = write_kimdis_document_index(update_report, index_path, merge_existing=True)
+
+    documents = {item["official_id"]: item for item in index["documents"]}
+    assert sorted(documents) == ["26PROC000000001", "26PROC000000002"]
+    assert documents["26PROC000000001"]["title"] == "old one"
+    assert documents["26PROC000000002"]["title"] == "new two"
+    assert documents["26PROC000000002"]["linked_eshidis_ids"] == ["207024"]
 
 
 def test_render_kimdis_fetch_markdown_states_candidate_only() -> None:
