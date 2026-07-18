@@ -291,6 +291,15 @@ def test_extract_eshidis_ids_from_multiple_official_resource_urls() -> None:
     assert extract_eshidis_ids_from_text(text) == ["221566", "221556"]
 
 
+def test_extract_eshidis_ids_prefers_explicit_context_over_conflicting_url() -> None:
+    text = (
+        "Α/Α ΕΣΗΔΗΣ 221566 και είναι απευθείας προσβάσιμα μέσω του URL "
+        "http://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/221556."
+    )
+
+    assert extract_eshidis_ids_from_text(text) == ["221566"]
+
+
 def test_extract_eshidis_ids_from_guarded_competition_number() -> None:
     text = (
         "Ο διαγωνισμός θα πραγματοποιηθεί με χρήση της πλατφόρμας του Εθνικού Συστήματος "

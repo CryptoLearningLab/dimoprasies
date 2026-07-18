@@ -278,6 +278,19 @@ That URL is temporary and should not be treated as stable infrastructure.
   deadlines remain visible to avoid missing candidates due to parsing gaps.
   The internal `γνωστά στο σύστημα` metric is no longer shown in the UI,
   though `total_known` remains in the API summary for diagnostics.
+- KIMDIS linked ESHIDIS extraction suppresses conflicting URL-only ids when a
+  stronger explicit/context id exists in the same document. The live case
+  `26PROC019367864` now links only to `221566`, and `221566` downloaded 25/25
+  official ESHIDIS attachments after normalized filename matching was added
+  to the download import path.
+- Live case `26PROC019350955 -> 221365` reached the public ESHIDIS resource
+  but imported 0 attachment rows. The captured page states that no electronic
+  procedure exists for the system number or the procedure is closed/limited to
+  invited or preselected economic operators.
+- Latest source whitelist audit: 36 total, 31 reachable, 1 failed, 4 templates,
+  0 unresolved blockers. Both e-Patras pages are reachable; they still need
+  real municipal-page discovery/fetch adapters before they can contribute
+  records to the first-page search.
 
 ## Current Verification
 
@@ -290,7 +303,7 @@ Latest confirmed command:
 Result:
 
 ```text
-91 passed in 1.80s
+93 passed in 2.08s
 ```
 
 Latest KIMDIS PROC attachment fetch command:
@@ -383,6 +396,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Add scheduled discovery/report notification wiring so a cron/container job can
-run discovery, compare against the previous successful watermark and notify
-only for newly seen active candidates.
+Add municipal/authority website discovery adapters, starting with the reachable
+e-Patras tender and municipal-committee pages, then feed normalized candidates
+into the existing dashboard/dedup/provenance path.

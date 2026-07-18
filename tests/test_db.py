@@ -75,6 +75,40 @@ def test_import_attachment_download_updates_latest_attachment(tmp_path) -> None:
         assert row == ("work/download_audit/file.pdf", 123, "abc123")
 
 
+def test_import_attachment_download_matches_normalized_whitespace(tmp_path) -> None:
+    db_path = tmp_path / "tenders.sqlite"
+    details = EshidisTenderDetails(
+        source_url="https://example.test/resources/search/221744",
+        eshidis_id="221744",
+        title="Tender",
+        cpv=None,
+        contracting_authority=None,
+        location=None,
+        project_title=None,
+        budget_with_vat=None,
+        publication_date=None,
+        submission_deadline=None,
+    )
+    attachments = EshidisAttachmentListing(row_count=1, filenames=("1. ΑΠΟΦΑΣΗ ΕΝΤΑΞΗΣ.pdf",))
+    import_eshidis_resource(db_path, details, attachments)
+
+    summary = import_attachment_download(
+        db_path,
+        "221744",
+        "1. ΑΠΟΦΑΣΗ  ΕΝΤΑΞΗΣ.pdf",
+        "work/download_audit/1. ΑΠΟΦΑΣΗ  ΕΝΤΑΞΗΣ.pdf",
+        123,
+        "abc123",
+    )
+
+    assert summary.size_bytes == 123
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT local_path, size_bytes, sha256 FROM attachments WHERE original_name = '1. ΑΠΟΦΑΣΗ ΕΝΤΑΞΗΣ.pdf'"
+        ).fetchone()
+        assert row == ("work/download_audit/1. ΑΠΟΦΑΣΗ  ΕΝΤΑΞΗΣ.pdf", 123, "abc123")
+
+
 def test_reimport_eshidis_resource_preserves_download_metadata(tmp_path) -> None:
     db_path = tmp_path / "tenders.sqlite"
     details = EshidisTenderDetails(

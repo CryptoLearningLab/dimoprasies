@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import re
 import sqlite3
 from pathlib import Path
+import unicodedata
 
 from tender_radar.sources.eshidis import EshidisAttachmentListing, EshidisTenderDetails
 
@@ -195,6 +197,22 @@ def import_attachment_download(
             (eshidis_id, original_name),
         ).fetchone()
         if row is None:
+            normalized_original_name = normalize_attachment_name(original_name)
+            rows = connection.execute(
+                """
+                SELECT attachments.id, attachments.original_name
+                FROM attachments
+                JOIN tenders ON tenders.id = attachments.tender_id
+                WHERE tenders.eshidis_id = ?
+                  AND attachments.is_latest = 1
+                ORDER BY attachments.id DESC
+                """,
+                (eshidis_id,),
+            ).fetchall()
+            matches = [item for item in rows if normalize_attachment_name(str(item[1] or "")) == normalized_original_name]
+            if len(matches) == 1:
+                row = matches[0]
+        if row is None:
             raise ValueError(f"No latest attachment found for ESHIDIS {eshidis_id}: {original_name}")
         attachment_id = int(row[0])
         connection.execute(
@@ -217,6 +235,11 @@ def import_attachment_download(
         size_bytes=size_bytes,
         sha256=sha256,
     )
+
+
+def normalize_attachment_name(value: str) -> str:
+    normalized = unicodedata.normalize("NFC", value)
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def list_latest_attachments(db_path: Path, eshidis_id: str) -> list[AttachmentStatus]:

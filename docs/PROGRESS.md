@@ -745,6 +745,43 @@
 - Result: all repository configs OK.
 - `.venv/bin/python -m pytest`
 - Result: 91 passed in 1.80s.
+- KIMDIS linked ESHIDIS extraction now prefers explicit/context ids over
+  conflicting URL-only ids in the same document. This fixed
+  `26PROC019367864`, which now links only to `221566` instead of
+  `221566, 221556`.
+- ESHIDIS download import now falls back to unique normalized filename matching
+  when exact attachment names differ only by Unicode/whitespace normalization.
+  This fixed live downloads where the official listing used single spaces but
+  browser-downloaded filenames contained doubled/tripled spaces.
+- Live `221566` verification:
+  `.venv/bin/python -m tender_radar sources fetch-resource 221566 --allow-insecure-tls`
+  imported 25 attachment rows; `.venv/bin/python -m tender_radar sources download-attachment 221566 --all --limit 50 --allow-insecure-tls`
+  downloaded 25/25 with 0 failures.
+- `kimdis_document_preview_payload('26PROC019367864')` now reports
+  `linked_eshidis_ids: ['221566']` and `linked_eshidis_file_count: 25`; the
+  generated ZIP for `26PROC019367864` is about 257 MB.
+- Live `221365` diagnostic:
+  `fetch-resource 221365` reached the public resource URL but imported 0
+  attachment rows. The captured ESHIDIS screenshot states that no electronic
+  procedure exists for that system number or that the procedure is closed /
+  limited to invited or preselected economic operators. This is not currently
+  a public attachment-download failure.
+- Latest source whitelist audit:
+  `.venv/bin/python -m tender_radar sources audit-whitelist --allow-insecure-tls --timeout 8 --report work/reports/source_whitelist_audit_latest.json --markdown-report work/reports/source_whitelist_audit_latest.md`
+  returned 36 total, 31 reachable, 1 failed, 0 adapter-required,
+  4 templates, 0 failed-with-fallback and 0 unresolved blockers.
+- The previously problematic e-Patras URLs are now reachable:
+  `https://e-patras.gr/el/tenders` and
+  `https://e-patras.gr/el/e-democracy/decisions/municipal-committee-decisions`.
+  Reachability is proven; full municipal-page discovery/fetch adapters remain
+  the next implementation gate.
+- Targeted verification:
+  `.venv/bin/python -m pytest tests/test_db.py tests/test_kimdis_fetch.py`
+  returned `21 passed in 0.90s`.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m pytest`
+- Result: 93 passed in 2.08s.
 
 ## Coverage
 
@@ -827,6 +864,17 @@ ui_dashboard_sort_budget_desc: true
 ui_dashboard_hides_parseable_expired_rows: true
 ui_dashboard_hides_known_total_metric: true
 ui_dashboard_expired_hidden_rows: 2
+kimdis_conflicting_url_ids_suppressed_when_context_id_exists: true
+eshidis_download_import_normalized_filename_match: true
+sample_eshidis_221566_attachment_rows: 25
+sample_eshidis_221566_downloaded_files: 25
+sample_eshidis_221365_public_attachment_rows: 0
+source_whitelist_latest_entries_checked: 36
+source_whitelist_latest_reachable: 31
+source_whitelist_latest_failed: 1
+source_whitelist_latest_unresolved_blockers: 0
+epatras_tenders_reachable: true
+epatras_committee_decisions_reachable: true
 ```
 
 ## Next Gate

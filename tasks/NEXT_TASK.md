@@ -1,58 +1,56 @@
 # NEXT TASK
 
 Execute:
-`Add scheduled discovery and new-candidate notification wiring`
+`Add municipal and authority website discovery adapters`
 
 ## Current Input
 
-Use the current discovery flows and runtime watermark file:
+Use the configured authority sources in:
 
 ```text
-sources discover-active
-sources expanded-report
-work/reports/eshidis_active_candidates.json
-work/reports/expanded_discovery_report.json
-work/derived/discovery_runs.json
+config/sources.yml
+docs/SOURCE_WHITELIST.md
+work/reports/source_whitelist_audit_latest.json
 ```
 
-Latest reliability update as of `2026-07-18`:
+Latest source whitelist audit as of `2026-07-18`:
 
 ```text
-bounded discovery remains available for quick/manual runs
-backfill safety mode persists discovery run metadata
-backfill increases ESHIDIS/KIMDIS depth until previous successful run window is reached or max depth is hit
-KIMDIS expanded report includes source_pages metadata for page-level exhaustion evidence
-discovery runs remain candidate-only and never emit VERIFIED_ACTIVE
-KIMDIS linked ESHIDIS extraction handles dotted Ε.Σ.Η.ΔΗ.Σ Α/Α labels
-KIMDIS previews expose already-downloaded linked ESHIDIS file counts
-KIMDIS linked ESHIDIS extraction handles official resources/search/<id> URLs
-KIMDIS linked ESHIDIS extraction handles guarded Α/Α Διαγωνισμού labels
-front-page dashboard sorts by nearest deadline or largest budget
-front-page dashboard hides parseable expired rows
+36 sources checked
+31 reachable
+1 failed
+4 templates
+0 adapter-required in the audit classification
+0 unresolved blockers
+e-Patras tender page reachable
+e-Patras municipal committee decisions page reachable
 ```
 
 ## Instruction
 
-Build the next smallest daily-ops step:
+Build the next smallest source-coverage step:
 
-1. Add a scheduled discovery entry point suitable for cron/container use.
-2. Compare the latest run against the latest previous successful watermark.
-3. Produce a new-candidates report with source id, title, authority, deadline,
-   source URL and reason.
-4. Keep email sending or other notifications explicit/configurable; do not
-   hardcode recipient addresses.
-5. Surface partial source failures in the generated report.
-6. Do not promote candidates to `VERIFIED_ACTIVE`; keep status verification
-   separate.
+1. Add a municipal/authority website discovery adapter abstraction for public
+   HTML listing pages.
+2. Start with e-Patras:
+   - `https://e-patras.gr/el/tenders`
+   - `https://e-patras.gr/el/e-democracy/decisions/municipal-committee-decisions`
+3. Extract normalized candidate records with source URL, title, authority/scope,
+   publication date where available, attachment/detail links, retrieved_at and
+   parser status.
+4. Keep records candidate-only. Do not promote to `VERIFIED_ACTIVE`.
+5. Route extracted candidates through the existing dashboard/dedup/provenance
+   path without title-only deduplication.
+6. Surface parser/fetch failures in reports and UI/job output.
 
-Do not store TEE subscription credentials or email secrets in the repository.
+Do not scrape behind login, CAPTCHA or non-public access controls.
 
 ## Required Closeout
 
 At the end of the task:
 
-1. Run the relevant targeted tests and `.venv/bin/python -m pytest` if code
-   changed.
+1. Run targeted tests for the new adapter and `.venv/bin/python -m pytest` if
+   code changed.
 2. Update `docs/PROGRESS.md` with exact commands and evidence.
 3. Update `docs/DECISIONS.md` only if a real decision was made.
 4. Update this file with the next single executable gate.
