@@ -1831,6 +1831,37 @@ targeted incremental scheduler tests: 4 passed
 full test suite: 152 passed
 ```
 
+Droplet verification after deploy:
+
+```bash
+gh run watch 29664227866 --repo CryptoLearningLab/dimoprasies --exit-status
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'cd /root/workspace/dimoprasies && git rev-parse --short HEAD && systemctl is-active tender-radar-ui.service'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'curl -s http://127.0.0.1:8765/ | grep -o "v0.1.4" | head -1'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'cd /root/workspace/dimoprasies && .venv/bin/python -m tender_radar runtime scheduled-run --dry-run --recipient smoke@example.test --limit 1 --ai-batch-size 5 --enrichment-limit 1 --report work/reports/scheduled_poll_alert_droplet_v014.json --markdown-report work/reports/scheduled_poll_alert_droplet_v014.md'
+```
+
+Results:
+
+```text
+GitHub Actions deploy 29664227866: success
+droplet HEAD: 413f5a6
+tender-radar-ui.service: active
+live UI version: v0.1.4
+tender-radar-scheduled.timer: loaded but disabled/inactive because SMTP env keys are missing
+droplet scheduled dry-run: ok true, elapsed about 33s, AI triage skipped true, changed_source_ids ['deyap_prokurhxeis', 'diavgeia_deya_nafpaktias', 'eshidis_active_search'], source_errors 3, email candidate_rows 34, new_count 34, sent 0
+```
+
+Limitations observed:
+
+- The droplet `.env.local` contains `OPENAI_API_KEY`, but does not yet contain
+  `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `EMAIL_FROM` or
+  an alert recipient key. Therefore the timer was installed but left disabled
+  to avoid scheduled send failures.
+- The scheduled path no longer reruns OpenAI for already-triaged rows, but
+  `eshidis_active_search` can still trigger bounded ESHIDIS discovery. That is
+  now a 30-second-class operation in the observed smoke, not a 5-minute AI
+  rerun, and should be stabilized further with a better ESHIDIS watermark.
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

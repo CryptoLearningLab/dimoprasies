@@ -527,6 +527,10 @@ The system `python` command is not present in the remote environment; use
 - Systemd templates live in `deploy/systemd/tender-radar-scheduled.service`
   and `deploy/systemd/tender-radar-scheduled.timer`; the timer cadence is every
   6 hours and the service is guarded by `flock`.
+- Droplet smoke for `v0.1.4` on commit `413f5a6` succeeded: UI active, version
+  visible, scheduled dry-run `ok true`, AI triage `skipped true`, elapsed about
+  33 seconds. The timer is installed but disabled/inactive because SMTP/email
+  env keys are missing.
 
 ## Next Work
 
@@ -534,6 +538,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Verify production `.env.local` on the droplet without printing secrets, install
-or refresh the systemd timer, run a droplet-side scheduled dry-run smoke, and
-perform one real email-send smoke only if the required email env keys exist.
+Stabilize the `eshidis_active_search` scheduler fingerprint so unchanged runs
+skip without bounded discovery/OpenAI calls, then configure production email env
+outside chat, run a controlled real-send smoke and enable the 6-hour systemd
+timer.

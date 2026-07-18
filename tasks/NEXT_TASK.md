@@ -1,7 +1,7 @@
 # NEXT TASK
 
 Execute:
-`Production env and real scheduled email smoke`
+`Stabilize ESHIDIS scheduler skip and enable production timer`
 
 ## Current Input
 
@@ -20,28 +20,36 @@ The scheduled path runs bounded discovery, AI triage, linked-candidate
 enrichment and email alerts. It does not run full-depth/backfill discovery
 unless explicitly configured.
 
+Latest droplet dry-run on `v0.1.4` completed in about 33 seconds with AI triage
+skipped. The remaining avoidable delay is `eshidis_active_search` changing
+often enough to trigger bounded ESHIDIS discovery. The timer is installed but
+disabled because SMTP/email env keys are missing.
+
 ## Instruction
 
 Implement the next small gate:
 
-1. Inspect the droplet `.env.local` keys without printing secret values.
-2. Confirm that OpenAI and outbound email settings required by the runtime are
-   present.
-3. Install or refresh the systemd service/timer from `deploy/systemd/`.
-4. Run a droplet-side scheduled dry-run smoke through SSH.
-5. If email env is present, run one controlled real-send smoke to the owner
-   address and confirm `notification_log` changes only after success.
-6. If email env is missing, do not fake success; document the exact missing
-   non-secret key names and keep the timer disabled until configured.
+1. Stabilize `eshidis_active_search` source fingerprint so transient page or
+   timeout differences do not force bounded discovery when no new active row is
+   detected.
+2. Run repeated droplet-side scheduled dry-runs and prove that unchanged
+   sources skip without full discovery or OpenAI calls.
+3. Inspect the droplet `.env.local` keys without printing secret values.
+4. Add or confirm required outbound email settings outside chat.
+5. Run one controlled real-send smoke to the owner address and confirm
+   `notification_log` changes only after success.
+6. Enable `tender-radar-scheduled.timer` only after both the skip behavior and
+   email send are verified.
 
 ## Required Closeout
 
-1. Run droplet-side dry-run smoke through `ssh`, not through a temporary
-   tunnel.
-2. Run real-send smoke only when env is present.
-3. Report `systemctl` timer status and latest audit report path.
-4. Update `docs/PROGRESS.md`.
-5. Update `docs/DECISIONS.md` only if a real decision was made.
-6. Update this file with the next single executable gate.
-7. Update `docs/HANDOFF.md` if project state or next gate changed.
-8. Commit and push tracked changes to GitHub unless explicitly told not to.
+1. Run at least two consecutive droplet-side dry-run smokes through `ssh`, not
+   through a temporary tunnel.
+2. Show elapsed time and stage summaries proving no unnecessary OpenAI rerun.
+3. Run real-send smoke only when env is present.
+4. Report `systemctl` timer status and latest audit report path.
+5. Update `docs/PROGRESS.md`.
+6. Update `docs/DECISIONS.md` only if a real decision was made.
+7. Update this file with the next single executable gate.
+8. Update `docs/HANDOFF.md` if project state or next gate changed.
+9. Commit and push tracked changes to GitHub unless explicitly told not to.
