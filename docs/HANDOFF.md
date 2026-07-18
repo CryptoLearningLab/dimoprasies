@@ -540,6 +540,9 @@ The system `python` command is not present in the remote environment; use
 - Scheduled runs skip linked-candidate enrichment when discovery itself was
   skipped, preventing stale enrichment retries from turning unchanged runs into
   failures.
+- Droplet `v0.1.7` smokes on commit `597259c` succeeded twice: elapsed 4.88s
+  and 4.29s, discovery skipped true, AI triage skipped true, enrichment skipped
+  true, email dry-run sent 0.
 
 ## Next Work
 
@@ -547,7 +550,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Deploy `v0.1.7`, run two consecutive droplet-side scheduled dry-run smokes to
-prove unchanged runs skip without bounded discovery/OpenAI calls, then configure
-production email env outside chat, run a controlled real-send smoke and enable
-the 6-hour systemd timer.
+Configure production email env outside chat, run a controlled real-send smoke,
+confirm `notification_log` changes only after success, then enable the 6-hour
+systemd timer and report `systemctl list-timers`.

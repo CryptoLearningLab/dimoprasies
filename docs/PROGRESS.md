@@ -1943,6 +1943,32 @@ targeted scheduled-skip tests: 3 passed
 full test suite: 155 passed
 ```
 
+Droplet verification after deploy:
+
+```bash
+gh run watch 29664747542 --repo CryptoLearningLab/dimoprasies --exit-status
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'cd /root/workspace/dimoprasies && git rev-parse --short HEAD && systemctl is-active tender-radar-ui.service'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'curl -s http://127.0.0.1:8765/ | grep -o "v0.1.7" | head -1'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'cd /root/workspace/dimoprasies && /usr/bin/time -f "ELAPSED %e" .venv/bin/python -m tender_radar runtime scheduled-run --dry-run --recipient smoke@example.test --limit 1 --ai-batch-size 5 --enrichment-limit 1 --report work/reports/scheduled_poll_alert_droplet_v017_a.json --markdown-report work/reports/scheduled_poll_alert_droplet_v017_a.md'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'cd /root/workspace/dimoprasies && /usr/bin/time -f "ELAPSED %e" .venv/bin/python -m tender_radar runtime scheduled-run --dry-run --recipient smoke@example.test --limit 1 --ai-batch-size 5 --enrichment-limit 1 --report work/reports/scheduled_poll_alert_droplet_v017_b.json --markdown-report work/reports/scheduled_poll_alert_droplet_v017_b.md'
+```
+
+Results:
+
+```text
+GitHub Actions deploy 29664747542: success
+droplet HEAD: 597259c
+tender-radar-ui.service: active
+live UI version: v0.1.7
+first v0.1.7 scheduled dry-run: ok true, elapsed 4.88s, discovery skipped true, AI triage skipped true, enrichment skipped true, email sent 0 dry_run true
+second v0.1.7 scheduled dry-run: ok true, elapsed 4.29s, discovery skipped true, AI triage skipped true, enrichment skipped true, email sent 0 dry_run true
+```
+
+Remaining limitation:
+
+- The systemd timer remains installed but disabled because outbound email env
+  keys are not configured on the droplet yet.
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:
