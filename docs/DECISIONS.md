@@ -406,3 +406,14 @@ notification-send records are persisted in `data/tender_radar.sqlite`.
 Existing `work/derived` JSON files may remain as legacy/runtime artifacts while
 specific flows are migrated, but new poller/email/ignore behavior should use
 the SQLite helpers first.
+
+## D-042 - Source preflight decisions are per-source
+**Status:** Accepted
+
+Source polling compares each discovery-relevant source independently. A source
+timeout or changed fingerprint is recorded against that specific source in
+SQLite and should not trigger global full-depth discovery unless the changed
+source has no selective refresh path or there is no usable baseline.
+
+The legacy aggregate fingerprint JSON may still be written for compatibility,
+but the operational model is per-source state and per-source run audit.

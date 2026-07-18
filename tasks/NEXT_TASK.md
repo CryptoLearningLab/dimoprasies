@@ -1,39 +1,38 @@
 # NEXT TASK
 
 Execute:
-`Migrate source poller skip state to SQLite`
+`Expose source polling audit in the UI`
 
 ## Current Input
 
-Runtime state tables now exist in `data/tender_radar.sqlite`:
+The UI version badge shows `v0.1.1`.
+
+Source preflight now writes per-source state to SQLite:
 
 - `source_state`
 - `source_runs`
-- `tender_dismissals`
-- `notification_log`
 
-The UI "Δεν με ενδιαφέρει" path writes to SQLite and still reads the legacy
-`work/derived/ignored_tenders.json` file during migration.
+It reads previous fingerprints from SQLite first and uses the legacy
+`work/derived/source_fingerprints.json` only as compatibility fallback/output.
 
 ## Instruction
 
 Implement the next small gate:
 
-1. Make the source fingerprint preflight write every source check to
-   `source_state` and `source_runs`.
-2. Make unchanged-source skip decisions read the previous fingerprint from
-   SQLite first, falling back to `work/derived/source_fingerprints.json` only
-   for legacy compatibility.
-3. Keep bounded search fast; do not introduce full-depth discovery into this
+1. Add an API payload for the latest source polling state from SQLite.
+2. Show a compact UI section/table with one row per source:
+   source id, family/adapter, last status, changed/unchanged, last checked,
+   last error and whether it is selective-refresh capable.
+3. Make source failures visible without triggering global full-depth discovery
+   when unchanged successful sources can still be trusted.
+4. Keep bounded search fast; do not introduce full-depth discovery into this
    flow.
-4. Preserve existing JSON report outputs until all UI/report consumers are
-   migrated.
 5. Do not expose or log secrets.
 
 ## Required Closeout
 
-1. Run targeted UI/source preflight tests and `.venv/bin/python -m pytest`.
-2. Run a local bounded preflight smoke and report whether it skipped or changed.
+1. Run targeted UI/source polling tests and `.venv/bin/python -m pytest`.
+2. Run a local source polling smoke and report per-source counts.
 3. Update `docs/PROGRESS.md`.
 4. Update `docs/DECISIONS.md` only if a real decision was made.
 5. Update this file with the next single executable gate.

@@ -23,10 +23,14 @@ from typing import Any
 from urllib.parse import parse_qs, quote, urlencode, unquote, urlparse, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+from tender_radar import __version__
 from tender_radar.config import load_config
 from tender_radar.db import (
     dismiss_tender as dismiss_tender_in_db,
+    get_source_state,
     ignored_tender_keys as ignored_tender_keys_from_db,
+    record_source_run,
+    upsert_source_state,
 )
 from tender_radar.discovery_watermark import (
     append_discovery_run,
@@ -974,14 +978,17 @@ def source_fingerprint_path() -> Path:
 def discovery_change_preflight() -> dict[str, Any]:
     current = quick_source_fingerprint(timeout_seconds=8)
     previous = latest_source_fingerprint()
+    persist_source_preflight_state(current=current, previous=previous)
     reports_exist = (REPO_ROOT / "work/reports/expanded_discovery_report.json").exists()
     changed_source_ids = _changed_source_ids(current=current, previous=previous)
     exact_skip = bool(
         reports_exist
         and current.get("ok")
         and previous
-        and previous.get("hash")
-        and previous.get("hash") == current.get("hash")
+        and (
+            (previous.get("hash") and previous.get("hash") == current.get("hash"))
+            or (previous.get("state_source") == "sqlite" and previous.get("sources") and not changed_source_ids)
+        )
     )
     partial_skip = bool(
         reports_exist
@@ -1016,6 +1023,9 @@ def discovery_change_preflight() -> dict[str, Any]:
 
 
 def latest_source_fingerprint() -> dict[str, Any] | None:
+    sqlite_latest = latest_source_fingerprint_from_db()
+    if sqlite_latest:
+        return sqlite_latest
     path = source_fingerprint_path()
     if not path.exists():
         return None
@@ -1031,6 +1041,7 @@ def latest_source_fingerprint() -> dict[str, Any] | None:
 
 
 def save_source_fingerprint(fingerprint: dict[str, Any]) -> None:
+    persist_source_preflight_state(current=fingerprint, previous=latest_source_fingerprint_from_json())
     path = source_fingerprint_path()
     existing: dict[str, Any] = {}
     if path.exists():
@@ -1046,6 +1057,143 @@ def save_source_fingerprint(fingerprint: dict[str, Any]) -> None:
         payload["latest_complete"] = existing["latest_complete"]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def latest_source_fingerprint_from_json() -> dict[str, Any] | None:
+    path = source_fingerprint_path()
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if isinstance(payload.get("latest"), dict):
+        return payload["latest"]
+    return payload.get("latest_complete") if isinstance(payload.get("latest_complete"), dict) else None
+
+
+def latest_source_fingerprint_from_db() -> dict[str, Any] | None:
+    db_path = runtime_db_path()
+    source_ids = selective_source_ids_from_config()
+    if not source_ids:
+        return None
+    sources: list[dict[str, Any]] = []
+    checked_at_values: list[str] = []
+    for source_id in sorted(source_ids):
+        state = get_source_state(db_path, source_id)
+        if state is None:
+            return None
+        if state.last_checked_at:
+            checked_at_values.append(state.last_checked_at)
+        source = {
+            "source_id": state.source_id,
+            "source_group": state.metadata.get("source_group"),
+            "adapter": state.metadata.get("adapter"),
+            "url": state.source_url,
+            "status": state.last_status,
+            "attempted": state.metadata.get("attempted"),
+            "reachable": state.metadata.get("reachable"),
+            "token": state.metadata.get("token"),
+            "date": state.metadata.get("date"),
+            "count_hint": state.metadata.get("count_hint"),
+        }
+        sources.append({key: value for key, value in source.items() if value is not None})
+    digest = hashlib.sha256(json.dumps(sources, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    return {
+        "ok": all(source.get("reachable") is True or source.get("status") == "REQUIRES_IDENTIFIER" for source in sources),
+        "computed_at": max(checked_at_values, default=None),
+        "hash": digest,
+        "sources": sources,
+        "errors": [],
+        "state_source": "sqlite",
+    }
+
+
+def persist_source_preflight_state(*, current: dict[str, Any], previous: dict[str, Any] | None = None) -> None:
+    db_path = runtime_db_path()
+    run_id = str(current.get("run_id") or uuid.uuid4().hex)
+    checked_at = str(current.get("computed_at") or utc_now_iso())
+    previous_by_id = {
+        str(item.get("source_id") or ""): _source_fingerprint_signature(item)
+        for item in (previous or {}).get("sources") or []
+        if isinstance(item, dict) and item.get("source_id")
+    }
+    current_by_id = {
+        str(item.get("source_id") or ""): item
+        for item in current.get("sources") or []
+        if isinstance(item, dict) and item.get("source_id")
+    }
+    error_by_id = {
+        str(item.get("source") or ""): str(item.get("message") or "")
+        for item in current.get("errors") or []
+        if isinstance(item, dict) and item.get("source")
+    }
+    for source_id, source in sorted(current_by_id.items()):
+        signature = _source_fingerprint_signature(source)
+        fingerprint = hashlib.sha256(json.dumps(signature, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+        changed = previous_by_id.get(source_id) != signature
+        status = "CHANGED" if changed else "SKIPPED_UNCHANGED"
+        if source.get("status") == "REQUIRES_IDENTIFIER":
+            status = "REQUIRES_IDENTIFIER"
+        elif source.get("reachable") is not True:
+            status = "ERROR"
+        metadata = {
+            "adapter": source.get("adapter"),
+            "source_group": source.get("source_group"),
+            "attempted": source.get("attempted"),
+            "reachable": source.get("reachable"),
+            "token": source.get("token"),
+            "date": source.get("date"),
+            "count_hint": source.get("count_hint"),
+        }
+        upsert_source_state(
+            db_path,
+            source_id=source_id,
+            source_family=str(source.get("adapter") or "") or None,
+            source_url=str(source.get("url") or "") or None,
+            fingerprint=fingerprint,
+            checked_at=checked_at,
+            status=status,
+            error=error_by_id.get(source_id),
+            metadata={key: value for key, value in metadata.items() if value is not None},
+        )
+        record_source_run(
+            db_path,
+            run_id=run_id,
+            source_id=source_id,
+            started_at=checked_at,
+            finished_at=checked_at,
+            status=status,
+            fingerprint=fingerprint,
+            changed=changed,
+            item_count=int(source["count_hint"]) if isinstance(source.get("count_hint"), int) else None,
+            error=error_by_id.get(source_id),
+            metadata={key: value for key, value in metadata.items() if value is not None},
+        )
+    for source_id, message in sorted(error_by_id.items()):
+        if source_id in current_by_id:
+            continue
+        upsert_source_state(
+            db_path,
+            source_id=source_id,
+            checked_at=checked_at,
+            status="ERROR",
+            error=message,
+            metadata={"reachable": False},
+        )
+        record_source_run(
+            db_path,
+            run_id=run_id,
+            source_id=source_id,
+            started_at=checked_at,
+            finished_at=checked_at,
+            status="ERROR",
+            changed=False,
+            error=message,
+            metadata={"reachable": False},
+        )
 
 
 def _successful_sources_unchanged(*, current: dict[str, Any], previous: dict[str, Any]) -> bool:
@@ -2880,7 +3028,7 @@ def evaluation_profile_payload(path: Path) -> dict[str, Any]:
     }
 
 
-INDEX_HTML = """<!doctype html>
+INDEX_HTML = f"""<!doctype html>
 <html lang="el">
 <head>
   <meta charset="utf-8">
@@ -2894,7 +3042,7 @@ INDEX_HTML = """<!doctype html>
       <span class="mark">TR</span>
       <div>
         <h1>Tender Radar</h1>
-        <p>Δημόσια έργα</p>
+        <p>Δημόσια έργα <span class="versionBadge">v{__version__}</span></p>
       </div>
     </div>
     <nav>
@@ -3129,6 +3277,17 @@ h1, h2, p { margin: 0; }
 h1 { font-size: 17px; }
 h2 { font-size: 26px; letter-spacing: 0; }
 .brand p, header p, .note, .mutedLine { color: var(--muted); }
+.versionBadge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid #4c6174;
+  color: #cfe8e1;
+  font-size: 12px;
+  font-weight: 800;
+}
 .eyebrow {
   color: var(--accent);
   font-size: 12px;

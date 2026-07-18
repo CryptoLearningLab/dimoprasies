@@ -33,6 +33,11 @@ from tender_radar.ui_server import (
 )
 
 
+def test_ui_shows_current_version_badge() -> None:
+    assert "versionBadge" in INDEX_HTML
+    assert "v0.1.1" in INDEX_HTML
+
+
 def test_report_json_content_type_includes_utf8_charset() -> None:
     assert content_type_for_path(Path("candidates.json")) == "application/json; charset=utf-8"
 
@@ -236,6 +241,37 @@ def test_latest_source_fingerprint_prefers_latest_degraded_baseline(tmp_path, mo
     )
 
     assert ui_server.latest_source_fingerprint() == {"ok": False, "hash": "degraded"}
+
+
+def test_discovery_preflight_uses_sqlite_source_state_before_json(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "data").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/sources.yml").write_text("authority_adapters: []\n", encoding="utf-8")
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text("{}", encoding="utf-8")
+    current = {
+        "ok": True,
+        "computed_at": "2026-07-18T10:00:00+00:00",
+        "hash": "global-current",
+        "sources": [
+            {"source_id": "eshidis_active_search", "adapter": "web_app", "token": "same"},
+            {"source_id": "khmdhs_notice", "adapter": "api_post", "token": "same"},
+            {"source_id": "khmdhs_auction", "adapter": "api_post", "token": "same"},
+            {"source_id": "khmdhs_contract", "adapter": "api_post", "token": "same"},
+        ],
+        "errors": [],
+    }
+
+    ui_server.persist_source_preflight_state(current=current, previous=None)
+    monkeypatch.setattr(ui_server, "quick_source_fingerprint", lambda timeout_seconds=8: current)
+
+    result = ui_server.discovery_change_preflight()
+
+    assert result["skip"] is True
+    assert result["status"] == "SKIPPED_UNCHANGED"
+    assert result["previous_hash"] != current["hash"]
+    assert ui_server.latest_source_fingerprint()["state_source"] == "sqlite"
 
 
 def test_ui_labels_bounded_and_backfill_discovery_modes() -> None:

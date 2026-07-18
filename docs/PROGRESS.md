@@ -1684,6 +1684,40 @@ targeted DB/UI tests: 10 passed
 full test suite: 142 passed
 ```
 
+### UI version badge and SQLite-backed source preflight
+
+Implemented behavior:
+
+- Bumped the application version from `0.1.0` to `0.1.1`.
+- The UI header now shows the live version badge as `v0.1.1` next to
+  `Δημόσια έργα`.
+- Discovery preflight now persists every source fingerprint check to SQLite:
+  `source_state` stores the latest state per source and `source_runs` stores
+  each poll attempt.
+- Preflight comparisons now read the previous per-source fingerprint from
+  SQLite first. The legacy `work/derived/source_fingerprints.json` remains as
+  compatibility output/fallback.
+- Skip/change decisions are source-specific. A failing source is recorded as
+  an error for that source and does not by itself force global full-depth
+  discovery.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_discovery_preflight_uses_sqlite_source_state_before_json tests/test_ui_server.py::test_discovery_skips_when_source_fingerprint_is_unchanged tests/test_ui_server.py::test_discovery_skips_when_successful_sources_are_unchanged_with_preflight_errors
+.venv/bin/python -m pytest
+.venv/bin/python -c "import json, sqlite3; from tender_radar.ui_server import discovery_change_preflight, runtime_db_path; r=discovery_change_preflight(); db=runtime_db_path(); con=sqlite3.connect(db); source_count=con.execute('select count(*) from source_state').fetchone()[0]; run_count=con.execute('select count(*) from source_runs').fetchone()[0]; con.close(); print(json.dumps({'status': r.get('status'), 'skip': r.get('skip'), 'changed_source_ids': r.get('changed_source_ids'), 'error_count': len(r.get('errors') or []), 'source_state_rows': source_count, 'source_run_rows': run_count}, ensure_ascii=False))"
+```
+
+Results:
+
+```text
+targeted UI/preflight tests: 4 passed
+full test suite: 144 passed
+first local preflight smoke: status CHANGED_OR_NO_BASELINE, skip false, changed_source_ids ['diavgeia_messolonghi', 'diavgeia_pde', 'khmdhs_auction', 'khmdhs_contract', 'khmdhs_notice'], error_count 4, source_state_rows 31, source_run_rows 31
+second local preflight smoke: status CHANGED_OR_NO_BASELINE, skip false, changed_source_ids ['diavgeia_patras', 'diavgeia_thermo'], error_count 4, source_state_rows 31, source_run_rows 62
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

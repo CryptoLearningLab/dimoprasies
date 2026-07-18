@@ -506,6 +506,10 @@ The system `python` command is not present in the remote environment; use
 - SQLite runtime state tables now exist for source fingerprints/runs, permanent
   tender dismissals and notification-send de-duplication. The UI dismissal path
   writes to SQLite while still reading the legacy ignored-tenders JSON file.
+- The UI now displays version `v0.1.1` in the header. Source preflight writes
+  per-source state/run audit to SQLite and reads SQLite before the legacy
+  fingerprint JSON. Errors and changed fingerprints are source-specific and
+  do not automatically force global full-depth discovery.
 
 ## Next Work
 
@@ -513,6 +517,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Migrate source poller skip state to SQLite: source fingerprint preflight should
-write `source_state`/`source_runs`, read previous fingerprints from SQLite
-first, and keep the legacy JSON fingerprint file only as compatibility output.
+Expose source polling audit in the UI: show the latest per-source status,
+fingerprint state, error, changed/unchanged decision and whether the source was
+selectively refreshed or skipped.
