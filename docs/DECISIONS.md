@@ -467,3 +467,15 @@ message.
 
 This prevents error/recovery cycles from creating false changed-source triggers
 and avoids unnecessary scheduled discovery runs.
+
+## D-047 - Production email alerts use runtime SMTP env
+**Status:** Accepted
+
+Production email delivery is configured through droplet runtime environment
+keys, not through repository files or chat-visible code. The scheduler may be
+enabled only after a real SMTP send succeeds and `notification_log` records the
+sent rows after success.
+
+The current production timer runs every 6 hours through systemd and relies on
+SQLite `notification_log` to prevent duplicate alert sends to the same
+recipient.

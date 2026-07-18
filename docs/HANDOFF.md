@@ -543,6 +543,12 @@ The system `python` command is not present in the remote environment; use
 - Droplet `v0.1.7` smokes on commit `597259c` succeeded twice: elapsed 4.88s
   and 4.29s, discovery skipped true, AI triage skipped true, enrichment skipped
   true, email dry-run sent 0.
+- Production SMTP/email env is configured on the droplet without checked-in
+  secret values. A real scheduled-run smoke sent 33 new dashboard rows to the
+  owner recipient and moved SQLite `notification_log` from 0 to 33 rows.
+- `tender-radar-scheduled.timer` is now enabled and active. Cadence is every 6
+  hours. After enabling, the immediate timer tick skipped already-sent rows
+  correctly: `new_count 0`, `skipped_already_sent 33`, `sent 0`.
 
 ## Next Work
 
@@ -550,6 +556,5 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Configure production email env outside chat, run a controlled real-send smoke,
-confirm `notification_log` changes only after success, then enable the 6-hour
-systemd timer and report `systemctl list-timers`.
+Configure a stable HTTPS hostname/reverse proxy for the droplet so users stop
+accessing the UI through plain `http://165.227.143.152:8765`.

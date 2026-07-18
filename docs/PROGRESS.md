@@ -1969,6 +1969,50 @@ Remaining limitation:
 - The systemd timer remains installed but disabled because outbound email env
   keys are not configured on the droplet yet.
 
+### Production email env and 6-hour timer enabled
+
+Implemented behavior:
+
+- Configured the droplet `.env.local` with SMTP/email keys without recording
+  secret values in repository docs.
+- Ran a controlled scheduled dry-run after SMTP configuration.
+- Ran one controlled real-send scheduled smoke to the owner recipient.
+- Confirmed SQLite `notification_log` moved from `0` to `33` rows only after
+  the successful real send.
+- Enabled `tender-radar-scheduled.timer`.
+- The immediate systemd timer tick after enabling did not re-send old rows:
+  it reported `new_count: 0`, `skipped_already_sent: 33`, `sent: 0`.
+
+Verification:
+
+```bash
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'cd /root/workspace/dimoprasies && .venv/bin/python -c "from tender_radar.ui_server import smtp_config, email_alert_recipient; smtp_config(); assert email_alert_recipient(); print(\"smtp env present\")"'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'cd /root/workspace/dimoprasies && /usr/bin/time -f "ELAPSED %e" .venv/bin/python -m tender_radar runtime scheduled-run --dry-run --limit 1 --ai-batch-size 5 --enrichment-limit 1 --report work/reports/scheduled_poll_alert_email_dryrun.json --markdown-report work/reports/scheduled_poll_alert_email_dryrun.md'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'cd /root/workspace/dimoprasies && /usr/bin/time -f "ELAPSED %e" .venv/bin/python -m tender_radar runtime scheduled-run --limit 1 --ai-batch-size 5 --enrichment-limit 1 --report work/reports/scheduled_poll_alert_email_real.json --markdown-report work/reports/scheduled_poll_alert_email_real.md'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'systemctl enable --now tender-radar-scheduled.timer'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'systemctl is-enabled tender-radar-scheduled.timer && systemctl is-active tender-radar-scheduled.timer'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'systemctl list-timers tender-radar-scheduled.timer --no-pager --all'
+```
+
+Results:
+
+```text
+SMTP_HOST: present
+SMTP_PORT: present
+SMTP_USERNAME: present
+SMTP_PASSWORD: present
+EMAIL_FROM: present
+ALERT_EMAIL_TO: present
+notification_log before real send: 0
+email dry-run: ok true, recipient configured, candidate_rows 33, new_count 33, sent 0, elapsed 5.03s
+real send: ok true, sent 33, elapsed 6.54s
+notification_log after real send: 33
+tender-radar-scheduled.timer: enabled, active
+next scheduled run: Sun 2026-07-19 05:31:42 UTC
+latest scheduled report: work/reports/scheduled_poll_alert_latest.json
+latest scheduled tick: ok true, dry_run false, sent 0, new_count 0, skipped_already_sent 33, discovery skipped true
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:
