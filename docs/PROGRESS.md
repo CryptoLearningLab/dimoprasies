@@ -1918,6 +1918,31 @@ targeted transient-error tests: 3 passed
 full test suite: 154 passed
 ```
 
+### UI v0.1.7 scheduled skip orchestration
+
+Implemented behavior:
+
+- Bumped the application version from `0.1.6` to `0.1.7`.
+- When scheduled discovery is skipped because source preflight found no real
+  content changes, the scheduled job now also skips linked-candidate enrichment.
+- Email dry-run/send still consumes the current dashboard state, and
+  incremental AI triage remains allowed to fill missing triage rows without
+  forcing document enrichment.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_scheduled_poll_skips_enrichment_when_discovery_skipped tests/test_ui_server.py::test_source_error_preserves_previous_successful_fingerprint tests/test_ui_server.py::test_eshidis_active_preflight_uses_cached_candidate_report
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted scheduled-skip tests: 3 passed
+full test suite: 155 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

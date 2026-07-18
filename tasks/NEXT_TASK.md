@@ -7,7 +7,7 @@ Execute:
 
 The UI now exposes:
 
-- version badge `v0.1.6`
+- version badge `v0.1.7`
 - SQLite-backed source polling audit
 - email alert path `/api/email-alerts`
 - SQLite de-duplication through `notification_log`

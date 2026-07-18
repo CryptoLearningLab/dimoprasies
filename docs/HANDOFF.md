@@ -506,7 +506,7 @@ The system `python` command is not present in the remote environment; use
 - SQLite runtime state tables now exist for source fingerprints/runs, permanent
   tender dismissals and notification-send de-duplication. The UI dismissal path
   writes to SQLite while still reading the legacy ignored-tenders JSON file.
-- The UI now displays version `v0.1.6` in the header. Source preflight writes
+- The UI now displays version `v0.1.7` in the header. Source preflight writes
   per-source state/run audit to SQLite and reads SQLite before the legacy
   fingerprint JSON. Errors and changed fingerprints are source-specific and
   do not automatically force global full-depth discovery.
@@ -537,6 +537,9 @@ The system `python` command is not present in the remote environment; use
 - Temporary source failures keep the previous successful fingerprint/token in
   SQLite while recording `ERROR`, so timeout/recovery cycles do not create
   false changed-source triggers.
+- Scheduled runs skip linked-candidate enrichment when discovery itself was
+  skipped, preventing stale enrichment retries from turning unchanged runs into
+  failures.
 
 ## Next Work
 
@@ -544,7 +547,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Deploy `v0.1.6`, run two consecutive droplet-side scheduled dry-run smokes to
+Deploy `v0.1.7`, run two consecutive droplet-side scheduled dry-run smokes to
 prove unchanged runs skip without bounded discovery/OpenAI calls, then configure
 production email env outside chat, run a controlled real-send smoke and enable
 the 6-hour systemd timer.

@@ -1469,12 +1469,16 @@ def run_scheduled_poll_and_alert(
     enrichment: dict[str, Any] = {"ok": True, "skipped": False}
     email_result: dict[str, Any] = {"ok": True, "skipped": False}
     if discovery.get("ok") is not False:
+        discovery_skipped = bool(discovery.get("skipped"))
         ai_result = run_incremental_ai_triage(scope=scope, sort=sort, batch_size=ai_batch_size)
         if ai_result.get("ok") is False:
             errors.append({"stage": "ai_triage", "message": str(ai_result.get("error") or "AI triage failed")})
-        enrichment = run_candidate_enrichment(scope=scope, limit=enrichment_limit)
-        if enrichment.get("ok") is False:
-            errors.append({"stage": "enrichment", "message": str(enrichment.get("error") or "candidate enrichment failed")})
+        if discovery_skipped:
+            enrichment = {"ok": True, "skipped": True, "skip_reason": "DISCOVERY_SKIPPED"}
+        else:
+            enrichment = run_candidate_enrichment(scope=scope, limit=enrichment_limit)
+            if enrichment.get("ok") is False:
+                errors.append({"stage": "enrichment", "message": str(enrichment.get("error") or "candidate enrichment failed")})
         try:
             email_result = run_email_alerts(scope=scope, sort=sort, recipient=recipient, dry_run=dry_run)
         except Exception as exc:

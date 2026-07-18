@@ -38,7 +38,7 @@ from tender_radar.ui_server import (
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.6" in INDEX_HTML
+    assert "v0.1.7" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -618,6 +618,56 @@ def test_scheduled_poll_skips_ai_when_all_rows_already_triaged(tmp_path, monkeyp
     assert result["skipped"] is True
     assert result["skip_reason"] == "NO_PENDING_AI_TRIAGE_ROWS"
     assert result["summary"]["kept_total"] == 1
+
+
+def test_scheduled_poll_skips_enrichment_when_discovery_skipped(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    monkeypatch.setattr(
+        ui_server,
+        "run_discovery_search",
+        lambda limit, backfill=False: {
+            "ok": True,
+            "skipped": True,
+            "source_preflight": {"changed_source_ids": []},
+            "steps": [],
+            "dashboard": {"summary": {"visible": 1}},
+        },
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "run_incremental_ai_triage",
+        lambda scope="focus", sort="deadline_asc", batch_size=20: {"ok": True, "skipped": True},
+    )
+
+    def fail_enrichment(*args, **kwargs):
+        raise AssertionError("scheduler should not enrich stale candidates when discovery was skipped")
+
+    monkeypatch.setattr(ui_server, "run_candidate_enrichment", fail_enrichment)
+    monkeypatch.setattr(
+        ui_server,
+        "run_email_alerts",
+        lambda scope="focus", sort="deadline_asc", recipient=None, dry_run=False: {
+            "ok": True,
+            "dry_run": dry_run,
+            "recipient": recipient,
+            "candidate_rows": 1,
+            "new_count": 1,
+            "skipped_already_sent": 0,
+            "sent": 0,
+        },
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "source_polling_payload",
+        lambda: {"summary": {}, "rows": [{"source_id": "eshidis_active_search", "last_status": "SKIPPED_UNCHANGED"}]},
+    )
+
+    payload = run_scheduled_poll_and_alert(dry_run=True)
+
+    assert payload["ok"] is True
+    assert payload["enrichment"]["skipped"] is True
+    assert payload["enrichment"]["error"] is None
 
 
 def test_ui_labels_bounded_and_backfill_discovery_modes() -> None:
