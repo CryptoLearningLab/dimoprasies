@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import date
 import json
 import time
 
@@ -38,6 +39,8 @@ def test_ui_has_separate_id_source_columns_and_kimdis_tool_input() -> None:
     assert "<th>Α/Α</th>" in INDEX_HTML
     assert "<th>Πηγή</th>" in INDEX_HTML
     assert "Α/Α / Πηγή" not in INDEX_HTML
+    assert 'id="sortSelect"' in INDEX_HTML
+    assert "knownTenderCount" not in INDEX_HTML
     assert 'id="kimdisInput"' in INDEX_HTML
     assert 'id="kimdisFetchBtn"' in INDEX_HTML
 
@@ -163,6 +166,115 @@ regions: []
     assert payload["tenders"][0]["download_url"] == "https://example.test/attachment/26PROC000000001"
     assert payload["tenders"][0]["supports_eshidis_actions"] is False
     assert payload["tenders"][0]["deadline_display"] == "24-07-2026 13:00"
+
+
+def test_dashboard_can_sort_by_budget_desc(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Πάτρα", "Πατρών"]
+    nuts: ["EL632"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        """
+{
+  "focus_open_proc_candidates": [
+    {
+      "source": "KIMDIS",
+      "record_type": "PROC",
+      "official_id": "26PROC000000001",
+      "title": "Μικρό έργο Πατρών",
+      "authority": "ΔΗΜΟΣ ΠΑΤΡΕΩΝ",
+      "budget": "1000.0",
+      "submission_deadline": "2026-07-24T13:00:00",
+      "matched_scopes": ["Δήμος Πατρέων"],
+      "status": "SUBMISSION_OPEN_CANDIDATE"
+    },
+    {
+      "source": "KIMDIS",
+      "record_type": "PROC",
+      "official_id": "26PROC000000002",
+      "title": "Μεγάλο έργο Πατρών",
+      "authority": "ΔΗΜΟΣ ΠΑΤΡΕΩΝ",
+      "budget": "9000.0",
+      "submission_deadline": "2026-07-25T10:00:00",
+      "matched_scopes": ["Δήμος Πατρέων"],
+      "status": "SUBMISSION_OPEN_CANDIDATE"
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+
+    by_deadline = dashboard_payload(scope="focus", sort="deadline_asc", as_of=date(2026, 7, 18))
+    by_budget = dashboard_payload(scope="focus", sort="budget_desc", as_of=date(2026, 7, 18))
+
+    assert [row["display_id"] for row in by_deadline["tenders"]] == ["26PROC000000001", "26PROC000000002"]
+    assert [row["display_id"] for row in by_budget["tenders"]] == ["26PROC000000002", "26PROC000000001"]
+
+
+def test_dashboard_hides_parseable_expired_rows(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Πάτρα", "Πατρών"]
+    nuts: ["EL632"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        """
+{
+  "focus_open_proc_candidates": [
+    {
+      "source": "KIMDIS",
+      "record_type": "PROC",
+      "official_id": "26PROC000000001",
+      "title": "Ληγμένο έργο Πατρών",
+      "authority": "ΔΗΜΟΣ ΠΑΤΡΕΩΝ",
+      "submission_deadline": "2026-07-17T13:00:00",
+      "matched_scopes": ["Δήμος Πατρέων"],
+      "status": "SUBMISSION_OPEN_CANDIDATE"
+    },
+    {
+      "source": "KIMDIS",
+      "record_type": "PROC",
+      "official_id": "26PROC000000002",
+      "title": "Ενεργό έργο Πατρών",
+      "authority": "ΔΗΜΟΣ ΠΑΤΡΕΩΝ",
+      "submission_deadline": "2026-07-19T10:00:00",
+      "matched_scopes": ["Δήμος Πατρέων"],
+      "status": "SUBMISSION_OPEN_CANDIDATE"
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+
+    payload = dashboard_payload(scope="focus", as_of=date(2026, 7, 18))
+
+    assert payload["summary"]["total_known"] == 2
+    assert payload["summary"]["visible"] == 1
+    assert payload["summary"]["expired_hidden"] == 1
+    assert payload["tenders"][0]["display_id"] == "26PROC000000002"
 
 
 def test_dashboard_exposes_local_kimdis_preview_and_download(tmp_path, monkeypatch) -> None:

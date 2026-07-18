@@ -272,6 +272,12 @@ That URL is temporary and should not be treated as stable infrastructure.
   checkbox. Backfill mode repeats discovery at increasing depth until it
   reaches ids from the previous successful run window or hits the configured
   maximum depth.
+- The first-page dashboard has operational sort controls. Default sort is by
+  nearest submission deadline; optional sort is by largest parsed budget.
+  Parseable expired rows are hidden from the first-page list, while unknown
+  deadlines remain visible to avoid missing candidates due to parsing gaps.
+  The internal `γνωστά στο σύστημα` metric is no longer shown in the UI,
+  though `total_known` remains in the API summary for diagnostics.
 
 ## Current Verification
 
@@ -284,7 +290,7 @@ Latest confirmed command:
 Result:
 
 ```text
-89 passed in 1.62s
+91 passed in 1.80s
 ```
 
 Latest KIMDIS PROC attachment fetch command:

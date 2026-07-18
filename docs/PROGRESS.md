@@ -720,6 +720,31 @@
 - Result: all repository configs OK.
 - `.venv/bin/python -m pytest`
 - Result: 89 passed in 1.62s.
+- First-page dashboard now supports explicit sort modes:
+  - default `deadline_asc`, showing the nearest parseable submission deadline
+    first;
+  - `budget_desc`, showing the largest parsed budget first.
+- The dashboard now hides rows with parseable deadlines before the current
+  date. Rows with unknown/unparseable deadlines remain visible to avoid losing
+  candidates because of source/parsing gaps.
+- The first-page metrics no longer show the internal `γνωστά στο σύστημα`
+  count. That value remains in the API summary for diagnostics, while the UI
+  focuses on the operational list count and local-interest count.
+- Runtime dashboard check:
+  `dashboard_payload(scope='focus', sort='deadline_asc')` returned
+  `total_known: 61`, `visible: 20`, `focus_matches: 20`, `expired_hidden: 2`;
+  first rows were ordered by deadlines `21-07-2026`, `23-07-2026`,
+  `23-07-2026`, `24-07-2026`.
+- Runtime dashboard check:
+  `dashboard_payload(scope='focus', sort='budget_desc')` returned the largest
+  parsed budgets first, starting with `26PROC019429074` at `8.949.999,99 EUR`.
+- Targeted verification:
+  `.venv/bin/python -m pytest tests/test_ui_server.py tests/test_cli.py`
+  returned `35 passed in 0.80s`.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m pytest`
+- Result: 91 passed in 1.80s.
 
 ## Coverage
 
@@ -797,6 +822,11 @@ official_resource_url_text_files_extracted: 10
 guarded_competition_text_files_checked: 1
 guarded_competition_text_files_extracted: 1
 kimdis_records_with_linked_eshidis_ids: 10
+ui_dashboard_sort_deadline_asc: true
+ui_dashboard_sort_budget_desc: true
+ui_dashboard_hides_parseable_expired_rows: true
+ui_dashboard_hides_known_total_metric: true
+ui_dashboard_expired_hidden_rows: 2
 ```
 
 ## Next Gate

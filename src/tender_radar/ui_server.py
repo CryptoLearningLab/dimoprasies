@@ -95,7 +95,8 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/dashboard":
             query = parse_qs(parsed.query)
             scope = query.get("scope", ["focus"])[0]
-            self._send_json(dashboard_payload(scope=scope))
+            sort = query.get("sort", ["deadline_asc"])[0]
+            self._send_json(dashboard_payload(scope=scope, sort=sort))
             return
         if parsed.path == "/api/document-preview":
             query = parse_qs(parsed.query)
@@ -754,19 +755,23 @@ def candidates_payload() -> dict[str, Any]:
     }
 
 
-def dashboard_payload(scope: str = "focus") -> dict[str, Any]:
+def dashboard_payload(scope: str = "focus", sort: str = "deadline_asc", as_of: date | None = None) -> dict[str, Any]:
     all_greece = scope == "all"
     profile = location_focus_profile()
     rows = merged_tender_rows()
-    visible_rows = rows if all_greece else [row for row in rows if row["interest_match"]]
+    active_rows = [row for row in rows if dashboard_row_is_active(row, as_of=as_of)]
+    visible_rows = active_rows if all_greece else [row for row in active_rows if row["interest_match"]]
+    visible_rows = sort_dashboard_rows(visible_rows, sort=sort)
     return {
         "scope": "all" if all_greece else "focus",
+        "sort": sort if sort in {"deadline_asc", "budget_desc"} else "deadline_asc",
         "profile": profile,
         "summary": {
             "total_known": len(rows),
             "visible": len(visible_rows),
-            "focus_matches": sum(1 for row in rows if row["interest_match"]),
+            "focus_matches": sum(1 for row in active_rows if row["interest_match"]),
             "verified_active": sum(1 for row in rows if row.get("verified_active")),
+            "expired_hidden": len(rows) - len(active_rows),
         },
         "tenders": visible_rows,
         "discovery_run": latest_discovery_run_payload(),
@@ -995,6 +1000,7 @@ def decorate_tender_row(row: dict[str, Any]) -> dict[str, Any]:
         "interest_match": bool(row.get("interest_match")) or is_interest_match(text),
         "interest_reason": row.get("interest_reason") or interest_reason(text),
         "budget_display": format_budget(row.get("budget_with_vat")),
+        "budget_sort": budget_sort_value(row.get("budget_with_vat")),
         "deadline_display": deadline_display(str(row.get("current_deadline_at") or row.get("submission_deadline") or "")),
         "deadline_sort": deadline_sort_key(str(row.get("current_deadline_at") or "")),
         "official_url": row.get("official_url") or (official_resource_url(eshidis_id) if eshidis_id else None),
@@ -1319,9 +1325,48 @@ def format_budget(value: object) -> str:
     return integer.replace(",", ".") + "," + decimals + " EUR"
 
 
+def budget_sort_value(value: object) -> float | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    return greek_number_to_float(str(value)) if "," in str(value) else _float_or_none(value)
+
+
 def extract_region(row_text: str) -> str | None:
     match = re.search(r"(EL\d{3}\s+-\s+[^Υ]+?)(?:\s+ΥΠΟΒΟΛΗ|\s+ΣΕ\s+|\s+ΕΛΕΓΧΟΣ|$)", row_text)
     return re.sub(r"\s+", " ", match.group(1)).strip() if match else None
+
+
+def sort_dashboard_rows(rows: list[dict[str, Any]], *, sort: str) -> list[dict[str, Any]]:
+    if sort == "budget_desc":
+        return sorted(
+            rows,
+            key=lambda row: (
+                row.get("budget_sort") is None,
+                -(float(row.get("budget_sort") or 0)),
+                row.get("deadline_sort") or "9999",
+                row.get("display_id") or "",
+            ),
+        )
+    return sorted(rows, key=lambda row: (row.get("deadline_sort") or "9999", row.get("display_id") or ""))
+
+
+def dashboard_row_is_active(row: dict[str, Any], *, as_of: date | None = None) -> bool:
+    deadline = deadline_date(str(row.get("current_deadline_at") or row.get("submission_deadline") or ""))
+    if deadline is None:
+        return True
+    return deadline >= (as_of or date.today())
+
+
+def deadline_date(value: str) -> date | None:
+    sort_key = deadline_sort_key(value)
+    if sort_key == "9999":
+        return None
+    try:
+        return date.fromisoformat(sort_key[:10])
+    except ValueError:
+        return None
 
 
 def deadline_sort_key(value: str) -> str:
@@ -1342,6 +1387,13 @@ def deadline_display(value: str) -> str:
         year, month, day, time = iso_match.groups()
         return f"{day}-{month}-{year} {time}"
     return value
+
+
+def _float_or_none(value: object) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def official_resource_url(eshidis_id: str) -> str:
@@ -1475,6 +1527,12 @@ INDEX_HTML = """<!doctype html>
         </label>
         <div class="toolbar inlineToolbar">
           <label>Βάθος ΕΣΗΔΗΣ <input id="limitInput" type="number" min="1" max="500" value="100"></label>
+          <label>Ταξινόμηση
+            <select id="sortSelect">
+              <option value="deadline_asc">Λήγει πιο άμεσα</option>
+              <option value="budget_desc">Μεγαλύτερος προϋπολογισμός</option>
+            </select>
+          </label>
           <label class="switchLine inlineSwitch">
             <input id="backfillToggle" type="checkbox">
             <span>Backfill safety</span>
@@ -1486,7 +1544,6 @@ INDEX_HTML = """<!doctype html>
       <div class="metrics">
         <div><span id="visibleTenderCount">0</span><small>έργα στη λίστα</small></div>
         <div><span id="focusTenderCount">0</span><small>ταιριάζουν στην περιοχή</small></div>
-        <div><span id="knownTenderCount">0</span><small>γνωστά στο σύστημα</small></div>
       </div>
 
       <div class="workspace">
@@ -1793,7 +1850,7 @@ textarea {
 }
 .metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -2197,7 +2254,8 @@ function fillSelect(id, values) {
 
 async function loadDashboard() {
   const scope = $('allGreeceToggle').checked ? 'all' : 'focus';
-  const payload = await api(`/api/dashboard?scope=${scope}`);
+  const sort = $('sortSelect').value || 'deadline_asc';
+  const payload = await api(`/api/dashboard?scope=${scope}&sort=${sort}`);
   state.dashboard = payload;
   renderDashboard(payload);
 }
@@ -2205,7 +2263,6 @@ async function loadDashboard() {
 function renderDashboard(payload) {
   $('visibleTenderCount').textContent = payload.summary.visible || 0;
   $('focusTenderCount').textContent = payload.summary.focus_matches || 0;
-  $('knownTenderCount').textContent = payload.summary.total_known || 0;
   const municipalityText = (payload.profile.municipalities || []).join(', ');
   $('scopeText').textContent = payload.scope === 'all'
     ? 'Προβολή όλων των γνωστών/discovered έργων. Η πληρότητα παραμένει μετρήσιμη, όχι δεδομένη.'
@@ -2578,6 +2635,7 @@ function deleteRule() {
 
 $('refreshBtn').addEventListener('click', refresh);
 $('allGreeceToggle').addEventListener('change', () => loadDashboard().catch((error) => { $('statusText').textContent = String(error); }));
+$('sortSelect').addEventListener('change', () => loadDashboard().catch((error) => { $('statusText').textContent = String(error); }));
 $('discoverBtn').addEventListener('click', () => {
   const backfill = $('backfillToggle').checked;
   runAction(
