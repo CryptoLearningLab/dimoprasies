@@ -506,7 +506,7 @@ The system `python` command is not present in the remote environment; use
 - SQLite runtime state tables now exist for source fingerprints/runs, permanent
   tender dismissals and notification-send de-duplication. The UI dismissal path
   writes to SQLite while still reading the legacy ignored-tenders JSON file.
-- The UI now displays version `v0.1.4` in the header. Source preflight writes
+- The UI now displays version `v0.1.5` in the header. Source preflight writes
   per-source state/run audit to SQLite and reads SQLite before the legacy
   fingerprint JSON. Errors and changed fingerprints are source-specific and
   do not automatically force global full-depth discovery.
@@ -531,6 +531,9 @@ The system `python` command is not present in the remote environment; use
   visible, scheduled dry-run `ok true`, AI triage `skipped true`, elapsed about
   33 seconds. The timer is installed but disabled/inactive because SMTP/email
   env keys are missing.
+- `eshidis_active_search` preflight now uses the latest
+  `eshidis_active_candidates.json` candidate snapshot as its stable cheap
+  fingerprint when available, instead of volatile browser landing-page HTML.
 
 ## Next Work
 
@@ -538,7 +541,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Stabilize the `eshidis_active_search` scheduler fingerprint so unchanged runs
-skip without bounded discovery/OpenAI calls, then configure production email env
-outside chat, run a controlled real-send smoke and enable the 6-hour systemd
-timer.
+Deploy `v0.1.5`, run two consecutive droplet-side scheduled dry-run smokes to
+prove unchanged runs skip without bounded discovery/OpenAI calls, then configure
+production email env outside chat, run a controlled real-send smoke and enable
+the 6-hour systemd timer.

@@ -1043,7 +1043,7 @@ def run_discovery_search(*, limit: int, backfill: bool = False) -> dict[str, Any
             pass_ok = expanded_result.get("returncode") == 0 and not warnings and record.get("success") is True
             if not backfill:
                 if pass_ok and preflight and preflight.get("current"):
-                    save_source_fingerprint(preflight["current"])
+                    save_source_fingerprint(quick_source_fingerprint(timeout_seconds=8))
                 response = discovery_response(results, warnings, pass_ok, records, preflight)
                 response["linked_eshidis_enrichment"] = linked_enrichment
                 return response
@@ -1830,6 +1830,7 @@ def configured_source_entries(config: dict[str, Any]) -> list[dict[str, Any]]:
 def _configured_source_fingerprint(source: dict[str, Any], *, timeout_seconds: int) -> dict[str, Any]:
     source_group = str(source.get("source_group") or "")
     source_type = str(source.get("type") or "")
+    source_id = str(source.get("id") or "")
     if source_type == "url_template":
         return {
             "source_id": source.get("id"),
@@ -1841,11 +1842,56 @@ def _configured_source_fingerprint(source: dict[str, Any], *, timeout_seconds: i
             "reachable": None,
             "token": source.get("url"),
         }
+    if source_id == "eshidis_active_search":
+        cached = _eshidis_active_report_fingerprint(source)
+        if cached is not None:
+            return cached
     if source_group == "global_sources":
         if source_type == "api_post":
             return _kimdis_global_fingerprint(source, timeout_seconds=timeout_seconds)
         return _html_source_fingerprint(source, timeout_seconds=timeout_seconds)
     return _authority_source_fingerprint(source, timeout_seconds=timeout_seconds)
+
+
+def _eshidis_active_report_fingerprint(source: dict[str, Any]) -> dict[str, Any] | None:
+    path = REPO_ROOT / "work/reports/eshidis_active_candidates.json"
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    candidates = [candidate for candidate in payload.get("candidates") or [] if isinstance(candidate, dict)]
+    stable_candidates = [
+        {
+            "eshidis_id": candidate.get("eshidis_id"),
+            "title": candidate.get("title"),
+            "authority": candidate.get("authority"),
+            "deadline": candidate.get("submission_deadline"),
+            "published_at": candidate.get("published_at"),
+        }
+        for candidate in candidates[:25]
+    ]
+    coverage = payload.get("coverage") if isinstance(payload.get("coverage"), dict) else {}
+    token_payload = {
+        "candidate_status": payload.get("candidate_status"),
+        "top_candidates": stable_candidates,
+        "candidates_found": coverage.get("candidates_found"),
+    }
+    token = hashlib.sha256(json.dumps(token_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    return {
+        "source_id": source.get("id"),
+        "source_group": source.get("source_group"),
+        "adapter": source.get("type") or source.get("adapter") or "web_app",
+        "url": source.get("url"),
+        "status": "CACHED_DISCOVERY_WATERMARK",
+        "attempted": False,
+        "reachable": True,
+        "token": token,
+        "count_hint": len(candidates),
+    }
 
 
 def _kimdis_global_fingerprint(source: dict[str, Any], *, timeout_seconds: int) -> dict[str, Any]:

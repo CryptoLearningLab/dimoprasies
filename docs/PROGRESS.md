@@ -1862,6 +1862,37 @@ Limitations observed:
   now a 30-second-class operation in the observed smoke, not a 5-minute AI
   rerun, and should be stabilized further with a better ESHIDIS watermark.
 
+### UI v0.1.5 ESHIDIS scheduler fingerprint stabilization
+
+Implemented behavior:
+
+- Bumped the application version from `0.1.4` to `0.1.5`.
+- `eshidis_active_search` source preflight now uses the latest
+  `work/reports/eshidis_active_candidates.json` candidate snapshot as its cheap
+  fingerprint when that report exists.
+- The fingerprint is built from stable candidate evidence: top ESHIDIS ids,
+  titles, authorities, deadlines/publication dates and candidate count.
+- This prevents transient browser page noise, session ids or timeout behavior
+  from forcing bounded ESHIDIS discovery when no new active candidate snapshot
+  has been produced.
+- After a successful bounded discovery pass, the stored source fingerprint is
+  refreshed from the updated candidate report so the next scheduled run can
+  skip cleanly.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_eshidis_active_preflight_uses_cached_candidate_report tests/test_ui_server.py::test_discovery_preflight_uses_sqlite_source_state_before_json tests/test_ui_server.py::test_discovery_selectively_refreshes_eshidis_only_when_eshidis_source_changed tests/test_ui_server.py::test_scheduled_poll_skips_ai_when_all_rows_already_triaged
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted ESHIDIS scheduler tests: 4 passed
+full test suite: 153 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

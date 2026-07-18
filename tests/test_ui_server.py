@@ -38,7 +38,7 @@ from tender_radar.ui_server import (
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.4" in INDEX_HTML
+    assert "v0.1.5" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -148,6 +148,54 @@ authority_adapters:
         "template_total": 1,
         "error_total": 0,
     }
+
+
+def test_eshidis_active_preflight_uses_cached_candidate_report(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/sources.yml").write_text(
+        """
+global_sources:
+  - id: eshidis_active_search
+    type: web_app
+    url: https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/faces/active_search_main.jspx
+""".strip(),
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/eshidis_active_candidates.json").write_text(
+        json.dumps(
+            {
+                "candidate_status": "DISCOVERED_ACTIVE_CANDIDATE",
+                "coverage": {"candidates_found": 1},
+                "candidates": [
+                    {
+                        "eshidis_id": "221744",
+                        "title": "Συντηρήσεις οδικού δικτύου",
+                        "authority": "Δήμος",
+                        "submission_deadline": "2026-08-20 10:00",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    def fail_urlopen(*args, **kwargs):
+        raise AssertionError("ESHIDIS preflight should use cached report instead of opening the web app")
+
+    monkeypatch.setattr(ui_server, "urlopen", fail_urlopen)
+
+    result = quick_source_fingerprint(timeout_seconds=1)
+    source = result["sources"][0]
+
+    assert result["source_count"]["attempted_total"] == 1
+    assert result["source_count"]["reached_total"] == 1
+    assert source["source_id"] == "eshidis_active_search"
+    assert source["status"] == "CACHED_DISCOVERY_WATERMARK"
+    assert source["attempted"] is False
+    assert source["count_hint"] == 1
 
 
 def test_discovery_preflight_skips_when_only_failed_sources_are_degraded(tmp_path, monkeypatch) -> None:

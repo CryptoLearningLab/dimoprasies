@@ -442,3 +442,17 @@ new/skipped/sent counts. Existing row-key AI decisions are reused, so the
 scheduled job sends only untriaged current dashboard rows to OpenAI.
 Full-depth/backfill discovery remains an explicit manual action, not the
 default 6-hour schedule.
+
+## D-045 - ESHIDIS scheduled preflight uses candidate snapshots
+**Status:** Accepted
+
+The `eshidis_active_search` browser page is not a stable cheap fingerprint
+source because session ids, page markup and timeouts can change without a new
+tender. Scheduled source preflight therefore uses the latest
+`eshidis_active_candidates.json` candidate snapshot as the cheap fingerprint
+when available.
+
+This makes the 6-hour scheduler skip ESHIDIS discovery unless a new candidate
+snapshot has actually been produced by an explicit or successful discovery run.
+It is a pragmatic runtime optimization; full/backfill discovery remains
+available as an explicit manual operation.
