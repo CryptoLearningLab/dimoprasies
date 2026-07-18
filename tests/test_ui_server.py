@@ -10,6 +10,7 @@ from tender_radar.ui_server import (
     DEFAULT_KIMDIS_DISCOVERY_PAGES,
     INDEX_HTML,
     content_type_for_path,
+    configured_source_entries,
     dashboard_payload,
     document_zip_bytes,
     discovery_search_steps,
@@ -19,6 +20,7 @@ from tender_radar.ui_server import (
     kimdis_document_preview_payload,
     parse_budget_from_row_text,
     preview_kind,
+    quick_source_fingerprint,
     run_discovery_search,
     run_selected_fetch,
     short_text_sample,
@@ -51,6 +53,67 @@ def test_ui_uses_safer_discovery_defaults() -> None:
     expanded_args = steps[1]["args"]
     assert expanded_args[expanded_args.index("--kimdis-pages") + 1] == str(DEFAULT_KIMDIS_DISCOVERY_PAGES)
     assert DEFAULT_KIMDIS_DISCOVERY_PAGES == 20
+
+
+def test_configured_source_entries_include_global_and_authority_sources() -> None:
+    config = {
+        "global_sources": [{"id": "eshidis_active_search"}, {"id": "khmdhs_notice"}],
+        "authority_adapters": [{"id": "epatras_tenders"}],
+    }
+
+    entries = configured_source_entries(config)
+
+    assert [entry["id"] for entry in entries] == ["eshidis_active_search", "khmdhs_notice", "epatras_tenders"]
+    assert [entry["source_group"] for entry in entries] == [
+        "global_sources",
+        "global_sources",
+        "authority_adapters",
+    ]
+
+
+def test_quick_source_fingerprint_counts_configured_attempted_and_template_sources(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/sources.yml").write_text(
+        """
+global_sources:
+  - id: global_web
+    type: web
+    url: https://example.test/root
+  - id: template
+    type: url_template
+    url: https://example.test/item/{ID}
+authority_adapters:
+  - id: authority
+    adapter: html_listing
+    url: https://example.test/list
+""".strip(),
+        encoding="utf-8",
+    )
+
+    class Response:
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self, *_args):
+            return b"<html><a href='/tender.pdf'>PDF</a></html>"
+
+    monkeypatch.setattr(ui_server, "urlopen", lambda request, timeout=None: Response())
+
+    result = quick_source_fingerprint(timeout_seconds=1)
+
+    assert result["source_count"] == {
+        "configured_total": 3,
+        "attempted_total": 2,
+        "reached_total": 2,
+        "template_total": 1,
+        "error_total": 0,
+    }
 
 
 def test_ui_labels_bounded_and_backfill_discovery_modes() -> None:
@@ -1006,6 +1069,68 @@ def test_discovery_runs_when_source_fingerprint_changed(tmp_path, monkeypatch) -
 
     assert result.get("skipped") is not True
     assert [args[:2] for args in calls] == [["sources", "discover-active"], ["sources", "expanded-report"]]
+
+
+def test_discovery_full_refreshes_when_nonselective_global_source_changed(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text("timezone: Europe/Athens\nmunicipalities: []\nregions: []\n", encoding="utf-8")
+    (tmp_path / "config/sources.yml").write_text("authority_adapters: []\n", encoding="utf-8")
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps({"focus_authority_candidates": [], "focus_open_proc_candidates": []}),
+        encoding="utf-8",
+    )
+    ui_server.save_source_fingerprint(
+        {
+            "ok": True,
+            "hash": "old",
+            "sources": [{"source_id": "eshidis_active_search", "adapter": "web_app", "token": "old"}],
+            "errors": [],
+        }
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "quick_source_fingerprint",
+        lambda timeout_seconds=8: {
+            "ok": True,
+            "hash": "new",
+            "sources": [{"source_id": "eshidis_active_search", "adapter": "web_app", "token": "new"}],
+            "errors": [],
+        },
+    )
+    calls = []
+
+    def fake_run_cli_process(args, *, timeout):
+        calls.append(args)
+        if args[:2] == ["sources", "discover-active"]:
+            (tmp_path / "work/reports/eshidis_active_candidates.json").write_text(
+                json.dumps({"candidates": []}),
+                encoding="utf-8",
+            )
+        if args[:2] == ["sources", "expanded-report"]:
+            (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+                json.dumps(
+                    {
+                        "summary": {"errors": 0, "total_candidates": 0, "focus_candidates": 0},
+                        "all_candidates": [],
+                        "focus_open_proc_candidates": [],
+                        "focus_candidates": [],
+                        "source_pages": [],
+                        "errors": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+        return {"ok": True, "returncode": 0, "command": " ".join(args), "stdout": '{"summary": {"errors": 0}}', "stderr": ""}
+
+    monkeypatch.setattr(ui_server, "run_cli_process", fake_run_cli_process)
+
+    result = run_discovery_search(limit=100)
+
+    assert result["ok"] is True
+    assert [args[:2] for args in calls] == [["sources", "discover-active"], ["sources", "expanded-report"]]
+    assert result["source_preflight"]["changed_source_ids"] == ["eshidis_active_search"]
 
 
 def test_discovery_skips_when_successful_sources_are_unchanged_with_preflight_errors(tmp_path, monkeypatch) -> None:

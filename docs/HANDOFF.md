@@ -439,6 +439,14 @@ The system `python` command is not present in the remote environment; use
   `2.2`, official ESHIDIS URLs and economic-offer-form system numbers. A
   single-row AI smoke succeeded, but full-list AI refresh currently needs a
   progress/partial-write job before being reliable for large lists.
+- The UI source preflight now counts every configured `config/sources.yml`
+  entry before discovery: current configuration is 31 entries, with 27 directly
+  attempted endpoints and 4 `url_template` entries that require a known
+  official id. The API exposes configured/attempted/reached/template/error
+  totals and reports live failures instead of hiding them.
+- Selective refresh is only used for changed source ids that have a selective
+  refresh path. If a non-selective global source changes, the UI runs full
+  discovery.
 
 ## Next Work
 

@@ -1352,6 +1352,59 @@ AI full-list refresh note:
   a dedicated title/document enrichment job before it should be used for long
   runs from the UI.
 
+### Hotfix - Search button source preflight counts all configured sources
+
+The UI `Νέα αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ` path now preflights every configured
+entry in `config/sources.yml`, not only the previous KIMDIS notice plus
+authority subset.
+
+Implemented behavior:
+
+- Source preflight builds its worklist from both `global_sources` and
+  `authority_adapters`.
+- URL templates are counted as configured sources but marked
+  `REQUIRES_IDENTIFIER` and not called without a known official id.
+- The API response now includes `source_count` with configured, attempted,
+  reached, template and error totals.
+- Selective refresh is used only for changed source ids that the UI can
+  refresh selectively. If a non-selective global source changes, the UI falls
+  back to full discovery instead of pretending the selective path covered it.
+
+Live preflight on `2026-07-18`:
+
+```text
+configured_total: 31
+attempted_total: 27
+reached_total: 24
+template_total: 4
+error_total: 3
+```
+
+Errors in that live run:
+
+```text
+diavgeia_messolonghi: HTTP Error 503: Service Temporarily Unavailable
+diavgeia_pste: HTTP Error 503: Service Temporarily Unavailable
+eshidis_active_search: The read operation timed out
+```
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py
+.venv/bin/python -c "from tender_radar.ui_server import quick_source_fingerprint; import json; p=quick_source_fingerprint(timeout_seconds=8); print(json.dumps({'ok': p['ok'], 'source_count': p.get('source_count'), 'errors': p.get('errors', [])[:10]}, ensure_ascii=False, indent=2)); print('sources_len', len(p.get('sources', [])))"
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted tests: 39 passed
+live source preflight: 31 configured, 27 attempted, 24 reached, 4 templates,
+  3 errors
+full test suite: 122 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

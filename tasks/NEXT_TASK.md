@@ -7,6 +7,9 @@ Execute:
 
 The daily dashboard now uses source fingerprint preflight, selective
 non-ESHIDIS refresh and canonical ESHIDIS duplicate suppression.
+The preflight counts all configured source entries: 31 configured entries in
+the current `config/sources.yml`, 27 directly attempted endpoints and 4
+identifier templates.
 
 Generic PDE landing rows such as `Έργα & Δράσεις` /
 `https://pde.gov.gr/el/erga-drasis/` are excluded from the dashboard.

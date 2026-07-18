@@ -639,13 +639,13 @@ def run_discovery_search(*, limit: int, backfill: bool = False) -> dict[str, Any
             if not backfill:
                 if pass_ok and preflight and preflight.get("current", {}).get("ok"):
                     save_source_fingerprint(preflight["current"])
-                return discovery_response(results, warnings, pass_ok, records)
+                return discovery_response(results, warnings, pass_ok, records, preflight)
             if record.get("watermark", {}).get("complete"):
                 if pass_ok and preflight and preflight.get("current", {}).get("ok"):
                     save_source_fingerprint(preflight["current"])
-                return discovery_response(results, warnings, pass_ok, records)
+                return discovery_response(results, warnings, pass_ok, records, preflight)
             if current_limit >= MAX_BACKFILL_ESHIDIS_LIMIT and current_kimdis_pages >= MAX_BACKFILL_KIMDIS_PAGES:
-                return discovery_response(results, warnings, False, records)
+                return discovery_response(results, warnings, False, records, preflight)
             current_limit = min(MAX_BACKFILL_ESHIDIS_LIMIT, max(current_limit + 1, current_limit * 2))
             current_kimdis_pages = min(MAX_BACKFILL_KIMDIS_PAGES, max(current_kimdis_pages + 1, current_kimdis_pages * 2))
     except subprocess.TimeoutExpired as exc:
@@ -777,16 +777,14 @@ def quick_source_fingerprint(*, timeout_seconds: int = 8) -> dict[str, Any]:
     config = load_config(config_path) if config_path.exists() else {}
     sources: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
-    tasks = [("khmdhs_notice", lambda: _kimdis_notice_fingerprint(timeout_seconds=timeout_seconds))]
-    for source in config.get("authority_adapters") or []:
-        if not isinstance(source, dict):
-            continue
-        tasks.append(
-            (
-                str(source.get("id") or "unknown"),
-                lambda source=source: _authority_source_fingerprint(source, timeout_seconds=timeout_seconds),
-            )
+    entries = configured_source_entries(config)
+    tasks = [
+        (
+            str(entry.get("id") or "unknown"),
+            lambda entry=entry: _configured_source_fingerprint(entry, timeout_seconds=timeout_seconds),
         )
+        for entry in entries
+    ]
     with ThreadPoolExecutor(max_workers=max(1, len(tasks))) as executor:
         future_sources = {executor.submit(task): source_id for source_id, task in tasks}
         for future in as_completed(future_sources):
@@ -796,6 +794,7 @@ def quick_source_fingerprint(*, timeout_seconds: int = 8) -> dict[str, Any]:
             except Exception as exc:  # pragma: no cover - defensive network boundary
                 errors.append({"source": source_id, "message": str(exc)})
     stable_sources = sorted(sources, key=lambda item: str(item.get("source_id") or ""))
+    template_total = sum(1 for item in stable_sources if item.get("status") == "REQUIRES_IDENTIFIER")
     digest = hashlib.sha256(json.dumps(stable_sources, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
     return {
         "ok": not errors,
@@ -803,15 +802,57 @@ def quick_source_fingerprint(*, timeout_seconds: int = 8) -> dict[str, Any]:
         "hash": digest,
         "sources": stable_sources,
         "errors": errors,
+        "source_count": {
+            "configured_total": len(entries),
+            "attempted_total": len(entries) - template_total,
+            "reached_total": sum(1 for item in stable_sources if item.get("reachable") is True),
+            "template_total": template_total,
+            "error_total": len(errors),
+        },
         "status_note": "Cheap source fingerprint; unchanged means expensive discovery can reuse cached reports.",
     }
 
 
-def _kimdis_notice_fingerprint(*, timeout_seconds: int) -> dict[str, Any]:
-    url = "https://cerpp.eprocurement.gov.gr/khmdhs-opendata/notice?page=0"
+def configured_source_entries(config: dict[str, Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for source in config.get("global_sources") or []:
+        if isinstance(source, dict):
+            entries.append({**source, "source_group": "global_sources"})
+    for source in config.get("authority_adapters") or []:
+        if isinstance(source, dict):
+            entries.append({**source, "source_group": "authority_adapters"})
+    return entries
+
+
+def _configured_source_fingerprint(source: dict[str, Any], *, timeout_seconds: int) -> dict[str, Any]:
+    source_group = str(source.get("source_group") or "")
+    source_type = str(source.get("type") or "")
+    if source_type == "url_template":
+        return {
+            "source_id": source.get("id"),
+            "source_group": source_group,
+            "adapter": source_type,
+            "url": source.get("url"),
+            "status": "REQUIRES_IDENTIFIER",
+            "attempted": False,
+            "reachable": None,
+            "token": source.get("url"),
+        }
+    if source_group == "global_sources":
+        if source_type == "api_post":
+            return _kimdis_global_fingerprint(source, timeout_seconds=timeout_seconds)
+        return _html_source_fingerprint(source, timeout_seconds=timeout_seconds)
+    return _authority_source_fingerprint(source, timeout_seconds=timeout_seconds)
+
+
+def _kimdis_global_fingerprint(source: dict[str, Any], *, timeout_seconds: int) -> dict[str, Any]:
+    url = str(source.get("url") or "").replace("{PAGE}", "0")
+    body: dict[str, Any] = {}
+    if source.get("contract_type"):
+        body["contractType"] = str(source.get("contract_type"))
     request = Request(
         url,
-        data=json.dumps({"contractType": "10"}).encode("utf-8"),
+        data=json.dumps(body).encode("utf-8"),
         headers={"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "TenderRadar/0.1 source-preflight"},
         method="POST",
     )
@@ -820,8 +861,13 @@ def _kimdis_notice_fingerprint(*, timeout_seconds: int) -> dict[str, Any]:
     content = payload.get("content") if isinstance(payload.get("content"), list) else []
     first = content[0] if content and isinstance(content[0], dict) else {}
     return {
-        "source_id": "khmdhs_notice",
+        "source_id": source.get("id"),
+        "source_group": source.get("source_group"),
         "adapter": "api_post",
+        "url": url,
+        "status": "REACHED",
+        "attempted": True,
+        "reachable": True,
         "token": first.get("referenceNumber"),
         "date": first.get("submissionDate") or first.get("finalSubmissionDate"),
         "count_hint": len(content),
@@ -853,8 +899,12 @@ def _json_source_fingerprint(source: dict[str, Any], *, timeout_seconds: int) ->
     first = _first_json_item(payload)
     return {
         "source_id": source.get("id"),
+        "source_group": source.get("source_group"),
         "adapter": source.get("adapter"),
         "url": url,
+        "status": "REACHED",
+        "attempted": True,
+        "reachable": True,
         "token": first.get("id") or first.get("ada") or first.get("decisionId") or first.get("link"),
         "date": first.get("modified") or first.get("date") or first.get("submissionTimestamp") or first.get("issueDate"),
     }
@@ -875,7 +925,11 @@ def _ted_source_fingerprint(source: dict[str, Any], *, timeout_seconds: int) -> 
     first = _first_json_item(payload)
     return {
         "source_id": source.get("id"),
+        "source_group": source.get("source_group"),
         "adapter": source.get("adapter"),
+        "status": "REACHED",
+        "attempted": True,
+        "reachable": True,
         "token": first.get("publication-number") or first.get("notice-id") or first.get("id"),
         "date": first.get("publication-date"),
     }
@@ -891,8 +945,12 @@ def _html_source_fingerprint(source: dict[str, Any], *, timeout_seconds: int) ->
     token = headers.get("ETag") or headers.get("Last-Modified") or _html_listing_token(text)
     return {
         "source_id": source.get("id"),
+        "source_group": source.get("source_group"),
         "adapter": source.get("adapter"),
         "url": url,
+        "status": "REACHED",
+        "attempted": True,
+        "reachable": True,
         "token": token,
     }
 
@@ -947,8 +1005,9 @@ def discovery_response(
     warnings: list[dict[str, Any]],
     ok: bool,
     records: list[dict[str, Any]],
+    source_preflight: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "ok": ok,
         "command": " && ".join(item["command"] for item in results),
         "steps": results,
@@ -959,6 +1018,9 @@ def discovery_response(
         "discovery_run": records[-1] if records else None,
         "dashboard": dashboard_payload(scope="focus"),
     }
+    if source_preflight is not None:
+        payload["source_preflight"] = source_preflight
+    return payload
 
 
 def record_discovery_pass(
@@ -1002,7 +1064,13 @@ def discovery_search_steps(
     steps: list[dict[str, Any]] = []
     changed_source_ids = set(source_preflight.get("changed_source_ids") or []) if source_preflight else set()
     has_previous_baseline = bool(source_preflight and source_preflight.get("previous_hash"))
-    selective_refresh = selective and has_previous_baseline and bool(changed_source_ids)
+    selective_capable_ids = {"khmdhs_notice"} | authority_source_ids_from_config()
+    selective_refresh = (
+        selective
+        and has_previous_baseline
+        and bool(changed_source_ids)
+        and changed_source_ids <= selective_capable_ids
+    )
     if not selective_refresh:
         steps.append(
             {
