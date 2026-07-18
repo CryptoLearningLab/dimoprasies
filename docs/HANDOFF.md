@@ -394,6 +394,12 @@ The system `python` command is not present in the remote environment; use
   SQLite ESHIDIS attachment model.
 - User-dismissed dashboard rows are stored in
   `work/derived/ignored_tenders.json` and skipped by row key.
+- OpenAI API key setup exists locally in ignored `.env.local`. The new
+  `sources ai-triage-report` command performs advisory AI classification over
+  current dashboard rows and writes `work/reports/ai_triage_report.*`.
+- Latest AI triage dry run on the 128 visible focus rows kept/reviewed 39
+  rows and proposed dropping 89 rows, with 0 errors. The result is not yet
+  enforced in the dashboard.
 
 ## Next Work
 
@@ -401,7 +407,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Harden authority discovery quality now that broad source coverage is present:
-prioritize tender-like authority rows, suppress low-value decision/context rows
-from the main daily view unless they carry explicit KIMDIS/ESHIDIS evidence,
-and add source-family pagination/backfill metrics.
+Integrate advisory triage into the daily UI safely: load cached
+`ai_triage_report` results, show keep/review rows by default, expose a toggle
+for dropped/admin/source-context rows, and keep all raw source records in
+reports/provenance.

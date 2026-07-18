@@ -1006,6 +1006,53 @@ expanded report: 3123 total candidates, 385 focus candidates, 108 authority cand
 dashboard focus payload: 148 total_known, 128 visible, 1 expired_hidden, 2 ignored
 ```
 
+## Latest Update - 2026-07-18 AI Discovery Triage Dry Run
+
+Added an advisory OpenAI-backed triage command for the current dashboard
+discovery rows:
+
+```bash
+.venv/bin/python -m tender_radar sources ai-triage-report --scope focus --batch-size 20 --timeout 90 --report work/reports/ai_triage_report.json --markdown-report work/reports/ai_triage_report.md
+```
+
+The command reads the existing dashboard payload, sends compact row summaries
+and deterministic signals to the OpenAI Responses API using structured JSON
+output, and writes JSON/Markdown reports under `work/reports/`. It does not
+delete rows, mutate source records, merge records by title, or promote anything
+to `VERIFIED_ACTIVE`.
+
+Dry-run result against the current focus dashboard:
+
+```text
+dashboard input: 148 total_known, 128 visible, 1 expired_hidden, 2 ignored
+AI triage rows: 128
+KEEP_ACTIVE_TENDER: 17
+REVIEW_TENDER_CANDIDATE: 18
+EARLY_SIGNAL: 4
+DROP_OUT_OF_SCOPE_SUPPLY_SERVICE: 39
+DROP_ADMIN: 47
+DROP_NOT_PUBLIC_WORKS: 3
+kept/review/early total: 39
+dropped total: 89
+errors: 0
+```
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ai_triage.py tests/test_cli.py tests/test_ui_server.py
+.venv/bin/python -m pytest tests/test_ai_triage.py tests/test_cli.py
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted tests after initial implementation: 41 passed
+targeted tests after structured-output hardening: 13 passed
+full test suite: 106 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

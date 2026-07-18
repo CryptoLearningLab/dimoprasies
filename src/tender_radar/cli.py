@@ -181,6 +181,25 @@ def build_parser() -> argparse.ArgumentParser:
         default="work/reports/expanded_discovery_report.md",
         help="Markdown report output path.",
     )
+    ai_triage = sources_sub.add_parser(
+        "ai-triage-report",
+        help="Run advisory OpenAI triage over the current dashboard discovery rows.",
+    )
+    ai_triage.add_argument("--scope", choices=["focus", "all"], default="focus", help="Dashboard scope to triage.")
+    ai_triage.add_argument("--sort", choices=["deadline_asc", "budget_desc"], default="deadline_asc")
+    ai_triage.add_argument("--model", default=None, help="OpenAI model; defaults to OPENAI_MODEL or gpt-4.1-mini.")
+    ai_triage.add_argument("--batch-size", type=int, default=20, help="Rows per OpenAI request.")
+    ai_triage.add_argument("--timeout", type=int, default=60, help="OpenAI request timeout in seconds.")
+    ai_triage.add_argument(
+        "--report",
+        default="work/reports/ai_triage_report.json",
+        help="JSON report output path.",
+    )
+    ai_triage.add_argument(
+        "--markdown-report",
+        default="work/reports/ai_triage_report.md",
+        help="Markdown report output path.",
+    )
     kimdis_fetch = sources_sub.add_parser(
         "fetch-kimdis-open-proc",
         help="Fetch official attachments for open KIMDIS PROC candidates from an expanded report.",
@@ -357,6 +376,8 @@ def main(argv: list[str] | None = None) -> int:
         return _sources_audit_whitelist(args)
     if args.command == "sources" and args.sources_command == "expanded-report":
         return _sources_expanded_report(args)
+    if args.command == "sources" and args.sources_command == "ai-triage-report":
+        return _sources_ai_triage_report(args)
     if args.command == "sources" and args.sources_command == "fetch-kimdis-open-proc":
         return _sources_fetch_kimdis_open_proc(args)
     if args.command == "sources" and args.sources_command == "discover-active":
@@ -448,6 +469,33 @@ def _sources_expanded_report(args: argparse.Namespace) -> int:
         }
     )
     return 0
+
+
+def _sources_ai_triage_report(args: argparse.Namespace) -> int:
+    from tender_radar.ai_triage import build_ai_triage_report, write_ai_triage_report
+    from tender_radar.ui_server import dashboard_payload
+
+    dashboard = dashboard_payload(scope=args.scope, sort=args.sort)
+    rows = dashboard.get("tenders") if isinstance(dashboard.get("tenders"), list) else []
+    report = build_ai_triage_report(
+        [row for row in rows if isinstance(row, dict)],
+        model=args.model,
+        batch_size=args.batch_size,
+        timeout_seconds=args.timeout,
+    )
+    report["dashboard_summary"] = dashboard.get("summary") if isinstance(dashboard.get("summary"), dict) else {}
+    report_path = Path(args.report)
+    markdown_path = Path(args.markdown_report) if args.markdown_report else None
+    write_ai_triage_report(report, report_path, markdown_path)
+    _emit_json(
+        {
+            "report_path": str(report_path),
+            "markdown_report_path": str(markdown_path) if markdown_path else None,
+            "dashboard_summary": report.get("dashboard_summary"),
+            "summary": report.get("summary"),
+        }
+    )
+    return 1 if report.get("errors") else 0
 
 
 def _sources_fetch_kimdis_open_proc(args: argparse.Namespace) -> int:

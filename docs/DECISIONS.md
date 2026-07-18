@@ -269,3 +269,16 @@ through the existing official adapter.
 
 Dismissed dashboard rows are stored in `work/derived/ignored_tenders.json` and
 filtered out of subsequent dashboard payloads by row key.
+
+## D-032 - AI triage is advisory before dashboard enforcement
+**Status:** Accepted
+
+OpenAI-backed classification may be used to rank discovery rows as active
+tender, tender candidate, early signal, administrative, out-of-scope
+supply/service, or not public works.
+
+The AI result is advisory until reviewed or backed by deterministic rules. It
+must not delete provenance, deduplicate by title, or promote rows to
+`VERIFIED_ACTIVE`. Production UI use should read cached triage results or run
+as a background job with polling, not make blocking model calls during normal
+dashboard rendering.
