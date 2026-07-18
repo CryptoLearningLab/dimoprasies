@@ -1565,6 +1565,45 @@ linked ESHIDIS smoke #2: attempted 0, skipped_previously_attempted 221365
 cached dashboard after smoke: total_known 126, visible 35, duplicate_hidden 9, triage_hidden 44
 ```
 
+### Municipality attachment URL encoding fix
+
+The Dorida/Efpalio authority row exposed all tender attachments, but the
+authority downloader failed before fetching most PDFs because Greek filenames
+were passed to `urllib` without percent-encoding.
+
+Implemented behavior:
+
+- Authority document downloads now encode the URL path before making the HTTP
+  request while keeping human-readable local filenames.
+- Authority dashboard rows now merge `linked_eshidis_ids` found in previously
+  downloaded/analyzed authority documents back into the dashboard row.
+- The Efpalio row
+  `AUTHORITY:AUTH-6e565827798444b6` now downloads 6/6 municipal PDFs and
+  extracts ESHIDIS id `217922` from both the summary declaration
+  (`ΑΡ. ΕΣΗΔΗΣ: 217922`) and the economic offer form
+  (`Α/Α ΣΥΣΤΗΜΑΤΟΣ: 217922`).
+- Official ESHIDIS fetch/download for `217922` succeeded. Because the official
+  row is not active as of the current date, the Efpalio authority candidate is
+  no longer visible in the active dashboard after canonical duplicate/expiry
+  filtering.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py -q
+.venv/bin/python -m pytest
+.venv/bin/python -c "import json; from tender_radar.ui_server import run_authority_fetch, authority_document_preview_payload; r=run_authority_fetch('AUTHORITY:AUTH-6e565827798444b6'); p=authority_document_preview_payload('AUTHORITY:AUTH-6e565827798444b6'); print(json.dumps({'fetch': {'ok': r.get('ok'), 'downloaded': r.get('downloaded'), 'failed': r.get('failed'), 'linked_eshidis_ids': r.get('linked_eshidis_ids')}, 'preview': {'linked_eshidis_ids': p.get('linked_eshidis_ids')}}, ensure_ascii=False))"
+```
+
+Results:
+
+```text
+targeted UI tests: 46 passed
+full test suite: 130 passed
+Efpalio authority fetch: ok true, downloaded 6, failed 0, linked_eshidis_ids ['217922']
+official ESHIDIS 217922 fetch/download: both steps returned 0
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

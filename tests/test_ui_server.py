@@ -26,6 +26,7 @@ from tender_radar.ui_server import (
     short_text_sample,
     start_job,
     focus_term_matches,
+    url_with_encoded_path,
 )
 
 
@@ -35,6 +36,14 @@ def test_report_json_content_type_includes_utf8_charset() -> None:
 
 def test_report_markdown_content_type_includes_utf8_charset() -> None:
     assert content_type_for_path(Path("candidates.md")) == "text/markdown; charset=utf-8"
+
+
+def test_url_with_encoded_path_handles_greek_pdf_names() -> None:
+    url = "https://www.dorida.gr/wp-content/uploads/Περίληψη-Διακήρυξης.pdf"
+
+    encoded = url_with_encoded_path(url)
+
+    assert encoded == "https://www.dorida.gr/wp-content/uploads/%CE%A0%CE%B5%CF%81%CE%AF%CE%BB%CE%B7%CF%88%CE%B7-%CE%94%CE%B9%CE%B1%CE%BA%CE%AE%CF%81%CF%85%CE%BE%CE%B7%CF%82.pdf"
 
 
 def test_ui_has_separate_id_source_columns_and_kimdis_tool_input() -> None:
@@ -455,6 +464,67 @@ regions: []
     assert payload["tenders"][0]["source_label"] == "ΕΣΗΔΗΣ"
     assert payload["tenders"][0]["display_id"] == "221473"
     assert payload["tenders"][0]["title"] == "Official ΕΣΗΔΗΣ Πατρών"
+
+
+def test_authority_row_uses_linked_eshidis_ids_from_downloaded_documents(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "work/derived").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: dorida
+    name: "Δήμος Δωρίδος"
+    aliases: ["Ευπάλιο"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps(
+            {
+                "focus_authority_candidates": [
+                    {
+                        "source": "AUTHORITY",
+                        "record_type": "AUTHORITY_WEB",
+                        "official_id": "AUTH-abcdef1234567890",
+                        "title": "ΔΗΜΟΤΙΚΗ ΟΔΟΠΟΙΙΑ Δ.Ε. ΕΥΠΑΛΙΟΥ",
+                        "authority": "Δήμος Δωρίδος / Ευπάλιο",
+                        "source_url": "https://www.dorida.gr/blog/13778/work",
+                        "attachment_urls": ["https://www.dorida.gr/wp-content/uploads/Περίληψη.pdf"],
+                        "matched_scopes": ["Δήμος Δωρίδος / Ευπάλιο"],
+                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "work/derived/authority_documents.json").write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {
+                        "row_key": "AUTHORITY:AUTH-abcdef1234567890",
+                        "original_filename": "Περίληψη.pdf",
+                        "linked_eshidis_ids": ["217922"],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    payload = dashboard_payload(scope="focus")
+    row = payload["tenders"][0]
+
+    assert row is not None
+    assert row["linked_eshidis_ids"] == ["217922"]
+    assert row["official_status_label"] == "Σύνδεση με ΕΣΗΔΗΣ"
 
 
 def test_discovery_search_fetches_missing_linked_eshidis_after_expanded_report(tmp_path, monkeypatch) -> None:

@@ -20,7 +20,7 @@ import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlencode, unquote, urlparse
+from urllib.parse import parse_qs, quote, urlencode, unquote, urlparse, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from tender_radar.config import load_config
@@ -1717,13 +1717,18 @@ def authority_candidate_rows() -> list[dict[str, Any]]:
         attachment_urls = [str(url) for url in candidate.get("attachment_urls") or [] if str(url).strip()]
         if not attachment_urls and candidate.get("attachment_url"):
             attachment_urls = [str(candidate.get("attachment_url"))]
-        linked_eshidis_ids = extract_eshidis_ids_from_text(
-            candidate.get("title"),
-            candidate.get("source_url"),
-            candidate.get("detail_url"),
-            candidate.get("attachment_url"),
-            " ".join(attachment_urls),
-            candidate.get("row_text"),
+        linked_eshidis_ids = sorted(
+            {
+                *extract_eshidis_ids_from_text(
+                    candidate.get("title"),
+                    candidate.get("source_url"),
+                    candidate.get("detail_url"),
+                    candidate.get("attachment_url"),
+                    " ".join(attachment_urls),
+                    candidate.get("row_text"),
+                ),
+                *authority_linked_eshidis_ids(row_key, documents=authority_docs),
+            }
         )
         rows.append(
             {
@@ -1844,13 +1849,18 @@ def authority_download_dir(row_key: str) -> Path:
 
 
 def download_authority_document(url: str, target_dir: Path, index: int) -> tuple[Path, int]:
-    request = Request(url, headers={"User-Agent": "TenderRadar/0.1 authority-document-fetch"})
+    request = Request(url_with_encoded_path(url), headers={"User-Agent": "TenderRadar/0.1 authority-document-fetch"})
     with urlopen(request, timeout=30) as response:
         body = response.read()
     name = safe_filename(unquote(Path(urlparse(url).path).name or f"document_{index + 1}.bin"))
     path = target_dir / unique_archive_name(name, {item.name for item in target_dir.iterdir() if item.is_file()})
     path.write_bytes(body)
     return path, len(body)
+
+
+def url_with_encoded_path(url: str) -> str:
+    parts = urlsplit(str(url))
+    return urlunsplit((parts.scheme, parts.netloc, quote(unquote(parts.path), safe="/%"), parts.query, parts.fragment))
 
 
 def sha256_file(path: Path) -> str:

@@ -476,6 +476,12 @@ The system `python` command is not present in the remote environment; use
   bounded searches to avoid repeated slow retries. Current smoke: `221365`
   fetched detail successfully but attachment download failed with no selected
   attachment rows, so it remains unresolved and skipped by the ledger.
+- Municipal authority PDF URLs with Greek filenames are now percent-encoded
+  before download. The Dorida/Efpalio row now downloads all 6 public municipal
+  PDFs, extracts ESHIDIS `217922` from the summary declaration and economic
+  offer form, and successfully fetches/downloads the official ESHIDIS folder.
+  The row is removed from the active dashboard because the official ESHIDIS
+  tender is expired/non-active.
 
 ## Next Work
 
