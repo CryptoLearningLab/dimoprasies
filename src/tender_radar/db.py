@@ -86,6 +86,20 @@ class SourceState:
     metadata: dict[str, object]
 
 
+@dataclass(frozen=True)
+class SourceDocument:
+    row_key: str
+    document_url: str
+    source_url: str | None
+    local_path: str | None
+    size_bytes: int | None
+    sha256: str | None
+    fetched_at: str | None
+    fetch_error: str | None
+    source_signature: str | None
+    metadata: dict[str, object]
+
+
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(db_path)
@@ -801,6 +815,107 @@ def notification_already_sent(db_path: Path, *, row_key: str, channel: str, reci
     return row is not None
 
 
+def upsert_source_document(
+    db_path: Path,
+    *,
+    row_key: str,
+    document_url: str,
+    source_url: str | None = None,
+    local_path: str | None = None,
+    size_bytes: int | None = None,
+    sha256: str | None = None,
+    fetched_at: str | None = None,
+    fetch_error: str | None = None,
+    source_signature: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> None:
+    initialize(db_path)
+    if not row_key.strip():
+        raise ValueError("row_key is required")
+    if not document_url.strip():
+        raise ValueError("document_url is required")
+    fetched_at = fetched_at or datetime.now(timezone.utc).isoformat()
+    connection = connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO source_documents (
+                row_key, document_url, source_url, local_path, size_bytes,
+                sha256, fetched_at, fetch_error, source_signature,
+                metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(row_key, document_url) DO UPDATE SET
+                source_url = excluded.source_url,
+                local_path = excluded.local_path,
+                size_bytes = excluded.size_bytes,
+                sha256 = excluded.sha256,
+                fetched_at = excluded.fetched_at,
+                fetch_error = excluded.fetch_error,
+                source_signature = excluded.source_signature,
+                metadata_json = excluded.metadata_json
+            """,
+            (
+                row_key,
+                document_url,
+                source_url,
+                local_path,
+                size_bytes,
+                sha256,
+                fetched_at,
+                fetch_error,
+                source_signature,
+                json.dumps(metadata or {}, ensure_ascii=False),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def get_source_document(db_path: Path, *, row_key: str, document_url: str) -> SourceDocument | None:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        row = connection.execute(
+            """
+            SELECT row_key, document_url, source_url, local_path, size_bytes,
+                   sha256, fetched_at, fetch_error, source_signature,
+                   metadata_json
+            FROM source_documents
+            WHERE row_key = ? AND document_url = ?
+            """,
+            (row_key, document_url),
+        ).fetchone()
+    finally:
+        connection.close()
+    return _source_document_from_row(row) if row else None
+
+
+def list_source_documents(db_path: Path, *, row_key: str | None = None) -> list[SourceDocument]:
+    initialize(db_path)
+    where = ""
+    params: tuple[str, ...] = ()
+    if row_key:
+        where = "WHERE row_key = ?"
+        params = (row_key,)
+    connection = connect(db_path)
+    try:
+        rows = connection.execute(
+            f"""
+            SELECT row_key, document_url, source_url, local_path, size_bytes,
+                   sha256, fetched_at, fetch_error, source_signature,
+                   metadata_json
+            FROM source_documents
+            {where}
+            ORDER BY row_key, document_url
+            """,
+            params,
+        ).fetchall()
+    finally:
+        connection.close()
+    return [_source_document_from_row(row) for row in rows]
+
+
 def _ensure_document_columns(connection: sqlite3.Connection) -> None:
     columns = {row[1] for row in connection.execute("PRAGMA table_info(documents)").fetchall()}
     additions = {
@@ -867,6 +982,24 @@ def _ensure_runtime_state_tables(connection: sqlite3.Connection) -> None:
             metadata_json TEXT NOT NULL DEFAULT '{}',
             UNIQUE(row_key, channel, recipient)
         );
+
+        CREATE TABLE IF NOT EXISTS source_documents (
+            id INTEGER PRIMARY KEY,
+            row_key TEXT NOT NULL,
+            document_url TEXT NOT NULL,
+            source_url TEXT,
+            local_path TEXT,
+            size_bytes INTEGER,
+            sha256 TEXT,
+            fetched_at TEXT,
+            fetch_error TEXT,
+            source_signature TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            UNIQUE(row_key, document_url)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_source_documents_row_key
+        ON source_documents(row_key);
         """
     )
 
@@ -888,6 +1021,26 @@ def _source_state_from_row(row: sqlite3.Row | tuple[object, ...]) -> SourceState
         last_changed_at=str(row[5]) if row[5] is not None else None,
         last_status=str(row[6]),
         last_error=str(row[7]) if row[7] is not None else None,
+        metadata=metadata,
+    )
+
+
+def _source_document_from_row(row: sqlite3.Row | tuple[object, ...]) -> SourceDocument:
+    metadata: dict[str, object] = {}
+    try:
+        metadata = json.loads(str(row[9] or "{}"))
+    except (TypeError, json.JSONDecodeError):
+        metadata = {}
+    return SourceDocument(
+        row_key=str(row[0]),
+        document_url=str(row[1]),
+        source_url=str(row[2]) if row[2] is not None else None,
+        local_path=str(row[3]) if row[3] is not None else None,
+        size_bytes=int(row[4]) if row[4] is not None else None,
+        sha256=str(row[5]) if row[5] is not None else None,
+        fetched_at=str(row[6]) if row[6] is not None else None,
+        fetch_error=str(row[7]) if row[7] is not None else None,
+        source_signature=str(row[8]) if row[8] is not None else None,
         metadata=metadata,
     )
 

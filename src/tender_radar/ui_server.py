@@ -30,12 +30,14 @@ from tender_radar import __version__
 from tender_radar.config import load_config
 from tender_radar.db import (
     dismiss_tender as dismiss_tender_in_db,
+    get_source_document,
     get_source_state,
     ignored_tender_keys as ignored_tender_keys_from_db,
     list_source_states,
     notification_already_sent,
     record_source_run,
     record_notification_sent,
+    upsert_source_document,
     upsert_source_state,
 )
 from tender_radar.discovery_watermark import (
@@ -562,44 +564,131 @@ def run_authority_fetch(row_key: str) -> dict[str, Any]:
     target_dir.mkdir(parents=True, exist_ok=True)
     documents = []
     failures = []
+    skipped = 0
+    signature = candidate_enrichment_signature(row)
+    existing_documents = {str(item.get("attachment_url") or ""): item for item in authority_documents_by_key().get(row_key, [])}
     for index, url in enumerate(urls):
+        existing = reusable_source_document(row_key=row_key, document_url=url, source_signature=signature)
+        if existing:
+            skipped += 1
+            documents.append(
+                existing_authority_document_payload(
+                    row_key=row_key,
+                    row=row,
+                    url=url,
+                    source_document=existing,
+                    fallback=existing_documents.get(url),
+                )
+            )
+            continue
         try:
             path, size_bytes = download_authority_document(url, target_dir, index)
+            digest = sha256_file(path)
+            retrieved_at = utc_now_iso()
             analysis_payload, text_path, linked_eshidis_ids = inspect_authority_document(
                 path,
                 row=row,
                 attachment_url=url,
                 index=index,
             )
-            documents.append(
-                {
-                    "row_key": row_key,
+            document = {
+                "row_key": row_key,
+                "official_id": row.get("official_id"),
+                "title": row.get("title"),
+                "source_url": row.get("official_url"),
+                "attachment_url": url,
+                "local_path": str(path),
+                "original_filename": path.name,
+                "size_bytes": size_bytes,
+                "sha256": digest,
+                "retrieved_at": retrieved_at,
+                "document_analysis": analysis_payload,
+                "text_path": str(text_path) if text_path else None,
+                "linked_eshidis_ids": linked_eshidis_ids,
+            }
+            documents.append(document)
+            upsert_source_document(
+                runtime_db_path(),
+                row_key=row_key,
+                document_url=url,
+                source_url=str(row.get("official_url") or ""),
+                local_path=str(path),
+                size_bytes=size_bytes,
+                sha256=digest,
+                fetched_at=retrieved_at,
+                source_signature=signature,
+                metadata={
+                    "source": "authority",
                     "official_id": row.get("official_id"),
                     "title": row.get("title"),
-                    "source_url": row.get("official_url"),
-                    "attachment_url": url,
-                    "local_path": str(path),
-                    "original_filename": path.name,
-                    "size_bytes": size_bytes,
-                    "sha256": sha256_file(path),
-                    "retrieved_at": utc_now_iso(),
-                    "document_analysis": analysis_payload,
-                    "text_path": str(text_path) if text_path else None,
                     "linked_eshidis_ids": linked_eshidis_ids,
-                }
+                    "text_path": str(text_path) if text_path else None,
+                },
             )
         except Exception as exc:  # pragma: no cover - defensive network boundary
             failures.append({"url": url, "message": str(exc)})
+            upsert_source_document(
+                runtime_db_path(),
+                row_key=row_key,
+                document_url=url,
+                source_url=str(row.get("official_url") or ""),
+                fetch_error=str(exc),
+                source_signature=signature,
+                metadata={"source": "authority", "official_id": row.get("official_id"), "title": row.get("title")},
+            )
     index_payload = write_authority_document_index(row_key, documents)
     return {
         "ok": not failures and bool(documents),
         "row_key": row_key,
-        "downloaded": len(documents),
+        "downloaded": len(documents) - skipped,
+        "skipped": skipped,
         "failed": len(failures),
         "failures": failures,
         "linked_eshidis_ids": authority_linked_eshidis_ids(row_key, documents=documents),
         "document_index": index_payload,
         "dashboard": dashboard_payload(scope="focus"),
+    }
+
+
+def reusable_source_document(*, row_key: str, document_url: str, source_signature: str) -> Any | None:
+    record = get_source_document(runtime_db_path(), row_key=row_key, document_url=document_url)
+    if not record or record.fetch_error:
+        return None
+    if record.source_signature != source_signature:
+        return None
+    if not record.local_path or not record.sha256:
+        return None
+    if not Path(record.local_path).exists():
+        return None
+    return record
+
+
+def existing_authority_document_payload(
+    *,
+    row_key: str,
+    row: dict[str, Any],
+    url: str,
+    source_document: Any,
+    fallback: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    fallback = fallback or {}
+    path = Path(str(source_document.local_path))
+    metadata = source_document.metadata or {}
+    return {
+        "row_key": row_key,
+        "official_id": row.get("official_id") or fallback.get("official_id"),
+        "title": row.get("title") or fallback.get("title"),
+        "source_url": row.get("official_url") or fallback.get("source_url"),
+        "attachment_url": url,
+        "local_path": str(path),
+        "original_filename": path.name,
+        "size_bytes": source_document.size_bytes,
+        "sha256": source_document.sha256,
+        "retrieved_at": source_document.fetched_at,
+        "document_analysis": fallback.get("document_analysis"),
+        "text_path": metadata.get("text_path") or fallback.get("text_path"),
+        "linked_eshidis_ids": metadata.get("linked_eshidis_ids") or fallback.get("linked_eshidis_ids") or [],
+        "provenance_status": "REUSED_FROM_SQLITE_SOURCE_DOCUMENT",
     }
 
 

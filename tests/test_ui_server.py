@@ -38,7 +38,7 @@ from tender_radar.ui_server import (
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.7" in INDEX_HTML
+    assert "v0.1.8" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -1631,6 +1631,80 @@ regions: []
     assert preview["official_status"] == "LINKED_TO_ESHIDIS"
     assert preview["linked_eshidis_ids"] == ["221473"]
     assert preview["documents"][0]["text_sample"] == "Άρθρο 2.2 URL resources/search/221473"
+
+
+def test_authority_fetch_reuses_unchanged_source_document(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Δήμος Πατρέων"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps(
+            {
+                "focus_authority_candidates": [
+                    {
+                        "source": "AUTHORITY",
+                        "record_type": "AUTHORITY_WEB",
+                        "official_id": "AUTH-work",
+                        "title": "Διακήρυξη έργου Δήμου Πατρέων",
+                        "authority": "Δήμος Πατρέων",
+                        "source_url": "https://e-patras.gr/el/work",
+                        "attachment_url": "https://e-patras.gr/work.pdf",
+                        "attachment_urls": ["https://e-patras.gr/work.pdf"],
+                        "matched_scopes": ["Δήμος Πατρέων"],
+                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    calls = []
+
+    def fake_download(url, target_dir, index):
+        calls.append(url)
+        path = target_dir / "work.pdf"
+        path.write_bytes(b"pdf")
+        return path, 3
+
+    class FakeAnalysis:
+        def to_dict(self):
+            return {
+                "document_type": "tender_declaration",
+                "classification_confidence": 0.95,
+                "matched_terms": ["διακήρυξη"],
+                "extraction_status": "TEXT_EXTRACTED",
+                "page_or_sheet_count": 1,
+                "text_sample": "Δεν περιέχει Α/Α ΕΣΗΔΗΣ",
+                "full_text": "Δεν περιέχει Α/Α ΕΣΗΔΗΣ",
+                "extraction_error": None,
+            }
+
+    monkeypatch.setattr(ui_server, "download_authority_document", fake_download)
+    monkeypatch.setattr(ui_server, "analyze_document", lambda path, original_name=None: FakeAnalysis())
+    monkeypatch.setattr(ui_server, "dashboard_payload", lambda scope="focus": {"scope": scope, "summary": {}, "tenders": []})
+
+    first = ui_server.run_authority_fetch("AUTHORITY:AUTH-work")
+    second = ui_server.run_authority_fetch("AUTHORITY:AUTH-work")
+
+    assert first["ok"] is True
+    assert first["downloaded"] == 1
+    assert first["skipped"] == 0
+    assert second["ok"] is True
+    assert second["downloaded"] == 0
+    assert second["skipped"] == 1
+    assert calls == ["https://e-patras.gr/work.pdf"]
 
 
 def test_document_zip_includes_all_eshidis_latest_local_files(tmp_path, monkeypatch) -> None:

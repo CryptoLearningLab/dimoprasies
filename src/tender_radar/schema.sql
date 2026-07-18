@@ -57,6 +57,24 @@ CREATE TABLE IF NOT EXISTS documents (
     analyzed_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS source_documents (
+    id INTEGER PRIMARY KEY,
+    row_key TEXT NOT NULL,
+    document_url TEXT NOT NULL,
+    source_url TEXT,
+    local_path TEXT,
+    size_bytes INTEGER,
+    sha256 TEXT,
+    fetched_at TEXT,
+    fetch_error TEXT,
+    source_signature TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(row_key, document_url)
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_documents_row_key
+ON source_documents(row_key);
+
 CREATE TABLE IF NOT EXISTS search_runs (
     id INTEGER PRIMARY KEY,
     profile_id TEXT,

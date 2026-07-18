@@ -2,13 +2,16 @@ import sqlite3
 
 from tender_radar.db import (
     dismiss_tender,
+    get_source_document,
     get_source_state,
     ignored_tender_keys,
     import_attachment_download,
     import_eshidis_resource,
+    list_source_documents,
     notification_already_sent,
     record_notification_sent,
     record_source_run,
+    upsert_source_document,
     upsert_source_state,
 )
 from tender_radar.sources.eshidis import EshidisAttachmentListing, EshidisTenderDetails
@@ -302,3 +305,35 @@ def test_notification_log_prevents_duplicate_email_alerts(tmp_path) -> None:
         channel="email",
         recipient="user@example.test",
     ) is True
+
+
+def test_source_documents_track_fetch_provenance(tmp_path) -> None:
+    db_path = tmp_path / "tenders.sqlite"
+
+    upsert_source_document(
+        db_path,
+        row_key="AUTHORITY:AUTH-work",
+        document_url="https://example.test/work.pdf",
+        source_url="https://example.test/work",
+        local_path="/tmp/work.pdf",
+        size_bytes=123,
+        sha256="abc123",
+        fetched_at="2026-07-18T10:00:00+00:00",
+        source_signature="sig-1",
+        metadata={"linked_eshidis_ids": ["221473"]},
+    )
+
+    document = get_source_document(
+        db_path,
+        row_key="AUTHORITY:AUTH-work",
+        document_url="https://example.test/work.pdf",
+    )
+
+    assert document is not None
+    assert document.local_path == "/tmp/work.pdf"
+    assert document.sha256 == "abc123"
+    assert document.source_signature == "sig-1"
+    assert document.metadata["linked_eshidis_ids"] == ["221473"]
+    assert [item.document_url for item in list_source_documents(db_path, row_key="AUTHORITY:AUTH-work")] == [
+        "https://example.test/work.pdf"
+    ]
