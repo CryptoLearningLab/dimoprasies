@@ -1,7 +1,7 @@
 # NEXT TASK
 
 Execute:
-`Add AI/document enrichment progress job`
+`Add non-ESHIDIS document enrichment to find official ESHIDIS ids`
 
 ## Current Input
 
@@ -13,6 +13,9 @@ identifier templates.
 Changed `eshidis_active_search`, KIMDIS families and authority adapters now use
 delta refresh orchestration; unchanged source rows are retained from the
 previous report instead of forcing full discovery.
+Discovery rows now pass a deterministic public-works gate before the dashboard
+daily list: ESHIDIS rows are kept as official public-works rows, while KIMDIS
+and authority rows are filtered or kept with `public_works_gate` reasons.
 
 Generic PDE landing rows such as `Έργα & Δράσεις` /
 `https://pde.gov.gr/el/erga-drasis/` are excluded from the dashboard.
@@ -23,28 +26,28 @@ ESHIDIS id extraction is context-first: official resource URLs and article
 `2.2` style references use 6-digit primary ids, `ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ
 ΠΡΟΣΦΟΡΑΣ` can expose `Α/Α ΣΥΣΤΗΜΑΤΟΣ`, and broad 7-digit matching is removed.
 
-The AI prompt now knows about article `2.2` and economic-offer-form contexts.
-A single-row AI smoke succeeded, but full-list AI refresh stayed blocked inside
-an OpenAI HTTPS response until interrupted. It must not be exposed as a silent
-long UI action.
+The next stage is to treat ESHIDIS as the only official tender authority and
+enrich every non-ESHIDIS kept candidate by downloading available documents and
+extracting/searching for a linked ESHIDIS id.
 
 ## Instruction
 
-Implement the AI/document enrichment gate:
+Implement the non-ESHIDIS document enrichment gate:
 
-1. Add a background job for AI/document enrichment with batch-level progress
-   and partial JSON writes, so a slow OpenAI/source request does not lose all
-   completed work.
-2. For each visible/candidate row, fetch available authority/KIMDIS documents
-   first when public attachment URLs exist.
-3. Extract ESHIDIS ids deterministically from article `2.2`,
+1. For each kept KIMDIS/authority row, fetch available public documents first
+   when attachment URLs exist.
+2. Extract ESHIDIS ids deterministically from article `2.2`,
    `resources/search/<id>`, guarded `Α/Α Διαγωνισμού`, and
    `ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ` / `Α/Α ΣΥΣΤΗΜΑΤΟΣ`.
-4. Add an optional exact-title public search enrichment step only when it can
+3. Add an optional exact-title public search enrichment step only when it can
    record source URL, retrieved-at time and evidence snippet.
-5. Write refreshed `linked_eshidis_ids` / `ai_triage_report` caches and surface
-   the ids visibly in the dashboard.
-6. Preserve raw reports/provenance, no title-only deduplication, no
+4. When an ESHIDIS id is found, fetch the official ESHIDIS detail/folder and
+   surface the row as linked to that official id.
+5. If no ESHIDIS id is found, keep the KIMDIS/authority link with a visible
+   note that no official ESHIDIS id was found.
+6. Use a background/progress job with partial JSON writes if any enrichment can
+   run long.
+7. Preserve raw reports/provenance, no title-only deduplication, no
    `VERIFIED_ACTIVE` promotion.
 
 ## Required Closeout

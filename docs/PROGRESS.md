@@ -1443,6 +1443,47 @@ targeted tests: 40 passed
 full test suite: 123 passed
 ```
 
+### Step 2 - Deterministic public-works gate for discovery rows
+
+The search/discovery report now separates daily public-works candidates from
+non-public-works rows before the dashboard renders them. Raw candidates remain
+in `all_candidates` with provenance; filtered focus rows are stored separately
+with a reason.
+
+Implemented behavior:
+
+- ESHIDIS active-search rows are kept as official public-works discovery rows.
+- KIMDIS and authority rows get a `public_works_gate` with decision, reason,
+  matched public-works terms, tender terms and drop terms.
+- Rows with clear administrative/news/personnel/election/meeting wording and
+  no tender wording are marked `DROP_ADMIN` and excluded from the daily focus
+  lists.
+- Rows with clear supply/service wording and no infrastructure/public-works
+  signal are marked `DROP_OUT_OF_SCOPE_SUPPLY_SERVICE` and excluded.
+- Rows with public-works terms plus tender/procurement/document evidence are
+  kept as `KEEP_PUBLIC_WORKS_CANDIDATE`.
+- The expanded report now includes `focus_filtered_non_public_works` and the
+  summary count `focus_filtered_non_public_works`.
+- The dashboard defensively applies the same gate to cached authority/KIMDIS
+  rows that predate this metadata, so a `SKIPPED_UNCHANGED` preflight does not
+  resurrect old non-public-works rows.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_expanded_report.py tests/test_ui_server.py
+.venv/bin/python -m pytest
+.venv/bin/python -c "from tender_radar.ui_server import dashboard_payload; p=dashboard_payload(scope='focus', apply_triage=False); print({'visible': p['summary'].get('visible'), 'total_known': p['summary'].get('total_known'), 'focus': p['summary'].get('focus')}); print([(r.get('row_key'), r.get('source_label'), (r.get('public_works_gate') or {}).get('decision')) for r in p.get('tenders', [])[:10]])"
+```
+
+Results:
+
+```text
+targeted tests: 50 passed
+full test suite: 125 passed
+cached dashboard smoke: visible 79, total_known 126
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

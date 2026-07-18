@@ -785,16 +785,18 @@ regions: []
                         "match_notes": [],
                         "status": "AUTHORITY_DISCOVERY_CANDIDATE",
                     },
-                    {
-                        "source": "AUTHORITY",
-                        "record_type": "AUTHORITY_WEB",
-                        "official_id": "AUTH-drop",
-                        "title": "ΠΡΟΓΡΑΜΜΑ ΕΚΛΟΓΩΝ",
-                        "authority": "Δήμος Πατρέων",
-                        "source_url": "https://e-patras.gr/el/admin",
-                        "matched_scopes": ["Δήμος Πατρέων"],
-                        "match_notes": [],
-                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                        {
+                            "source": "AUTHORITY",
+                            "record_type": "AUTHORITY_WEB",
+                            "official_id": "AUTH-drop",
+                            "title": "Διακήρυξη έργου Πατρών προς απόρριψη",
+                            "authority": "Δήμος Πατρέων",
+                            "source_url": "https://e-patras.gr/el/admin",
+                            "attachment_url": "https://e-patras.gr/admin.pdf",
+                            "attachment_urls": ["https://e-patras.gr/admin.pdf"],
+                            "matched_scopes": ["Δήμος Πατρέων"],
+                            "match_notes": [],
+                            "status": "AUTHORITY_DISCOVERY_CANDIDATE",
                     },
                 ]
             },
@@ -887,7 +889,63 @@ regions:
     payload = dashboard_payload(scope="focus", apply_triage=False)
 
     assert payload["summary"]["visible"] == 0
-    assert payload["summary"]["total_known"] == 0
+
+
+def test_dashboard_filters_cached_non_public_works_authority_rows_without_gate_metadata(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Δήμος Πατρέων", "Πατρών"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps(
+            {
+                "focus_authority_candidates": [
+                    {
+                        "source": "AUTHORITY",
+                        "record_type": "AUTHORITY_WEB",
+                        "official_id": "AUTH-admin",
+                        "title": "Πρόγραμμα εκλογών Δήμου Πατρέων",
+                        "authority": "Δήμος Πατρέων",
+                        "source_url": "https://e-patras.gr/el/admin",
+                        "matched_scopes": ["Δήμος Πατρέων"],
+                        "match_notes": [],
+                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                    },
+                    {
+                        "source": "AUTHORITY",
+                        "record_type": "AUTHORITY_WEB",
+                        "official_id": "AUTH-work",
+                        "title": "Διακήρυξη έργου συντήρησης οδών Δήμου Πατρέων",
+                        "authority": "Δήμος Πατρέων",
+                        "source_url": "https://e-patras.gr/el/work",
+                        "attachment_url": "https://e-patras.gr/work.pdf",
+                        "attachment_urls": ["https://e-patras.gr/work.pdf"],
+                        "matched_scopes": ["Δήμος Πατρέων"],
+                        "match_notes": [],
+                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                    },
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    payload = dashboard_payload(scope="focus", apply_triage=False)
+
+    assert payload["summary"]["visible"] == 1
+    assert payload["tenders"][0]["row_key"] == "AUTHORITY:AUTH-work"
+    assert payload["tenders"][0]["public_works_gate"]["decision"] == "KEEP_PUBLIC_WORKS_CANDIDATE"
 
 
 def test_dashboard_extracts_linked_eshidis_ids_from_authority_rows(tmp_path, monkeypatch) -> None:

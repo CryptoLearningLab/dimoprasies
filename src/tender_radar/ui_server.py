@@ -32,6 +32,7 @@ from tender_radar.discovery_watermark import (
     utc_now_iso,
 )
 from tender_radar.evaluation import normalize_evaluation_config, save_evaluation_config
+from tender_radar.sources.expanded_report import classify_public_works_candidate_dict
 from tender_radar.sources.kimdis_fetch import extract_eshidis_ids_from_text
 
 
@@ -1512,6 +1513,9 @@ def authority_candidate_rows() -> list[dict[str, Any]]:
             continue
         if non_tender_landing_row(candidate):
             continue
+        public_works_gate = public_works_gate_for_candidate(candidate)
+        if not public_works_gate.get("keep_for_daily_search"):
+            continue
         official_id = str(candidate.get("official_id") or "").strip()
         record_type = str(candidate.get("record_type") or "")
         if not official_id:
@@ -1572,6 +1576,7 @@ def authority_candidate_rows() -> list[dict[str, Any]]:
                 "supports_kimdis_actions": is_kimdis,
                 "supports_authority_actions": bool(attachment_urls),
                 "linked_eshidis_ids": linked_eshidis_ids,
+                "public_works_gate": public_works_gate,
                 "interest_match": bool(candidate.get("matched_scopes")),
                 "interest_reason": ", ".join([*(candidate.get("matched_scopes") or []), *(candidate.get("match_notes") or [])]),
                 "authority_record_type": record_type,
@@ -1656,6 +1661,9 @@ def kimdis_open_proc_rows() -> list[dict[str, Any]]:
     for candidate in payload.get("focus_open_proc_candidates", []):
         if not isinstance(candidate, dict):
             continue
+        public_works_gate = public_works_gate_for_candidate(candidate)
+        if not public_works_gate.get("keep_for_daily_search"):
+            continue
         official_id = str(candidate.get("official_id") or "").strip()
         if not official_id:
             continue
@@ -1698,6 +1706,7 @@ def kimdis_open_proc_rows() -> list[dict[str, Any]]:
                 "size_bytes": document.get("size_bytes"),
                 "text_sample": short_text_sample(_none_or_str(text_sample)),
                 "linked_eshidis_ids": linked_eshidis_ids,
+                "public_works_gate": public_works_gate,
                 "supports_eshidis_actions": False,
                 "supports_kimdis_actions": True,
                 "interest_match": bool(matched_scopes),
@@ -1705,6 +1714,13 @@ def kimdis_open_proc_rows() -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def public_works_gate_for_candidate(candidate: dict[str, Any]) -> dict[str, object]:
+    gate = candidate.get("public_works_gate") if isinstance(candidate.get("public_works_gate"), dict) else None
+    if gate and "keep_for_daily_search" in gate:
+        return gate
+    return classify_public_works_candidate_dict(candidate)
 
 
 def kimdis_document_index_payload() -> dict[str, Any]:

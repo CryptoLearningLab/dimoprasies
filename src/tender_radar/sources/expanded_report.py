@@ -14,6 +14,75 @@ from tender_radar.config import load_config
 from tender_radar.sources.authority import discover_authority_candidates
 
 
+PUBLIC_WORKS_TERMS = (
+    "εργο",
+    "εργασι",
+    "οδοποι",
+    "οδικ",
+    "οδος",
+    "οδων",
+    "ασφαλτο",
+    "ασφαλ",
+    "αναπλα",
+    "κατασκευ",
+    "επισκευ",
+    "συντηρη",
+    "αποκαταστα",
+    "τεχνικ",
+    "διαμορφω",
+    "αναβαθμ",
+    "κτιρι",
+    "κτηρι",
+    "σχολει",
+    "γηπεδ",
+    "πεζοδρομ",
+    "λιμενικ",
+    "αντιπλημμυρ",
+    "υποδομ",
+    "πυρασφαλ",
+    "δακ",
+)
+
+TENDER_TERMS = (
+    "διακηρυ",
+    "προκηρυ",
+    "διαγωνισ",
+    "προσκληση",
+    "υποβολη προσφορ",
+    "δημοσια συμβασ",
+    "τευχ",
+    "προυπολογισ",
+    "μελετη",
+    "αναθεση",
+)
+
+ADMIN_DROP_TERMS = (
+    "κανονισμος λειτουργιας",
+    "αποφαση γενικου διευθυντη",
+    "ανακοινωση σοχ",
+    "προσληψη προσωπικου",
+    "προγραμμα εκλογων",
+    "εντολη μισθωσης",
+    "νεος προεδρος",
+    "συνεδριαση",
+    "εκτος εδρας",
+    "ορισμος αντιδημαρχ",
+    "παραχωρηση χρησης",
+)
+
+SUPPLY_SERVICE_DROP_TERMS = (
+    "εκπαιδευση",
+    "εξομοιωτ",
+    "flight simulator",
+    "κλιβανος",
+    "αποστειρωση",
+    "πλυντηριο χειρουργικ",
+    "τροφ",
+    "φαρμακ",
+    "οχηματων",
+    "προμηθεια ειδων",
+)
+
 KIMDIS_FAMILIES = {
     "khmdhs_notice": {
         "record_type": "PROC",
@@ -51,6 +120,8 @@ class ExpandedTenderCandidate:
     status_reason: str
     source_id: str | None = None
     attachment_urls: list[str] = field(default_factory=list)
+    public_works_gate: dict[str, object] = field(default_factory=dict)
+    keep_for_daily_search: bool = True
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -151,14 +222,18 @@ def build_expanded_report(
             )
         )
 
-    unique_candidates = _dedupe_by_official_source_id(candidates)
-    focus_candidates = [candidate for candidate in unique_candidates if candidate.matched_scopes]
+    unique_candidates = [_with_public_works_gate(candidate) for candidate in _dedupe_by_official_source_id(candidates)]
+    focus_raw_candidates = [candidate for candidate in unique_candidates if candidate.matched_scopes]
+    focus_candidates = [candidate for candidate in focus_raw_candidates if candidate.keep_for_daily_search]
     focus_open_proc = [
         candidate
         for candidate in focus_candidates
         if candidate.record_type == "PROC" and candidate.status == "SUBMISSION_OPEN_CANDIDATE"
     ]
     focus_authority_candidates = [candidate for candidate in focus_candidates if candidate.source == "AUTHORITY"]
+    focus_filtered_non_public_works = [
+        candidate for candidate in focus_raw_candidates if not candidate.keep_for_daily_search
+    ]
     return {
         "checked_at": checked_at,
         "as_of_date": as_of_date.isoformat(),
@@ -174,19 +249,21 @@ def build_expanded_report(
             "authority_candidates": sum(1 for item in unique_candidates if item.source == "AUTHORITY"),
             "focus_open_proc_candidates": len(focus_open_proc),
             "focus_authority_candidates": len(focus_authority_candidates),
+            "focus_filtered_non_public_works": len(focus_filtered_non_public_works),
             "focus_expired_proc_candidates": sum(
                 1
-                for item in focus_candidates
+                for item in focus_raw_candidates
                 if item.record_type == "PROC" and item.status == "SUBMISSION_EXPIRED_CANDIDATE"
             ),
             "focus_historical_awrd_symv_records": sum(
-                1 for item in focus_candidates if item.record_type in {"AWRD", "SYMV"}
+                1 for item in focus_raw_candidates if item.record_type in {"AWRD", "SYMV"}
             ),
             "errors": len(errors),
         },
         "focus_open_proc_candidates": [candidate.to_dict() for candidate in focus_open_proc],
         "focus_authority_candidates": [candidate.to_dict() for candidate in focus_authority_candidates],
         "focus_candidates": [candidate.to_dict() for candidate in focus_candidates],
+        "focus_filtered_non_public_works": [candidate.to_dict() for candidate in focus_filtered_non_public_works],
         "all_candidates": [candidate.to_dict() for candidate in unique_candidates],
         "source_pages": [*kimdis_page_stats, *authority_page_stats, *skipped_source_pages],
         "errors": errors,
@@ -218,6 +295,7 @@ def render_expanded_report_markdown(report: dict[str, Any]) -> str:
         f"- Total candidates: `{summary.get('total_candidates', 0)}`",
         f"- Focus candidates: `{summary.get('focus_candidates', 0)}`",
         f"- Focus open PROC candidates: `{summary.get('focus_open_proc_candidates', 0)}`",
+        f"- Focus filtered non-public-works rows: `{summary.get('focus_filtered_non_public_works', 0)}`",
         f"- Focus expired PROC candidates: `{summary.get('focus_expired_proc_candidates', 0)}`",
         f"- Focus historical AWRD/SYMV records: `{summary.get('focus_historical_awrd_symv_records', 0)}`",
         f"- ESHIDIS candidates: `{summary.get('eshidis_candidates', 0)}`",
@@ -425,7 +503,128 @@ def _candidate_from_dict(item: dict[str, Any], *, cached: bool = False) -> Expan
         status_reason=str(item.get("status_reason") or ""),
         source_id=_candidate_source_id(item),
         attachment_urls=[str(value) for value in item.get("attachment_urls") or []],
+        public_works_gate=dict(item.get("public_works_gate") or {}),
+        keep_for_daily_search=bool(item.get("keep_for_daily_search", True)),
     )
+
+
+def _with_public_works_gate(candidate: ExpandedTenderCandidate) -> ExpandedTenderCandidate:
+    gate = classify_public_works_candidate(candidate)
+    data = candidate.to_dict()
+    data["public_works_gate"] = gate
+    data["keep_for_daily_search"] = bool(gate.get("keep_for_daily_search"))
+    return ExpandedTenderCandidate(**data)
+
+
+def classify_public_works_candidate(candidate: ExpandedTenderCandidate) -> dict[str, object]:
+    combined = _normalize_text(
+        " ".join(
+            str(value or "")
+            for value in (
+                candidate.source,
+                candidate.record_type,
+                candidate.official_id,
+                candidate.title,
+                candidate.authority,
+                candidate.source_url,
+                candidate.attachment_url,
+                " ".join(candidate.attachment_urls),
+                " ".join(candidate.match_notes),
+            )
+        )
+    )
+    public_terms = [term for term in PUBLIC_WORKS_TERMS if term in combined]
+    tender_terms = [term for term in TENDER_TERMS if term in combined]
+    admin_terms = [term for term in ADMIN_DROP_TERMS if term in combined]
+    supply_terms = [term for term in SUPPLY_SERVICE_DROP_TERMS if term in combined]
+
+    if candidate.source == "ESHIDIS":
+        return {
+            "decision": "KEEP_PUBLIC_WORKS_TENDER",
+            "keep_for_daily_search": True,
+            "reason": "Official ESHIDIS public works active-search row.",
+            "public_works_terms": public_terms,
+            "tender_terms": tender_terms,
+            "drop_terms": [],
+        }
+    if admin_terms and not tender_terms:
+        return {
+            "decision": "DROP_ADMIN",
+            "keep_for_daily_search": False,
+            "reason": "Administrative or decision/news row without tender wording.",
+            "public_works_terms": public_terms,
+            "tender_terms": tender_terms,
+            "drop_terms": admin_terms,
+        }
+    if supply_terms and not _has_infrastructure_term(public_terms):
+        return {
+            "decision": "DROP_OUT_OF_SCOPE_SUPPLY_SERVICE",
+            "keep_for_daily_search": False,
+            "reason": "Supply/service procurement without public-works infrastructure signal.",
+            "public_works_terms": public_terms,
+            "tender_terms": tender_terms,
+            "drop_terms": supply_terms,
+        }
+    if public_terms and (tender_terms or candidate.record_type == "PROC" or candidate.attachment_urls or candidate.attachment_url):
+        return {
+            "decision": "KEEP_PUBLIC_WORKS_CANDIDATE",
+            "keep_for_daily_search": True,
+            "reason": "Public-works terms combined with tender/procurement/document evidence.",
+            "public_works_terms": public_terms,
+            "tender_terms": tender_terms,
+            "drop_terms": [],
+        }
+    if public_terms:
+        return {
+            "decision": "REVIEW_PUBLIC_WORKS_SIGNAL",
+            "keep_for_daily_search": True,
+            "reason": "Public-works terms found, but tender evidence is incomplete.",
+            "public_works_terms": public_terms,
+            "tender_terms": tender_terms,
+            "drop_terms": [],
+        }
+    return {
+        "decision": "DROP_NOT_PUBLIC_WORKS",
+        "keep_for_daily_search": False,
+        "reason": "No public-works signal in title/source metadata.",
+        "public_works_terms": [],
+        "tender_terms": tender_terms,
+        "drop_terms": [],
+    }
+
+
+def classify_public_works_candidate_dict(item: dict[str, Any]) -> dict[str, object]:
+    return classify_public_works_candidate(_candidate_from_dict(item))
+
+
+def _has_infrastructure_term(public_terms: list[str]) -> bool:
+    infrastructure_roots = {
+        "εργο",
+        "εργασι",
+        "οδοποι",
+        "οδικ",
+        "οδος",
+        "οδων",
+        "ασφαλτο",
+        "αναπλα",
+        "κατασκευ",
+        "επισκευ",
+        "συντηρη",
+        "αποκαταστα",
+        "διαμορφω",
+        "αναβαθμ",
+        "κτιρι",
+        "κτηρι",
+        "σχολει",
+        "γηπεδ",
+        "πεζοδρομ",
+        "λιμενικ",
+        "αντιπλημμυρ",
+        "υποδομ",
+        "πυρασφαλ",
+        "δακ",
+    }
+    return bool(set(public_terms) & infrastructure_roots)
 
 
 def _candidate_source_id(item: dict[str, Any]) -> str | None:

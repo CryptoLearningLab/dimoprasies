@@ -355,3 +355,17 @@ unchanged.
 Full discovery remains the fallback only when there is no previous baseline,
 changed source ids cannot be identified, backfill is explicitly requested, or
 the changed source is outside the delta-capable set.
+
+## D-038 - Public-works filtering starts with deterministic gate
+**Status:** Accepted
+
+Daily discovery rows must pass a deterministic public-works gate before they
+enter the default dashboard lists. ESHIDIS active-search rows are kept as
+official public-works source rows. KIMDIS and authority rows are kept only when
+metadata shows public-works terms plus tender/procurement/document evidence, or
+when a public-works signal is strong enough for manual review.
+
+Clear administrative/news/personnel/election/meeting rows and out-of-scope
+supply/service rows are filtered from daily focus lists but retained in raw
+reports with a `public_works_gate` decision and reason. AI triage remains a
+second advisory layer, not the only filter.

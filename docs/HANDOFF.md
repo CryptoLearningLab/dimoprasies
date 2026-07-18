@@ -452,6 +452,13 @@ The system `python` command is not present in the remote environment; use
   refresh path in the UI discovery orchestration. A changed ESHIDIS fingerprint
   runs only ESHIDIS discovery plus expanded-report merge with the previous
   report; unchanged KIMDIS/authority rows are retained instead of re-fetched.
+- Discovery rows now pass through a deterministic public-works gate before
+  they enter the daily focus lists. ESHIDIS rows are kept as official
+  public-works discovery rows; KIMDIS/authority rows are kept only when they
+  have public-works plus tender/procurement/document evidence or review-worthy
+  public-works signals. Clear administrative/news/personnel/election/meeting
+  rows and out-of-scope supply/service rows are filtered from the dashboard but
+  retained in raw reports with `public_works_gate` reasons.
 
 ## Next Work
 

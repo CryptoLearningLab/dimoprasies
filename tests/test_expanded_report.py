@@ -2,6 +2,7 @@ from datetime import date
 import json
 from unittest.mock import patch
 
+from tender_radar.sources.authority import AuthorityCandidate
 from tender_radar.sources.expanded_report import build_expanded_report, render_expanded_report_markdown
 
 
@@ -362,3 +363,107 @@ scopes:
     assert len(report["source_pages"]) == 3
     assert report["source_pages"][0]["source"] == "khmdhs_notice"
     assert report["source_pages"][0]["items_returned"] == 1
+
+
+def test_expanded_report_filters_non_public_works_focus_rows_but_keeps_raw_provenance(tmp_path) -> None:
+    config_path = tmp_path / "sources.yml"
+    config_path.write_text(
+        """
+version: 1
+global_sources: []
+collection_order: []
+rules: []
+scopes:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Δήμος Πατρέων", "Πατρών"]
+    sources: []
+authority_adapters:
+  - id: patras_mock
+    name: "Δήμος Πατρέων"
+    adapter: drupal_listing
+    url: https://example.test
+""",
+        encoding="utf-8",
+    )
+    candidates_path = tmp_path / "candidates.json"
+    candidates_path.write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {
+                        "eshidis_id": "221744",
+                        "title": "ΣΥΝΤΗΡΗΣΕΙΣ ΟΔΟΠΟΙΙΑΣ ΠΑΤΡΩΝ 2026",
+                        "authority_name": "Δήμος Πατρέων",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    authority_rows = [
+        AuthorityCandidate(
+            source_id="patras_mock",
+            source_name="Δήμος Πατρέων - Διακηρύξεις",
+            scope_id="patras",
+            scope_name="Δήμος Πατρέων",
+            source_family="municipal_html",
+            adapter="drupal_listing",
+            official_id="AUTH-work",
+            record_type="AUTHORITY_WEB",
+            title="Διακήρυξη έργου συντήρησης οδών Δήμου Πατρέων",
+            authority="Δήμος Πατρέων",
+            published_at="2026-07-18",
+            submission_deadline=None,
+            source_url="https://example.test/work",
+            detail_url="https://example.test/work",
+            attachment_url="https://example.test/work.pdf",
+            attachment_urls=["https://example.test/work.pdf"],
+            retrieved_at="2026-07-18T00:00:00+00:00",
+            parser_status="PARSED",
+            status="AUTHORITY_DISCOVERY_CANDIDATE",
+            status_reason="mock",
+            row_text="Διακήρυξη έργου συντήρησης οδών Δήμου Πατρέων",
+        ),
+        AuthorityCandidate(
+            source_id="patras_mock",
+            source_name="Δήμος Πατρέων - Διακηρύξεις",
+            scope_id="patras",
+            scope_name="Δήμος Πατρέων",
+            source_family="municipal_html",
+            adapter="drupal_listing",
+            official_id="AUTH-admin",
+            record_type="AUTHORITY_WEB",
+            title="Πρόγραμμα εκλογών Δήμου Πατρέων",
+            authority="Δήμος Πατρέων",
+            published_at="2026-07-18",
+            submission_deadline=None,
+            source_url="https://example.test/admin",
+            detail_url="https://example.test/admin",
+            attachment_url=None,
+            attachment_urls=[],
+            retrieved_at="2026-07-18T00:00:00+00:00",
+            parser_status="PARSED",
+            status="AUTHORITY_DISCOVERY_CANDIDATE",
+            status_reason="mock",
+            row_text="Πρόγραμμα εκλογών Δήμου Πατρέων",
+        ),
+    ]
+
+    with patch("tender_radar.sources.expanded_report.discover_authority_candidates", return_value=(authority_rows, [], [])):
+        report = build_expanded_report(
+            sources_config_path=config_path,
+            eshidis_candidates_path=candidates_path,
+            kimdis_pages=0,
+        )
+
+    visible_ids = [item["official_id"] for item in report["focus_candidates"]]
+    filtered_ids = [item["official_id"] for item in report["focus_filtered_non_public_works"]]
+
+    assert visible_ids == ["221744", "AUTH-work"]
+    assert filtered_ids == ["AUTH-admin"]
+    assert report["summary"]["focus_filtered_non_public_works"] == 1
+    assert any(item["official_id"] == "AUTH-admin" for item in report["all_candidates"])
+    assert report["all_candidates"][0]["public_works_gate"]["decision"] == "KEEP_PUBLIC_WORKS_TENDER"
+    assert report["focus_authority_candidates"][0]["public_works_gate"]["decision"] == "KEEP_PUBLIC_WORKS_CANDIDATE"
