@@ -1185,6 +1185,49 @@ targeted tests: 42 passed
 full test suite: 114 passed
 ```
 
+### Hotfix - Selective refresh for changed non-ESHIDIS sources
+
+The first source preflight fix was still coarse: when any source changed, the
+UI fell back to the existing full discovery sequence. The expanded report path
+now supports selective refresh for KIMDIS and authority/municipal/regional
+sources.
+
+Implemented behavior:
+
+- `sources expanded-report` accepts repeatable `--kimdis-source-id` and
+  `--authority-source-id` arguments.
+- Skipped sources are not fetched again; their previous candidates are retained
+  from `--previous-report`.
+- Skipped sources are written in `source_pages` as `SKIPPED_UNCHANGED`.
+- Dashboard discovery uses the preflight `changed_source_ids` to run only the
+  changed KIMDIS/authority source families where possible.
+- If a source fingerprint changed but the changed source cannot be identified,
+  the UI falls back to full discovery instead of making an unsafe partial run.
+- ESHIDIS browser active search is still treated as the special heavy source:
+  selective non-ESHIDIS refresh reuses the existing ESHIDIS candidate report.
+  Full/backfill discovery remains available when ESHIDIS must be refreshed.
+
+Verification:
+
+```bash
+.venv/bin/python -c "from tender_radar.ui_server import discovery_search_steps; import json; steps=discovery_search_steps(limit=100, as_of_date='2026-07-18', source_preflight={'previous_hash':'x','changed_source_ids':['epatras_tenders']}, selective=True); print(json.dumps(steps, ensure_ascii=False, indent=2))"
+.venv/bin/python -m tender_radar sources expanded-report --kimdis-source-id __none__ --authority-source-id __none__ --previous-report work/reports/expanded_discovery_report.json --report /tmp/expanded_selective_skip.json --markdown-report /tmp/expanded_selective_skip.md --timeout 1
+.venv/bin/python -c "import json; p=json.load(open('/tmp/expanded_selective_skip.json', encoding='utf-8')); print(len([s for s in p['source_pages'] if s.get('status')=='SKIPPED_UNCHANGED']))"
+.venv/bin/python -m pytest tests/test_ui_server.py tests/test_authority.py tests/test_expanded_report.py tests/test_cli.py
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+selective step builder for changed epatras_tenders: one expanded-report step,
+  no ESHIDIS discover-active step, KIMDIS set to __none__,
+  authority-source-id epatras_tenders
+selective skipped expanded report: 24 SKIPPED_UNCHANGED source page entries
+targeted tests: 58 passed
+full test suite: 111 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

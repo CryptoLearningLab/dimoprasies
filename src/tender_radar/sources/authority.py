@@ -51,6 +51,7 @@ def discover_authority_candidates(
     timeout_seconds: int = 20,
     allow_insecure_tls: bool = False,
     limit_per_source: int = 20,
+    source_ids: set[str] | None = None,
 ) -> tuple[list[AuthorityCandidate], list[dict[str, object]], list[dict[str, object]]]:
     candidates: list[AuthorityCandidate] = []
     errors: list[dict[str, object]] = []
@@ -60,6 +61,8 @@ def discover_authority_candidates(
         if not isinstance(source, dict):
             continue
         source_id = str(source.get("id") or "")
+        if source_ids is not None and source_id not in source_ids:
+            continue
         adapter = str(source.get("adapter") or "")
         url = str(source.get("url") or "")
         try:

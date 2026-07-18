@@ -10,6 +10,10 @@ fingerprint preflight before expensive discovery. A live smoke returned
 `skipped: true`, `steps: 0` in 4.24s with temporary Diavgeia 503 warnings
 instead of running the full discovery pipeline.
 
+Selective non-ESHIDIS refresh now exists: when the preflight identifies a
+changed KIMDIS/authority source id, `sources expanded-report` fetches only
+that source and retains skipped sources from the previous expanded report.
+
 Noisy decision/context sources removed from active source config:
 
 - Δήμος Αμφιλοχίας - Αποφάσεις Δημάρχου
@@ -28,8 +32,8 @@ Implement the notification/reporting gate:
    count and warning count.
 3. Add per-source skipped/fetched counts to discovery run reports where the
    current data model supports it.
-4. Move KIMDIS stop-on-known-`referenceNumber` pagination into the CLI
-   expanded-report adapter, preserving bounded and backfill modes.
+4. Add a separate explicit UI control for full ESHIDIS refresh/backfill so the
+   normal daily button can remain selective and fast.
 5. Preserve raw reports/provenance, no title-only deduplication, no
     `VERIFIED_ACTIVE` promotion.
 

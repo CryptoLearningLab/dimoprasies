@@ -417,6 +417,11 @@ The system `python` command is not present in the remote environment; use
   with `SKIPPED_UNCHANGED` and does not run the expensive ESHIDIS/KIMDIS
   discovery steps. Temporary source failures are reported as warnings and can
   still fast-skip when the overlapping successful source tokens are unchanged.
+- When the preflight identifies specific changed non-ESHIDIS source ids, the UI
+  now runs selective `sources expanded-report` refreshes for those sources only.
+  Unchanged KIMDIS/authority sources are retained from the previous expanded
+  report and recorded in `source_pages` as `SKIPPED_UNCHANGED`. If changed ids
+  cannot be identified, the UI falls back to full discovery.
 
 ## Next Work
 
@@ -426,5 +431,6 @@ Current intended next gate:
 
 Implement notification delivery and clearer skip reporting: send a clickable
 email list with official ESHIDIS links for new/kept rows, show per-source
-`SKIPPED_UNCHANGED`/warning counts in the UI result, and move deeper stop-on-
-known-id pagination into the CLI adapters where needed.
+`SKIPPED_UNCHANGED`/warning/fetched counts clearly in the UI result, and add
+a manual full ESHIDIS refresh control distinct from normal selective daily
+refresh.

@@ -159,10 +159,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     expanded_report.add_argument("--kimdis-pages", type=int, default=20, help="KIMDIS pages per record family.")
     expanded_report.add_argument(
+        "--kimdis-source-id",
+        action="append",
+        default=None,
+        help="Fetch only the selected KIMDIS family id. Repeatable; omitted means all families.",
+    )
+    expanded_report.add_argument(
         "--authority-limit-per-source",
         type=int,
         default=20,
         help="Maximum municipal/authority listing rows to extract per configured source.",
+    )
+    expanded_report.add_argument(
+        "--authority-source-id",
+        action="append",
+        default=None,
+        help="Fetch only the selected authority adapter id. Repeatable; omitted means all authority sources.",
+    )
+    expanded_report.add_argument(
+        "--previous-report",
+        default=None,
+        help="Previous expanded report used to retain candidates from sources skipped as unchanged.",
     )
     expanded_report.add_argument("--timeout", type=int, default=20, help="Per-request timeout in seconds.")
     expanded_report.add_argument(
@@ -459,6 +476,9 @@ def _sources_expanded_report(args: argparse.Namespace) -> int:
         timeout_seconds=args.timeout,
         allow_insecure_tls=args.allow_insecure_tls,
         as_of=date.fromisoformat(args.as_of_date) if args.as_of_date else None,
+        previous_report_path=Path(args.previous_report) if args.previous_report else None,
+        kimdis_source_ids=set(args.kimdis_source_id) if args.kimdis_source_id is not None else None,
+        authority_source_ids=set(args.authority_source_id) if args.authority_source_id is not None else None,
     )
     write_expanded_report(report, report_path, markdown_path)
     _emit_json(

@@ -49,6 +49,7 @@ class ExpandedTenderCandidate:
     match_notes: list[str]
     status: str
     status_reason: str
+    source_id: str | None = None
     attachment_urls: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
@@ -64,6 +65,9 @@ def build_expanded_report(
     timeout_seconds: int = 20,
     allow_insecure_tls: bool = False,
     as_of: date | None = None,
+    previous_report_path: Path | None = None,
+    kimdis_source_ids: set[str] | None = None,
+    authority_source_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     sources_config = load_config(sources_config_path)
     scope_aliases = _scope_aliases(sources_config)
@@ -71,6 +75,8 @@ def build_expanded_report(
     as_of_date = as_of or date.today()
     candidates: list[ExpandedTenderCandidate] = []
     errors: list[dict[str, object]] = []
+    skipped_source_pages: list[dict[str, object]] = []
+    previous_report = _load_previous_report(previous_report_path)
 
     if eshidis_candidates_path and eshidis_candidates_path.exists():
         payload = json.loads(eshidis_candidates_path.read_text(encoding="utf-8"))
@@ -90,15 +96,22 @@ def build_expanded_report(
         timeout_seconds=timeout_seconds,
         allow_insecure_tls=allow_insecure_tls,
         as_of=as_of_date,
+        source_ids=kimdis_source_ids,
     )
     candidates.extend(kimdis_candidates)
     errors.extend(kimdis_errors)
+    if kimdis_source_ids is not None:
+        candidates.extend(_cached_candidates(previous_report, source="KIMDIS", skipped_source_ids=set(KIMDIS_FAMILIES) - kimdis_source_ids))
+        skipped_source_pages.extend(
+            _skipped_kimdis_source_pages(set(KIMDIS_FAMILIES) - kimdis_source_ids, previous_report=previous_report)
+        )
 
     authority_candidates, authority_errors, authority_page_stats = discover_authority_candidates(
         sources_config,
         timeout_seconds=timeout_seconds,
         allow_insecure_tls=allow_insecure_tls,
         limit_per_source=authority_limit_per_source,
+        source_ids=authority_source_ids,
     )
     for candidate in authority_candidates:
         candidates.append(
@@ -117,10 +130,26 @@ def build_expanded_report(
                 match_notes=[f"{candidate.source_name}: {candidate.parser_status}"],
                 status=candidate.status,
                 status_reason=candidate.status_reason,
+                source_id=candidate.source_id,
                 attachment_urls=candidate.attachment_urls,
             )
         )
     errors.extend(authority_errors)
+    if authority_source_ids is not None:
+        all_authority_source_ids = {
+            str(source.get("id") or "")
+            for source in sources_config.get("authority_adapters") or []
+            if isinstance(source, dict) and source.get("id")
+        }
+        skipped_authority_source_ids = all_authority_source_ids - authority_source_ids
+        candidates.extend(_cached_candidates(previous_report, source="AUTHORITY", skipped_source_ids=skipped_authority_source_ids))
+        skipped_source_pages.extend(
+            _skipped_authority_source_pages(
+                sources_config,
+                skipped_source_ids=skipped_authority_source_ids,
+                previous_report=previous_report,
+            )
+        )
 
     unique_candidates = _dedupe_by_official_source_id(candidates)
     focus_candidates = [candidate for candidate in unique_candidates if candidate.matched_scopes]
@@ -159,7 +188,7 @@ def build_expanded_report(
         "focus_authority_candidates": [candidate.to_dict() for candidate in focus_authority_candidates],
         "focus_candidates": [candidate.to_dict() for candidate in focus_candidates],
         "all_candidates": [candidate.to_dict() for candidate in unique_candidates],
-        "source_pages": [*kimdis_page_stats, *authority_page_stats],
+        "source_pages": [*kimdis_page_stats, *authority_page_stats, *skipped_source_pages],
         "errors": errors,
         "deduplication": {
             "method": "official source id only",
@@ -236,6 +265,7 @@ def _fetch_kimdis_candidates(
     timeout_seconds: int,
     allow_insecure_tls: bool,
     as_of: date,
+    source_ids: set[str] | None = None,
 ) -> tuple[list[ExpandedTenderCandidate], list[dict[str, object]], list[dict[str, object]]]:
     context = ssl._create_unverified_context() if allow_insecure_tls else None
     candidates: list[ExpandedTenderCandidate] = []
@@ -243,6 +273,8 @@ def _fetch_kimdis_candidates(
     page_stats: list[dict[str, object]] = []
     body = json.dumps({"contractType": "10"}).encode("utf-8")
     for source_id, family in KIMDIS_FAMILIES.items():
+        if source_ids is not None and source_id not in source_ids:
+            continue
         for page in range(max(0, pages)):
             url = str(family["url"]).format(page=page)
             request = Request(
@@ -304,6 +336,7 @@ def _fetch_kimdis_candidates(
                         match_notes=_match_notes(item, scope_aliases),
                         status=status,
                         status_reason=status_reason,
+                        source_id=source_id,
                         attachment_urls=[attachment_url],
                     )
                 )
@@ -334,9 +367,139 @@ def _eshidis_candidates(payload: dict[str, Any], scope_aliases: dict[str, list[s
                 match_notes=_match_notes(item, scope_aliases),
                 status=str(item.get("status") or "DISCOVERED_ACTIVE_CANDIDATE"),
                 status_reason="ESHIDIS discovery candidate; detail/status verification remains separate.",
+                source_id="eshidis_active_search",
             )
         )
     return candidates
+
+
+def _load_previous_report(path: Path | None) -> dict[str, Any] | None:
+    if path is None or not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _cached_candidates(
+    previous_report: dict[str, Any] | None,
+    *,
+    source: str,
+    skipped_source_ids: set[str],
+) -> list[ExpandedTenderCandidate]:
+    if not previous_report or not skipped_source_ids:
+        return []
+    cached: list[ExpandedTenderCandidate] = []
+    for item in previous_report.get("all_candidates") or []:
+        if not isinstance(item, dict) or item.get("source") != source:
+            continue
+        source_id = _candidate_source_id(item)
+        if source_id and source_id not in skipped_source_ids:
+            continue
+        if source_id is None and source == "KIMDIS" and _kimdis_source_id_for_record_type(str(item.get("record_type") or "")) not in skipped_source_ids:
+            continue
+        cached.append(_candidate_from_dict(item, cached=True))
+    return cached
+
+
+def _candidate_from_dict(item: dict[str, Any], *, cached: bool = False) -> ExpandedTenderCandidate:
+    match_notes = [str(note) for note in item.get("match_notes") or []]
+    if cached and "SKIPPED_UNCHANGED cached from previous report" not in match_notes:
+        match_notes.append("SKIPPED_UNCHANGED cached from previous report")
+    return ExpandedTenderCandidate(
+        source=str(item.get("source") or ""),
+        record_type=str(item.get("record_type") or ""),
+        official_id=str(item.get("official_id") or ""),
+        title=_none_or_str(item.get("title")),
+        authority=_none_or_str(item.get("authority")),
+        budget=_none_or_str(item.get("budget")),
+        published_at=_none_or_str(item.get("published_at")),
+        submission_deadline=_none_or_str(item.get("submission_deadline")),
+        source_url=str(item.get("source_url") or ""),
+        attachment_url=_none_or_str(item.get("attachment_url")),
+        matched_scopes=[str(value) for value in item.get("matched_scopes") or []],
+        match_notes=match_notes,
+        status=str(item.get("status") or "UNKNOWN"),
+        status_reason=str(item.get("status_reason") or ""),
+        source_id=_candidate_source_id(item),
+        attachment_urls=[str(value) for value in item.get("attachment_urls") or []],
+    )
+
+
+def _candidate_source_id(item: dict[str, Any]) -> str | None:
+    value = item.get("source_id")
+    if value not in (None, ""):
+        return str(value)
+    if item.get("source") == "KIMDIS":
+        return _kimdis_source_id_for_record_type(str(item.get("record_type") or ""))
+    return None
+
+
+def _kimdis_source_id_for_record_type(record_type: str) -> str | None:
+    for source_id, family in KIMDIS_FAMILIES.items():
+        if family["record_type"] == record_type:
+            return source_id
+    return None
+
+
+def _skipped_kimdis_source_pages(
+    skipped_source_ids: set[str],
+    *,
+    previous_report: dict[str, Any] | None,
+) -> list[dict[str, object]]:
+    counts = _previous_counts_by_source(previous_report)
+    return [
+        {
+            "source": source_id,
+            "record_type": KIMDIS_FAMILIES[source_id]["record_type"],
+            "page": None,
+            "items_returned": counts.get(source_id, 0),
+            "error": None,
+            "status": "SKIPPED_UNCHANGED",
+        }
+        for source_id in sorted(skipped_source_ids)
+    ]
+
+
+def _skipped_authority_source_pages(
+    config: dict[str, Any],
+    *,
+    skipped_source_ids: set[str],
+    previous_report: dict[str, Any] | None,
+) -> list[dict[str, object]]:
+    counts = _previous_counts_by_source(previous_report)
+    sources = {
+        str(source.get("id") or ""): source
+        for source in config.get("authority_adapters") or []
+        if isinstance(source, dict) and source.get("id")
+    }
+    return [
+        {
+            "source": source_id,
+            "adapter": sources.get(source_id, {}).get("adapter"),
+            "url": sources.get(source_id, {}).get("url"),
+            "items_returned": counts.get(source_id, 0),
+            "error": None,
+            "status": "SKIPPED_UNCHANGED",
+        }
+        for source_id in sorted(skipped_source_ids)
+    ]
+
+
+def _previous_counts_by_source(previous_report: dict[str, Any] | None) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    if not previous_report:
+        return counts
+    for item in previous_report.get("all_candidates") or []:
+        if not isinstance(item, dict):
+            continue
+        source_id = _candidate_source_id(item)
+        if not source_id:
+            continue
+        counts[source_id] = counts.get(source_id, 0) + 1
+    return counts
 
 
 def _scope_aliases(config: dict[str, Any]) -> dict[str, dict[str, Any]]:

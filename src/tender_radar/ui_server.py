@@ -609,6 +609,8 @@ def run_discovery_search(*, limit: int, backfill: bool = False) -> dict[str, Any
                 limit=current_limit,
                 as_of_date=date.today().isoformat(),
                 kimdis_pages=current_kimdis_pages,
+                source_preflight=preflight,
+                selective=not backfill,
             )
             for step in steps:
                 result = run_cli_process(step["args"], timeout=int(step["timeout"]))
@@ -682,6 +684,7 @@ def discovery_change_preflight() -> dict[str, Any]:
         "ok": current.get("ok"),
         "skip": skip,
         "status": status,
+        "changed_source_ids": _changed_source_ids(current=current, previous=previous),
         "current": current,
         "previous_hash": previous.get("hash") if previous else None,
         "current_hash": current.get("hash"),
@@ -748,6 +751,24 @@ def _source_fingerprint_signature(source: dict[str, Any]) -> dict[str, Any]:
         "date": source.get("date"),
         "count_hint": source.get("count_hint"),
     }
+
+
+def _changed_source_ids(*, current: dict[str, Any], previous: dict[str, Any] | None) -> list[str]:
+    if not previous:
+        return []
+    previous_sources = {
+        str(item.get("source_id") or ""): _source_fingerprint_signature(item)
+        for item in previous.get("sources") or []
+        if isinstance(item, dict) and item.get("source_id")
+    }
+    changed: list[str] = []
+    for item in current.get("sources") or []:
+        if not isinstance(item, dict) or not item.get("source_id"):
+            continue
+        source_id = str(item.get("source_id") or "")
+        if previous_sources.get(source_id) != _source_fingerprint_signature(item):
+            changed.append(source_id)
+    return sorted(changed)
 
 
 def quick_source_fingerprint(*, timeout_seconds: int = 8) -> dict[str, Any]:
@@ -974,47 +995,82 @@ def discovery_search_steps(
     limit: int,
     as_of_date: str,
     kimdis_pages: int = DEFAULT_KIMDIS_DISCOVERY_PAGES,
+    source_preflight: dict[str, Any] | None = None,
+    selective: bool = False,
 ) -> list[dict[str, Any]]:
-    return [
-        {
-            "name": "eshidis_discover",
-            "timeout": 180,
-            "args": [
-                "sources",
-                "discover-active",
-                "--allow-insecure-tls",
-                "--limit",
-                str(limit),
-                "--report",
-                "work/reports/eshidis_active_candidates.json",
-                "--markdown-report",
-                "work/reports/eshidis_active_candidates.md",
-            ],
-        },
+    steps: list[dict[str, Any]] = []
+    changed_source_ids = set(source_preflight.get("changed_source_ids") or []) if source_preflight else set()
+    has_previous_baseline = bool(source_preflight and source_preflight.get("previous_hash"))
+    selective_refresh = selective and has_previous_baseline and bool(changed_source_ids)
+    if not selective_refresh:
+        steps.append(
+            {
+                "name": "eshidis_discover",
+                "timeout": 180,
+                "args": [
+                    "sources",
+                    "discover-active",
+                    "--allow-insecure-tls",
+                    "--limit",
+                    str(limit),
+                    "--report",
+                    "work/reports/eshidis_active_candidates.json",
+                    "--markdown-report",
+                    "work/reports/eshidis_active_candidates.md",
+                ],
+            }
+        )
+    expanded_args = [
+        "sources",
+        "expanded-report",
+        "--allow-insecure-tls",
+        "--kimdis-pages",
+        str(kimdis_pages),
+        "--authority-limit-per-source",
+        str(DEFAULT_AUTHORITY_LIMIT_PER_SOURCE),
+        "--timeout",
+        "20",
+        "--as-of-date",
+        as_of_date,
+        "--eshidis-candidates",
+        "work/reports/eshidis_active_candidates.json",
+        "--report",
+        "work/reports/expanded_discovery_report.json",
+        "--markdown-report",
+        "work/reports/expanded_discovery_report.md",
+    ]
+    if selective_refresh:
+        expanded_args.extend(["--previous-report", "work/reports/expanded_discovery_report.json"])
+        kimdis_source_ids = sorted(source_id for source_id in changed_source_ids if source_id == "khmdhs_notice")
+        authority_source_ids = sorted(source_id for source_id in changed_source_ids if source_id in authority_source_ids_from_config())
+        if not kimdis_source_ids:
+            expanded_args.extend(["--kimdis-source-id", "__none__"])
+        else:
+            for source_id in kimdis_source_ids:
+                expanded_args.extend(["--kimdis-source-id", source_id])
+        if not authority_source_ids:
+            expanded_args.extend(["--authority-source-id", "__none__"])
+        else:
+            for source_id in authority_source_ids:
+                expanded_args.extend(["--authority-source-id", source_id])
+    steps.append(
         {
             "name": "expanded_report",
             "timeout": 300,
-            "args": [
-                "sources",
-                "expanded-report",
-                "--allow-insecure-tls",
-                "--kimdis-pages",
-                str(kimdis_pages),
-                "--authority-limit-per-source",
-                str(DEFAULT_AUTHORITY_LIMIT_PER_SOURCE),
-                "--timeout",
-                "20",
-                "--as-of-date",
-                as_of_date,
-                "--eshidis-candidates",
-                "work/reports/eshidis_active_candidates.json",
-                "--report",
-                "work/reports/expanded_discovery_report.json",
-                "--markdown-report",
-                "work/reports/expanded_discovery_report.md",
-            ],
+            "args": expanded_args,
         },
-    ]
+    )
+    return steps
+
+
+def authority_source_ids_from_config() -> set[str]:
+    config_path = REPO_ROOT / "config/sources.yml"
+    config = load_config(config_path) if config_path.exists() else {}
+    return {
+        str(source.get("id") or "")
+        for source in config.get("authority_adapters") or []
+        if isinstance(source, dict) and source.get("id")
+    }
 
 
 def run_cli_process(args: list[str], *, timeout: int) -> dict[str, Any]:

@@ -299,3 +299,17 @@ would likely be slow or fail on the same unavailable source.
 Only clean fingerprints replace the complete baseline after a successful full
 discovery run. This preserves provenance and does not claim no-miss coverage
 for sources that were unavailable during preflight.
+
+## D-034 - Non-ESHIDIS changed sources refresh selectively
+**Status:** Accepted
+
+When source preflight identifies specific changed KIMDIS or
+municipal/regional/Diavgeia/TED source ids, the UI may run a selective
+expanded-report refresh for those source ids only. Unchanged sources are kept
+from the previous expanded report and reported as `SKIPPED_UNCHANGED`.
+
+If the changed source cannot be identified, the system falls back to full
+discovery rather than producing an unsafe partial refresh. The ESHIDIS active
+browser search remains a special heavy source; selective non-ESHIDIS refreshes
+reuse the existing ESHIDIS candidate report unless the user runs full/backfill
+discovery.
