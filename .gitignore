@@ -5,6 +5,10 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
+.env
+.env.*
+!.env.example
+!.env.*.example
 data/
 work/
 exports/
