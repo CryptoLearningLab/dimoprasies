@@ -31,6 +31,14 @@ dashboard row actions now handle per-id Fetch and ZIP document download
 KIMDIS fetch supports --official-id for one ADAM at a time
 ```
 
+KIMDIS-to-ESHIDIS cross-reference update as of `2026-07-18`:
+
+```text
+KIMDIS fetched documents now extract explicit linked ESHIDIS ids
+per-row KIMDIS Fetch chains into ESHIDIS fetch-resource + download-attachment --all when a linked id exists
+KIMDIS row ZIP includes already downloaded linked ESHIDIS files
+```
+
 ## Instruction
 
 Build the next smallest no-miss reliability step:

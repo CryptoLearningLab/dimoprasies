@@ -220,3 +220,14 @@ through `/api/jobs/{job_id}` for browser polling.
 The current implementation is process-local and suitable for local/tunnel
 preview. A future multi-process production deployment should persist job state
 or use an external queue.
+
+## D-028 - KIMDIS cross-references can trigger ESHIDIS folder fetch
+**Status:** Accepted
+
+When a KIMDIS or municipal-source document explicitly contains an ESHIDIS
+numeric id, the system may use that id as an official cross-reference to fetch
+the fuller ESHIDIS detail and attachment folder.
+
+This creates provenance-linked records only. It does not merge KIMDIS and
+ESHIDIS records by title, and it does not promote any candidate to
+`VERIFIED_ACTIVE` without the separate status-verification gate.

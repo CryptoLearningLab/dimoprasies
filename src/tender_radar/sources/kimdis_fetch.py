@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import ssl
 import time
+import unicodedata
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import unquote
@@ -47,6 +48,7 @@ class KimdisFetchResult:
     document_analysis: dict[str, object] | None
     document_evidence: dict[str, object] | None
     zip_entries: list[dict[str, object]] | None
+    linked_eshidis_ids: list[str]
     error: str | None
 
     def to_dict(self) -> dict[str, object]:
@@ -126,6 +128,7 @@ def fetch_kimdis_open_proc_candidates(
             for item in results
             if item.document_analysis and item.document_analysis.get("extraction_status") != "TEXT_EXTRACTED"
         ),
+        "linked_eshidis_ids_found": sum(1 for item in results if item.linked_eshidis_ids),
     }
     return {
         "checked_at": checked_at,
@@ -191,6 +194,7 @@ def kimdis_document_index(report: dict[str, Any]) -> dict[str, Any]:
                 "document_analysis": item.get("document_analysis"),
                 "document_evidence": item.get("document_evidence"),
                 "zip_entries": item.get("zip_entries"),
+                "linked_eshidis_ids": item.get("linked_eshidis_ids") or [],
             }
         )
     return {
@@ -218,6 +222,7 @@ def render_kimdis_fetch_markdown(report: dict[str, Any]) -> str:
         f"- Text extracted: `{summary.get('text_extracted', 0)}`",
         f"- ZIP files inspected: `{summary.get('zip_files', 0)}`",
         f"- Document evidence found: `{summary.get('document_evidence_found', 0)}`",
+        f"- Linked ESHIDIS ids found: `{summary.get('linked_eshidis_ids_found', 0)}`",
         "- Status: candidate-only; no record is promoted to `VERIFIED_ACTIVE` by this report.",
         "- Deduplication: official KIMDIS PROC id only; title-only merge is disabled.",
         "",
@@ -280,6 +285,9 @@ def render_kimdis_fetch_markdown(report: dict[str, Any]) -> str:
                 lines.append(
                     f"  - `{_cell(entry.get('name') or '')}` -> `{_cell(entry.get('document_type') or 'other')}`"
                 )
+        linked_eshidis_ids = item.get("linked_eshidis_ids") if isinstance(item.get("linked_eshidis_ids"), list) else []
+        if linked_eshidis_ids:
+            lines.append(f"- Linked ESHIDIS ids: `{_cell(', '.join(str(value) for value in linked_eshidis_ids))}`")
         if item.get("error"):
             lines.append(f"- Error: `{_cell(item.get('error') or '')}`")
         lines.append("")
@@ -324,7 +332,7 @@ def _fetch_one_candidate(
         if existing_files:
             target_path = existing_files[0]
             digest = _sha256(target_path.read_bytes())
-            analysis, evidence, zip_entries, text_path = _inspect_download(
+            analysis, evidence, zip_entries, text_path, linked_eshidis_ids = _inspect_download(
                 target_path,
                 target_path.name,
                 candidate,
@@ -344,6 +352,7 @@ def _fetch_one_candidate(
                 document_analysis=analysis,
                 document_evidence=evidence,
                 zip_entries=zip_entries,
+                linked_eshidis_ids=linked_eshidis_ids,
                 error=None,
             )
     last_error: str | None = None
@@ -384,6 +393,7 @@ def _fetch_one_candidate(
         document_analysis=None,
         document_evidence=None,
         zip_entries=None,
+        linked_eshidis_ids=[],
         error=last_error,
     )
 
@@ -420,7 +430,9 @@ def _download_one_candidate(
         digest = _sha256(content)
         size = len(content)
         status = FETCHED_STATUS
-    analysis, evidence, zip_entries, text_path = _inspect_download(target_path, filename, candidate, scope_aliases, text_dir)
+    analysis, evidence, zip_entries, text_path, linked_eshidis_ids = _inspect_download(
+        target_path, filename, candidate, scope_aliases, text_dir
+    )
     return _result_from_candidate(
         candidate,
         retrieved_at=retrieved_at,
@@ -434,6 +446,7 @@ def _download_one_candidate(
         document_analysis=analysis,
         document_evidence=evidence,
         zip_entries=zip_entries,
+        linked_eshidis_ids=linked_eshidis_ids,
         error=None,
     )
 
@@ -452,6 +465,7 @@ def _result_from_candidate(
     document_analysis: dict[str, object] | None,
     document_evidence: dict[str, object] | None,
     zip_entries: list[dict[str, object]] | None,
+    linked_eshidis_ids: list[str],
     error: str | None,
 ) -> KimdisFetchResult:
     matched_scopes = candidate.get("matched_scopes") if isinstance(candidate.get("matched_scopes"), list) else []
@@ -476,6 +490,7 @@ def _result_from_candidate(
         document_analysis=document_analysis,
         document_evidence=document_evidence,
         zip_entries=zip_entries,
+        linked_eshidis_ids=linked_eshidis_ids,
         error=error,
     )
 
@@ -486,15 +501,54 @@ def _inspect_download(
     candidate: dict[str, Any],
     scope_aliases: dict[str, list[str]],
     text_dir: Path | None,
-) -> tuple[dict[str, object] | None, dict[str, object] | None, list[dict[str, object]] | None, str | None]:
+) -> tuple[dict[str, object] | None, dict[str, object] | None, list[dict[str, object]] | None, str | None, list[str]]:
     if path.suffix.lower() == ".zip":
-        return None, None, _zip_entries(path), None
+        zip_entries = _zip_entries(path)
+        linked_eshidis_ids = extract_eshidis_ids_from_text(
+            filename,
+            candidate.get("title"),
+            candidate.get("authority"),
+            *(entry.get("name") for entry in zip_entries if isinstance(entry, dict)),
+        )
+        return None, None, zip_entries, None, linked_eshidis_ids
     analysis = analyze_document(path, original_name=filename)
     payload = analysis.to_dict()
     evidence = _document_evidence(analysis.full_text, candidate, scope_aliases)
     text_path = _write_text_artifact(analysis.full_text, candidate, text_dir)
+    linked_eshidis_ids = extract_eshidis_ids_from_text(
+        filename,
+        candidate.get("title"),
+        candidate.get("authority"),
+        candidate.get("source_url"),
+        analysis.full_text,
+    )
     payload.pop("full_text", None)
-    return payload, evidence, None, text_path
+    return payload, evidence, None, text_path, linked_eshidis_ids
+
+
+def extract_eshidis_ids_from_text(*values: object) -> list[str]:
+    text = " ".join(str(value or "") for value in values)
+    if not text.strip():
+        return []
+    normalized = _normalize_text(text)
+    linked: list[str] = []
+    for match in re.finditer(r"(?<!\d)(\d{5,7})(?!\d)", normalized):
+        start, end = match.span(1)
+        context = normalized[max(0, start - 90) : start]
+        if not _eshidis_context(context):
+            continue
+        value = match.group(1)
+        if value not in linked:
+            linked.append(value)
+    return linked
+
+
+def _eshidis_context(context: str) -> bool:
+    if "εσηδη" in context:
+        return True
+    if "συστημα" in context or "συστηματος" in context:
+        return "α/α" in context or "αα" in context or "διαγωνισ" in context
+    return False
 
 
 def _write_text_artifact(full_text: str | None, candidate: dict[str, Any], text_dir: Path | None) -> str | None:
@@ -620,6 +674,13 @@ def _cell(value: object) -> str:
     return str(value).replace("|", "\\|").replace("\n", " ")[:180]
 
 
+def _normalize_text(value: str) -> str:
+    decomposed = unicodedata.normalize("NFD", value.casefold())
+    without_accents = "".join(char for char in decomposed if unicodedata.category(char) != "Mn")
+    normalized = unicodedata.normalize("NFC", without_accents)
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
 def _scope_aliases(config_path: Path) -> dict[str, list[str]]:
     config = load_config(config_path)
     aliases_by_scope: dict[str, list[str]] = {}
@@ -643,11 +704,3 @@ def _alias_matches(alias: str, haystack: str, tokens: set[str]) -> bool:
 
 def _tokens(value: str) -> list[str]:
     return re.findall(r"[a-z0-9α-ω]+", value)
-
-
-def _normalize_text(value: str) -> str:
-    import unicodedata
-
-    decomposed = unicodedata.normalize("NFD", value.casefold())
-    without_accents = "".join(char for char in decomposed if unicodedata.category(char) != "Mn")
-    return unicodedata.normalize("NFC", without_accents)

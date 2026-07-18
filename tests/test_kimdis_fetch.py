@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from tender_radar.sources.kimdis_fetch import (
     FETCHED_STATUS,
+    extract_eshidis_ids_from_text,
     fetch_kimdis_open_proc_candidates,
     kimdis_document_index,
     render_kimdis_fetch_markdown,
@@ -210,6 +211,46 @@ scopes:
     assert evidence["scope_alias_matches"]
 
 
+def test_fetch_kimdis_open_proc_extracts_linked_eshidis_id_from_text(tmp_path) -> None:
+    expanded_report = tmp_path / "expanded.json"
+    expanded_report.write_text(
+        json.dumps({"focus_open_proc_candidates": [_candidate("26PROC000000001", "https://example.test/1")]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    class Response:
+        headers = Message()
+
+        def __init__(self) -> None:
+            self.headers["Content-Type"] = "application/xml"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return "<root>Α/Α Συστήματος ΕΣΗΔΗΣ: 221473 για τον διαγωνισμό.</root>".encode("utf-8")
+
+    with patch("tender_radar.sources.kimdis_fetch.urlopen", return_value=Response()):
+        report = fetch_kimdis_open_proc_candidates(
+            expanded_report_path=expanded_report,
+            download_dir=tmp_path / "downloads",
+            text_dir=tmp_path / "text",
+        )
+
+    assert report["summary"]["linked_eshidis_ids_found"] == 1
+    assert report["shortlist"][0]["linked_eshidis_ids"] == ["221473"]
+
+
+def test_extract_eshidis_ids_requires_eshidis_or_system_context() -> None:
+    text = "Προϋπολογισμός 250000,00 και Α/Α ΕΣΗΔΗΣ 221473. ΑΔΑΜ 26PROC019417347."
+
+    assert extract_eshidis_ids_from_text(text) == ["221473"]
+    assert extract_eshidis_ids_from_text("Προϋπολογισμός 250000 και ημερομηνία 202607") == []
+
+
 def test_kimdis_document_index_preserves_required_metadata(tmp_path) -> None:
     report = {
         "checked_at": "2026-07-17T00:00:00+00:00",
@@ -238,6 +279,7 @@ def test_kimdis_document_index_preserves_required_metadata(tmp_path) -> None:
                 "text_path": "work/extracted_text/kimdis/26PROC000000001.txt",
                 "document_analysis": {"document_type": "other", "text_sample": "sample"},
                 "document_evidence": {"evidence_status": "DOCUMENT_EVIDENCE_FOUND"},
+                "linked_eshidis_ids": ["221473"],
             }
         ],
     }
@@ -250,6 +292,7 @@ def test_kimdis_document_index_preserves_required_metadata(tmp_path) -> None:
     assert index["documents"][0]["official_id"] == "26PROC000000001"
     assert index["documents"][0]["sha256"] == "abc"
     assert index["documents"][0]["candidate_status"] == "SUBMISSION_OPEN_CANDIDATE"
+    assert index["documents"][0]["linked_eshidis_ids"] == ["221473"]
     assert reloaded["deduplication"]["title_only_merge"] is False
 
 

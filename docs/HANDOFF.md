@@ -1,6 +1,6 @@
 # Project Handoff
 
-Last updated: `2026-07-17`
+Last updated: `2026-07-18`
 
 This is the compact handoff for a new Codex chat starting from zero.
 
@@ -236,6 +236,14 @@ That URL is temporary and should not be treated as stable infrastructure.
   `Δήμος Γλυφάδας`, `Αττική` or `EL30` blocks it; otherwise the candidate is
   retained for review with a match note. The current live expanded report has
   0 ambiguous retained matches.
+- KIMDIS fetched documents now extract explicit linked ESHIDIS numeric ids
+  from context such as `Α/Α ΕΣΗΔΗΣ`. A KIMDIS dashboard row `Fetch` first
+  fetches the selected ADAM, then automatically runs ESHIDIS `fetch-resource`
+  and `download-attachment --all` for any linked ESHIDIS id found. This is a
+  provenance cross-reference only, not title-based merge or active-status
+  promotion.
+- KIMDIS row ZIP archives include the local KIMDIS document and any already
+  downloaded latest ESHIDIS files for linked ESHIDIS ids.
 
 ## Current Verification
 
@@ -248,7 +256,7 @@ Latest confirmed command:
 Result:
 
 ```text
-74 passed in 1.41s
+77 passed in 2.33s
 ```
 
 Latest KIMDIS PROC attachment fetch command:
@@ -331,6 +339,9 @@ The system `python` command is not present in the remote environment; use
   53 focus-related records are candidates, not `VERIFIED_ACTIVE` tenders.
 - Search/evaluation over KIMDIS text artifacts. The current search/evaluation
   pipeline still primarily uses SQLite ESHIDIS documents.
+- Municipal-source document fetching is still future work. Once municipal
+  adapters download documents, they should reuse the same explicit
+  KIMDIS/municipal-document to ESHIDIS-id cross-reference path.
 
 ## Next Work
 

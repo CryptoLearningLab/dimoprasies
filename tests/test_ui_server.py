@@ -16,6 +16,7 @@ from tender_radar.ui_server import (
     kimdis_document_preview_payload,
     parse_budget_from_row_text,
     preview_kind,
+    run_selected_fetch,
     short_text_sample,
     start_job,
     focus_term_matches,
@@ -208,6 +209,7 @@ regions: []
       "original_filename": "26PROC000000001.pdf",
       "size_bytes": 4,
       "sha256": "abc",
+      "linked_eshidis_ids": ["221473"],
       "attachment_url": "https://example.test/attachment/26PROC000000001",
       "document_analysis": {{"document_type": "tender_declaration", "text_sample": "ΔΗΜΟΣ ΝΑΥΠΑΚΤΙΑΣ"}},
       "document_evidence": {{"evidence_status": "DOCUMENT_EVIDENCE_FOUND", "authority_match": "ΔΗΜΟΣ ΝΑΥΠΑΚΤΙΑΣ", "scope_alias_matches": ["Δήμος Ναυπακτίας"]}}
@@ -225,9 +227,34 @@ regions: []
     assert payload["tenders"][0]["supports_kimdis_actions"] is True
     assert payload["tenders"][0]["download_url"] == "/api/kimdis-document-file?official_id=26PROC000000001"
     assert payload["tenders"][0]["preview_url"] == "/api/kimdis-document-preview?official_id=26PROC000000001"
+    assert payload["tenders"][0]["linked_eshidis_ids"] == ["221473"]
+    assert preview["linked_eshidis_ids"] == ["221473"]
     assert preview["documents"][0]["label"] == "Διακήρυξη"
     assert preview["documents"][0]["view_url"] == "/api/kimdis-document-file?official_id=26PROC000000001"
     assert file_path == pdf_path.resolve()
+
+
+def test_selected_kimdis_fetch_chains_linked_eshidis_download(monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "run_kimdis_fetch", lambda official_id: {"ok": True, "official_id": official_id})
+    monkeypatch.setattr(ui_server, "kimdis_linked_eshidis_ids", lambda official_id: ["221473"])
+    monkeypatch.setattr(ui_server, "dashboard_payload", lambda scope="focus": {"scope": scope, "summary": {}})
+
+    captured = {}
+
+    def fake_run_cli_steps(steps, *, dashboard_scope=None):
+        captured["steps"] = steps
+        captured["dashboard_scope"] = dashboard_scope
+        return {"ok": True, "steps": steps, "dashboard": {"scope": dashboard_scope}}
+
+    monkeypatch.setattr(ui_server, "run_cli_steps", fake_run_cli_steps)
+
+    result = run_selected_fetch("26PROC019417347")
+
+    assert result["ok"] is True
+    assert result["linked_eshidis_ids"] == ["221473"]
+    assert captured["dashboard_scope"] == "focus"
+    assert [step["name"] for step in captured["steps"]] == ["fetch_detail_221473", "download_files_221473"]
+    assert captured["steps"][0]["args"] == ["sources", "fetch-resource", "221473", "--allow-insecure-tls"]
 
 
 def test_document_zip_includes_all_eshidis_latest_local_files(tmp_path, monkeypatch) -> None:

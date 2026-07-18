@@ -378,7 +378,48 @@ def prune_jobs(*, now: float, max_age_seconds: int = 3600) -> None:
 
 def run_selected_fetch(identifier: str) -> dict[str, Any]:
     if is_kimdis_identifier(identifier):
-        return run_kimdis_fetch(official_id=identifier)
+        kimdis_result = run_kimdis_fetch(official_id=identifier)
+        linked_ids = kimdis_linked_eshidis_ids(identifier)
+        if not linked_ids:
+            return {
+                "ok": kimdis_result.get("ok") is not False,
+                "kimdis_fetch": kimdis_result,
+                "linked_eshidis_ids": [],
+                "eshidis_fetch": None,
+                "dashboard": dashboard_payload(scope="focus"),
+            }
+        steps: list[dict[str, Any]] = []
+        for eshidis_id in linked_ids:
+            steps.extend(
+                [
+                    {
+                        "name": f"fetch_detail_{eshidis_id}",
+                        "args": ["sources", "fetch-resource", eshidis_id, "--allow-insecure-tls"],
+                        "timeout": 180,
+                    },
+                    {
+                        "name": f"download_files_{eshidis_id}",
+                        "args": [
+                            "sources",
+                            "download-attachment",
+                            eshidis_id,
+                            "--all",
+                            "--limit",
+                            "50",
+                            "--allow-insecure-tls",
+                        ],
+                        "timeout": 180,
+                    },
+                ]
+            )
+        eshidis_result = run_cli_steps(steps, dashboard_scope="focus")
+        return {
+            "ok": kimdis_result.get("ok") is not False and eshidis_result.get("ok") is not False,
+            "kimdis_fetch": kimdis_result,
+            "linked_eshidis_ids": linked_ids,
+            "eshidis_fetch": eshidis_result,
+            "dashboard": eshidis_result.get("dashboard") or dashboard_payload(scope="focus"),
+        }
     eshidis_id = require_eshidis_id({"eshidis_id": identifier})
     steps = [
         {"name": "fetch_detail", "args": ["sources", "fetch-resource", eshidis_id, "--allow-insecure-tls"], "timeout": 180},
@@ -713,6 +754,7 @@ def kimdis_open_proc_rows() -> list[dict[str, Any]]:
         matched_scopes = [str(scope) for scope in candidate.get("matched_scopes") or [] if str(scope).strip()]
         match_notes = [str(note) for note in candidate.get("match_notes") or [] if str(note).strip()]
         document = document_index.get(official_id, {})
+        linked_eshidis_ids = [str(value) for value in document.get("linked_eshidis_ids") or [] if str(value).strip()]
         local_path = normalize_local_path(_none_or_str(document.get("local_path")))
         has_local_document = local_path is not None
         text_sample = None
@@ -746,6 +788,7 @@ def kimdis_open_proc_rows() -> list[dict[str, Any]]:
                 "sha256": document.get("sha256"),
                 "size_bytes": document.get("size_bytes"),
                 "text_sample": short_text_sample(_none_or_str(text_sample)),
+                "linked_eshidis_ids": linked_eshidis_ids,
                 "supports_eshidis_actions": False,
                 "supports_kimdis_actions": True,
                 "interest_match": bool(matched_scopes),
@@ -920,12 +963,14 @@ def kimdis_document_preview_payload(official_id: str) -> dict[str, Any]:
         "scope_alias_matches": evidence.get("scope_alias_matches") or [],
         "view_url": f"/api/kimdis-document-file?official_id={official_id}" if local_path else None,
     }
+    linked_eshidis_ids = [str(value) for value in document.get("linked_eshidis_ids") or [] if str(value).strip()]
     return {
         "official_id": official_id,
         "source_label": "ΚΗΜΔΗΣ",
         "official_url": document.get("attachment_url") or document.get("source_url"),
         "candidate_status": document.get("candidate_status"),
         "verification_status": document.get("verification_status"),
+        "linked_eshidis_ids": linked_eshidis_ids,
         "documents": [doc],
         "featured": [doc],
     }
@@ -969,6 +1014,18 @@ def kimdis_document_file_path(official_id: str) -> Path | None:
     if not document:
         return None
     return normalize_local_path(_none_or_str(document.get("local_path")))
+
+
+def kimdis_linked_eshidis_ids(official_id: str) -> list[str]:
+    document = kimdis_documents_by_official_id().get(official_id)
+    if not document:
+        return []
+    linked: list[str] = []
+    for value in document.get("linked_eshidis_ids") or []:
+        text = str(value or "").strip()
+        if text.isdigit() and 5 <= len(text) <= 7 and text not in linked:
+            linked.append(text)
+    return linked
 
 
 def document_zip_bytes(identifier: str) -> tuple[str, bytes | None]:
@@ -1028,6 +1085,9 @@ def kimdis_document_paths(official_id: str) -> list[tuple[str, Path]]:
         for path in sorted(target_dir.iterdir()):
             if path.is_file() and path.resolve() != document_path:
                 entries.append((path.name, path.resolve()))
+    for eshidis_id in kimdis_linked_eshidis_ids(official_id):
+        for preferred_name, path in eshidis_document_paths(eshidis_id):
+            entries.append((f"ESHIDIS_{eshidis_id}_{preferred_name}", path))
     return entries
 
 
@@ -2055,6 +2115,9 @@ function renderDashboard(payload) {
     const isKimdis = Boolean(tender.supports_kimdis_actions);
     const linkLabel = tender.source_label === 'ΚΗΜΔΗΣ' ? 'ΚΗΜΔΗΣ' : 'ΕΣΗΔΗΣ';
     const identifier = tender.official_id || tender.eshidis_id || tender.display_id || '';
+    const linkedText = (tender.linked_eshidis_ids || []).length
+      ? `<span class="pill">ΕΣΗΔΗΣ ${escapeHtml((tender.linked_eshidis_ids || []).join(', '))}</span>`
+      : '';
     const zipUrl = `/api/document-zip?identifier=${encodeURIComponent(identifier)}`;
     const tr = document.createElement('tr');
     tr.dataset.key = rowKey;
@@ -2062,7 +2125,7 @@ function renderDashboard(payload) {
     tr.innerHTML = `
       <td><strong>${escapeHtml(tender.display_id || tender.eshidis_id || '')}</strong></td>
       <td>${escapeHtml(tender.source_label || '')}</td>
-      <td class="tenderTitle">${escapeHtml(tender.title || '')}${tender.interest_reason ? `<span class="pill">${escapeHtml(tender.interest_reason)}</span>` : ''}</td>
+      <td class="tenderTitle">${escapeHtml(tender.title || '')}${tender.interest_reason ? `<span class="pill">${escapeHtml(tender.interest_reason)}</span>` : ''}${linkedText}</td>
       <td class="authorityCell">${escapeHtml(tender.authority_name || '')}</td>
       <td class="budgetCell">${escapeHtml(tender.budget_display || '')}</td>
       <td class="deadlineCell">${escapeHtml(tender.deadline_display || '')}</td>
@@ -2165,11 +2228,15 @@ function isKimdisCode(value) {
 async function renderKimdisPreview(officialId) {
   const payload = await api(`/api/kimdis-document-preview?official_id=${encodeURIComponent(officialId)}`);
   const docs = payload.documents || [];
+  const linkedIds = payload.linked_eshidis_ids || [];
   if (!docs.length) {
     $('previewBody').innerHTML = '<div class="emptyState">Δεν υπάρχει ακόμα structured ΚΗΜΔΗΣ preview για αυτό το ΑΔΑΜ.</div>';
     return;
   }
-  $('previewBody').innerHTML = docs.map((doc) => `
+  const linkedBlock = linkedIds.length
+    ? `<div class="docItem linkedBox"><h4>Σύνδεση με ΕΣΗΔΗΣ</h4><p>Βρέθηκε Α/Α ΕΣΗΔΗΣ ${escapeHtml(linkedIds.join(', '))}. Το Fetch αυτής της γραμμής κατεβάζει και τον επίσημο φάκελο ΕΣΗΔΗΣ.</p></div>`
+    : '';
+  $('previewBody').innerHTML = linkedBlock + docs.map((doc) => `
     <article class="docItem">
       <h4>${escapeHtml(doc.label)}${doc.available ? '' : ' · δεν έχει κατέβει'}</h4>
       <p>${escapeHtml(doc.name || '')}</p>

@@ -4,7 +4,7 @@
 `PHASE_2_SQLITE_VERTICAL_SLICE_PARTIAL`
 
 ## Last Updated
-`2026-07-17`
+`2026-07-18`
 
 ## Current Task
 `tasks/NEXT_TASK.md`
@@ -606,6 +606,31 @@
   `20 passed in 0.48s`.
 - Full test suite:
   `.venv/bin/python -m pytest` returned `74 passed in 1.41s`.
+- KIMDIS PROC document inspection now extracts candidate linked ESHIDIS
+  numeric ids from explicit document context such as `Α/Α ΕΣΗΔΗΣ` or
+  `Α/Α Συστήματος ΕΣΗΔΗΣ`. The extractor is conservative and does not treat
+  unrelated 5-7 digit values as ESHIDIS ids without nearby official-id
+  context.
+- The KIMDIS document index and Markdown report preserve
+  `linked_eshidis_ids`. The dashboard displays those ids in the row and in the
+  KIMDIS preview pane.
+- Dashboard KIMDIS row `Fetch` now runs a chained official-folder lookup:
+  selected KIMDIS ADAM fetch first, then ESHIDIS `fetch-resource` and
+  `download-attachment --all` for every linked ESHIDIS id found in the KIMDIS
+  document/index. This remains candidate/provenance linking, not silent record
+  merging.
+- KIMDIS row ZIP archives now include the local KIMDIS document and any
+  already-downloaded latest ESHIDIS files for linked ESHIDIS ids, using
+  `ESHIDIS_<id>_` filename prefixes inside the archive.
+- Verification for KIMDIS-to-ESHIDIS cross-reference:
+  `.venv/bin/python -m pytest tests/test_kimdis_fetch.py tests/test_ui_server.py`
+  returned `29 passed in 0.60s`.
+- `.venv/bin/python -m tender_radar config validate`
+- Result: all repository configs OK.
+- `.venv/bin/python -m pytest`
+- Result: 77 passed in 2.33s.
+- `git diff --check`
+- Result: no whitespace errors.
 
 ## Coverage
 
@@ -644,6 +669,9 @@ ui_background_jobs: true
 ui_job_poll_interval_seconds: 5
 ui_clickable_preview_rows: true
 ui_end_to_end_fetch_zip_confirmed_by_user: true
+kimdis_extracts_linked_eshidis_ids: true
+ui_kimdis_fetch_chains_linked_eshidis: true
+kimdis_zip_includes_linked_eshidis_downloads: true
 source_whitelist_files: 2
 source_whitelist_entries_checked: 36
 source_whitelist_reachable: 29
@@ -671,9 +699,9 @@ focus_municipalities: 6
 
 ## Next Gate
 
-Recall-safety follow-up: add a repeatable alias-risk audit report for short,
-common or ambiguous place names, then optionally expose ambiguous retained
-matches with a distinct UI badge.
+Build persisted discovery watermark and backfill safety so non-daily checks
+scan until the previous successful source window or documented source
+exhaustion instead of relying only on fixed row/page limits.
 
 ## Handoff Discipline
 
