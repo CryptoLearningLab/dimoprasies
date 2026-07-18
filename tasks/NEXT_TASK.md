@@ -1,37 +1,39 @@
 # NEXT TASK
 
 Execute:
-`Expose AI triage and candidate enrichment status in the UI`
+`Migrate source poller skip state to SQLite`
 
 ## Current Input
 
-The UI bounded discovery flow now chains:
+Runtime state tables now exist in `data/tender_radar.sqlite`:
 
-1. bounded/selective discovery,
-2. OpenAI-backed `sources ai-triage-report` through `/api/ai-triage`,
-3. non-ESHIDIS candidate enrichment through `/api/enrich-candidates`.
+- `source_state`
+- `source_runs`
+- `tender_dismissals`
+- `notification_log`
 
-The AI report is written to `work/reports/ai_triage_report.json` and the
-candidate enrichment ledger is written to
-`work/derived/candidate_enrichment_attempts.json`.
+The UI "Δεν με ενδιαφέρει" path writes to SQLite and still reads the legacy
+`work/derived/ignored_tenders.json` file during migration.
 
 ## Instruction
 
-Implement a small UI/status gate:
+Implement the next small gate:
 
-1. Show whether the latest visible rows are filtered by a fresh AI triage
-   report or an older cached report.
-2. Show candidate enrichment summary: attempted, enriched, failed and skipped.
-3. Add a manual retry path for one row that clears only that row's enrichment
-   attempt and reruns fetch/enrichment.
-4. Keep bounded search fast; do not introduce full-depth discovery into this
+1. Make the source fingerprint preflight write every source check to
+   `source_state` and `source_runs`.
+2. Make unchanged-source skip decisions read the previous fingerprint from
+   SQLite first, falling back to `work/derived/source_fingerprints.json` only
+   for legacy compatibility.
+3. Keep bounded search fast; do not introduce full-depth discovery into this
    flow.
-5. Do not expose or log the OpenAI API key.
+4. Preserve existing JSON report outputs until all UI/report consumers are
+   migrated.
+5. Do not expose or log secrets.
 
 ## Required Closeout
 
-1. Run targeted UI tests and `.venv/bin/python -m pytest`.
-2. Run a bounded local smoke and report AI/enrichment status.
+1. Run targeted UI/source preflight tests and `.venv/bin/python -m pytest`.
+2. Run a local bounded preflight smoke and report whether it skipped or changed.
 3. Update `docs/PROGRESS.md`.
 4. Update `docs/DECISIONS.md` only if a real decision was made.
 5. Update this file with the next single executable gate.

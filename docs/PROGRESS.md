@@ -1650,6 +1650,40 @@ full test suite: 133 passed
 bounded run smoke: ok true, skipped true, steps [], preflight_status SKIPPED_UNCHANGED_WITH_SOURCE_WARNINGS
 ```
 
+### Persistent runtime state foundation
+
+The DigitalOcean runtime now has a SQLite-backed state foundation for the
+daily poll/deploy workflow.
+
+Implemented behavior:
+
+- Added `source_state` for per-source fingerprint, last checked timestamp,
+  last changed timestamp, status, errors and metadata.
+- Added `source_runs` for per-run source audit history with status, changed
+  flag, item count, error and metadata.
+- Added `tender_dismissals` for permanent "Δεν με ενδιαφέρει" row ignores.
+- Added `notification_log` for future email alert de-duplication per row,
+  channel and recipient.
+- Added DB helpers for source state upsert/read, source run audit, tender
+  dismissal and notification sent guards.
+- The UI dismissal path now writes to SQLite while still reading the legacy
+  `work/derived/ignored_tenders.json` file so existing ignored rows are not
+  lost during migration.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_db.py tests/test_ui_server.py::test_dismiss_tender_hides_row_from_dashboard
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted DB/UI tests: 10 passed
+full test suite: 142 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

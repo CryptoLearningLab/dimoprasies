@@ -1,6 +1,16 @@
 import sqlite3
 
-from tender_radar.db import import_attachment_download, import_eshidis_resource
+from tender_radar.db import (
+    dismiss_tender,
+    get_source_state,
+    ignored_tender_keys,
+    import_attachment_download,
+    import_eshidis_resource,
+    notification_already_sent,
+    record_notification_sent,
+    record_source_run,
+    upsert_source_state,
+)
 from tender_radar.sources.eshidis import EshidisAttachmentListing, EshidisTenderDetails
 
 
@@ -182,3 +192,113 @@ def test_reimport_prefers_existing_download_metadata_when_duplicates_exist(tmp_p
             """
         ).fetchall()
         assert latest_rows == [("work/download_audit/file.pdf", 123, "abc123")]
+
+
+def test_source_state_tracks_fingerprint_changes(tmp_path) -> None:
+    db_path = tmp_path / "tenders.sqlite"
+
+    first = upsert_source_state(
+        db_path,
+        source_id="nafpaktos_tenders",
+        source_family="municipal_html",
+        source_url="https://www.nafpaktos.gr/el/prokirixeis-diagonismoi",
+        fingerprint="etag-1",
+        checked_at="2026-07-18T10:00:00+00:00",
+        status="OK",
+        metadata={"http_status": 200},
+    )
+    second = upsert_source_state(
+        db_path,
+        source_id="nafpaktos_tenders",
+        source_family="municipal_html",
+        source_url="https://www.nafpaktos.gr/el/prokirixeis-diagonismoi",
+        fingerprint="etag-1",
+        checked_at="2026-07-18T11:00:00+00:00",
+        status="UNCHANGED",
+    )
+    third = upsert_source_state(
+        db_path,
+        source_id="nafpaktos_tenders",
+        source_family="municipal_html",
+        source_url="https://www.nafpaktos.gr/el/prokirixeis-diagonismoi",
+        fingerprint="etag-2",
+        checked_at="2026-07-18T12:00:00+00:00",
+        status="CHANGED",
+    )
+
+    assert first.last_changed_at == "2026-07-18T10:00:00+00:00"
+    assert second.last_changed_at == "2026-07-18T10:00:00+00:00"
+    assert third.last_changed_at == "2026-07-18T12:00:00+00:00"
+    assert get_source_state(db_path, "nafpaktos_tenders").fingerprint == "etag-2"
+
+
+def test_source_runs_are_audited(tmp_path) -> None:
+    db_path = tmp_path / "tenders.sqlite"
+
+    run_row_id = record_source_run(
+        db_path,
+        run_id="run-1",
+        source_id="eshidis_active",
+        started_at="2026-07-18T10:00:00+00:00",
+        finished_at="2026-07-18T10:00:05+00:00",
+        status="SKIPPED_UNCHANGED",
+        fingerprint="abc",
+        changed=False,
+        item_count=0,
+        metadata={"reason": "fingerprint match"},
+    )
+
+    assert run_row_id == 1
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT source_id, status, changed, item_count, metadata_json FROM source_runs"
+        ).fetchone()
+    assert row[0:4] == ("eshidis_active", "SKIPPED_UNCHANGED", 0, 0)
+    assert '"fingerprint match"' in row[4]
+
+
+def test_tender_dismissals_are_persisted(tmp_path) -> None:
+    db_path = tmp_path / "tenders.sqlite"
+
+    dismiss_tender(
+        db_path,
+        row_key="KIMDIS:26PROC000000001",
+        display_id="26PROC000000001",
+        source_label="ΚΗΜΔΗΣ",
+        title="Άσχετη προμήθεια",
+        reason="Δεν με ενδιαφέρει",
+        ignored_at="2026-07-18T10:00:00+00:00",
+    )
+    dismiss_tender(db_path, row_key="KIMDIS:26PROC000000001", title="Δεν αλλάζει το κλειδί")
+
+    assert ignored_tender_keys(db_path) == {"KIMDIS:26PROC000000001"}
+    with sqlite3.connect(db_path) as connection:
+        count = connection.execute("SELECT COUNT(*) FROM tender_dismissals").fetchone()[0]
+    assert count == 1
+
+
+def test_notification_log_prevents_duplicate_email_alerts(tmp_path) -> None:
+    db_path = tmp_path / "tenders.sqlite"
+
+    assert notification_already_sent(
+        db_path,
+        row_key="ESHIDIS:221744",
+        channel="email",
+        recipient="user@example.test",
+    ) is False
+
+    record_notification_sent(
+        db_path,
+        row_key="ESHIDIS:221744",
+        channel="email",
+        recipient="user@example.test",
+        subject="Νέο έργο",
+        sent_at="2026-07-18T10:00:00+00:00",
+    )
+
+    assert notification_already_sent(
+        db_path,
+        row_key="ESHIDIS:221744",
+        channel="email",
+        recipient="user@example.test",
+    ) is True

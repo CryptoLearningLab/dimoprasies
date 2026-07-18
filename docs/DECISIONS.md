@@ -394,3 +394,15 @@ If an id still does not become canonical after the attempt, it is recorded in
 `work/derived/linked_eshidis_fetch_attempts.json` and skipped on later bounded
 searches. This prevents repeated slow retries while preserving the candidate
 row and failure evidence for manual review or a later explicit Fetch action.
+
+## D-041 - Runtime state is canonical in SQLite
+**Status:** Accepted
+
+Daily operational state belongs in SQLite, not only in mutable JSON files under
+`work/derived/`.
+
+Source fingerprints, source run audit rows, permanent tender dismissals and
+notification-send records are persisted in `data/tender_radar.sqlite`.
+Existing `work/derived` JSON files may remain as legacy/runtime artifacts while
+specific flows are migrated, but new poller/email/ignore behavior should use
+the SQLite helpers first.

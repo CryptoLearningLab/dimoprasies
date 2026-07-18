@@ -24,6 +24,10 @@ from urllib.parse import parse_qs, quote, urlencode, unquote, urlparse, urlsplit
 from urllib.request import Request, urlopen
 
 from tender_radar.config import load_config
+from tender_radar.db import (
+    dismiss_tender as dismiss_tender_in_db,
+    ignored_tender_keys as ignored_tender_keys_from_db,
+)
 from tender_radar.discovery_watermark import (
     append_discovery_run,
     build_discovery_run_record,
@@ -49,6 +53,10 @@ COMMAND_LOCK = threading.Lock()
 ENRICHMENT_LOCK = threading.Lock()
 JOBS_LOCK = threading.Lock()
 JOBS: dict[str, dict[str, Any]] = {}
+
+
+def runtime_db_path() -> Path:
+    return REPO_ROOT / "data/tender_radar.sqlite"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1849,18 +1857,31 @@ def ignored_tenders_path() -> Path:
 
 
 def ignored_tender_keys() -> set[str]:
+    keys = set()
+    try:
+        keys.update(ignored_tender_keys_from_db(runtime_db_path()))
+    except (OSError, sqlite3.Error):
+        pass
     path = ignored_tenders_path()
     if not path.exists():
-        return set()
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    return {str(item.get("row_key") or "") for item in payload.get("ignored") or [] if isinstance(item, dict)}
+        return keys
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return keys
+    keys.update(str(item.get("row_key") or "") for item in payload.get("ignored") or [] if isinstance(item, dict))
+    return {key for key in keys if key}
 
 
 def dismiss_tender(row_key: str) -> dict[str, Any]:
+    dismiss_tender_in_db(runtime_db_path(), row_key=row_key)
     path = ignored_tenders_path()
     existing = []
     if path.exists():
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
         existing = [item for item in payload.get("ignored") or [] if isinstance(item, dict)]
     if not any(item.get("row_key") == row_key for item in existing):
         existing.append({"row_key": row_key, "ignored_at": utc_now_iso()})

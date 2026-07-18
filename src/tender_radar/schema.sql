@@ -89,3 +89,54 @@ CREATE TABLE IF NOT EXISTS errors (
     message TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS source_state (
+    source_id TEXT PRIMARY KEY,
+    source_family TEXT,
+    source_url TEXT,
+    fingerprint TEXT,
+    last_checked_at TEXT,
+    last_changed_at TEXT,
+    last_status TEXT NOT NULL DEFAULT 'UNKNOWN',
+    last_error TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS source_runs (
+    id INTEGER PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL,
+    fingerprint TEXT,
+    changed INTEGER NOT NULL DEFAULT 0,
+    item_count INTEGER,
+    error TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY(source_id) REFERENCES source_state(source_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_runs_source_started
+ON source_runs(source_id, started_at);
+
+CREATE TABLE IF NOT EXISTS tender_dismissals (
+    row_key TEXT PRIMARY KEY,
+    display_id TEXT,
+    source_label TEXT,
+    title TEXT,
+    reason TEXT,
+    ignored_at TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS notification_log (
+    id INTEGER PRIMARY KEY,
+    row_key TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    recipient TEXT NOT NULL,
+    sent_at TEXT NOT NULL,
+    subject TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(row_key, channel, recipient)
+);

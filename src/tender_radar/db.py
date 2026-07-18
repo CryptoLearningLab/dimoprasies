@@ -73,6 +73,19 @@ class SearchableDocument:
     text_path: str | None
 
 
+@dataclass(frozen=True)
+class SourceState:
+    source_id: str
+    source_family: str | None
+    source_url: str | None
+    fingerprint: str | None
+    last_checked_at: str | None
+    last_changed_at: str | None
+    last_status: str
+    last_error: str | None
+    metadata: dict[str, object]
+
+
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(db_path)
@@ -87,6 +100,7 @@ def initialize(db_path: Path, schema_path: Path | None = None) -> None:
     try:
         connection.executescript(schema_path.read_text(encoding="utf-8"))
         _ensure_document_columns(connection)
+        _ensure_runtime_state_tables(connection)
         connection.commit()
     finally:
         connection.close()
@@ -509,6 +523,284 @@ def finish_search_run(db_path: Path, search_run_id: int, status: str, summary: d
         connection.close()
 
 
+def upsert_source_state(
+    db_path: Path,
+    *,
+    source_id: str,
+    source_family: str | None = None,
+    source_url: str | None = None,
+    fingerprint: str | None = None,
+    checked_at: str | None = None,
+    changed_at: str | None = None,
+    status: str = "UNKNOWN",
+    error: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> SourceState:
+    initialize(db_path)
+    if not source_id.strip():
+        raise ValueError("source_id is required")
+    now = checked_at or datetime.now(timezone.utc).isoformat()
+    metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
+    connection = connect(db_path)
+    try:
+        current = connection.execute(
+            "SELECT fingerprint, last_changed_at FROM source_state WHERE source_id = ?",
+            (source_id,),
+        ).fetchone()
+        previous_fingerprint = str(current[0]) if current and current[0] is not None else None
+        previous_changed_at = str(current[1]) if current and current[1] is not None else None
+        next_changed_at = changed_at
+        if next_changed_at is None:
+            next_changed_at = now if fingerprint is not None and fingerprint != previous_fingerprint else previous_changed_at
+        connection.execute(
+            """
+            INSERT INTO source_state (
+                source_id, source_family, source_url, fingerprint,
+                last_checked_at, last_changed_at, last_status, last_error,
+                metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source_id) DO UPDATE SET
+                source_family = excluded.source_family,
+                source_url = excluded.source_url,
+                fingerprint = excluded.fingerprint,
+                last_checked_at = excluded.last_checked_at,
+                last_changed_at = excluded.last_changed_at,
+                last_status = excluded.last_status,
+                last_error = excluded.last_error,
+                metadata_json = excluded.metadata_json
+            """,
+            (
+                source_id,
+                source_family,
+                source_url,
+                fingerprint,
+                now,
+                next_changed_at,
+                status,
+                error,
+                metadata_json,
+            ),
+        )
+        connection.commit()
+        row = connection.execute(
+            """
+            SELECT source_id, source_family, source_url, fingerprint,
+                   last_checked_at, last_changed_at, last_status, last_error,
+                   metadata_json
+            FROM source_state
+            WHERE source_id = ?
+            """,
+            (source_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    return _source_state_from_row(row)
+
+
+def get_source_state(db_path: Path, source_id: str) -> SourceState | None:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        row = connection.execute(
+            """
+            SELECT source_id, source_family, source_url, fingerprint,
+                   last_checked_at, last_changed_at, last_status, last_error,
+                   metadata_json
+            FROM source_state
+            WHERE source_id = ?
+            """,
+            (source_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    return _source_state_from_row(row) if row else None
+
+
+def list_source_states(db_path: Path) -> list[SourceState]:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        rows = connection.execute(
+            """
+            SELECT source_id, source_family, source_url, fingerprint,
+                   last_checked_at, last_changed_at, last_status, last_error,
+                   metadata_json
+            FROM source_state
+            ORDER BY source_id
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+    return [_source_state_from_row(row) for row in rows]
+
+
+def record_source_run(
+    db_path: Path,
+    *,
+    run_id: str,
+    source_id: str,
+    started_at: str,
+    finished_at: str | None,
+    status: str,
+    fingerprint: str | None = None,
+    changed: bool = False,
+    item_count: int | None = None,
+    error: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> int:
+    initialize(db_path)
+    if get_source_state(db_path, source_id) is None:
+        upsert_source_state(db_path, source_id=source_id, status="UNKNOWN")
+    connection = connect(db_path)
+    try:
+        cursor = connection.execute(
+            """
+            INSERT INTO source_runs (
+                run_id, source_id, started_at, finished_at, status, fingerprint,
+                changed, item_count, error, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                source_id,
+                started_at,
+                finished_at,
+                status,
+                fingerprint,
+                1 if changed else 0,
+                item_count,
+                error,
+                json.dumps(metadata or {}, ensure_ascii=False),
+            ),
+        )
+        connection.commit()
+        return int(cursor.lastrowid)
+    finally:
+        connection.close()
+
+
+def dismiss_tender(
+    db_path: Path,
+    *,
+    row_key: str,
+    display_id: str | None = None,
+    source_label: str | None = None,
+    title: str | None = None,
+    reason: str | None = None,
+    ignored_at: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> None:
+    initialize(db_path)
+    if not row_key.strip():
+        raise ValueError("row_key is required")
+    ignored_at = ignored_at or datetime.now(timezone.utc).isoformat()
+    connection = connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO tender_dismissals (
+                row_key, display_id, source_label, title, reason, ignored_at,
+                metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(row_key) DO UPDATE SET
+                display_id = COALESCE(excluded.display_id, tender_dismissals.display_id),
+                source_label = COALESCE(excluded.source_label, tender_dismissals.source_label),
+                title = COALESCE(excluded.title, tender_dismissals.title),
+                reason = COALESCE(excluded.reason, tender_dismissals.reason),
+                ignored_at = tender_dismissals.ignored_at,
+                metadata_json = excluded.metadata_json
+            """,
+            (
+                row_key,
+                display_id,
+                source_label,
+                title,
+                reason,
+                ignored_at,
+                json.dumps(metadata or {}, ensure_ascii=False),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def ignored_tender_keys(db_path: Path) -> set[str]:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        rows = connection.execute("SELECT row_key FROM tender_dismissals").fetchall()
+    finally:
+        connection.close()
+    return {str(row[0]) for row in rows}
+
+
+def record_notification_sent(
+    db_path: Path,
+    *,
+    row_key: str,
+    channel: str,
+    recipient: str,
+    subject: str | None = None,
+    sent_at: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> int:
+    initialize(db_path)
+    if not row_key.strip():
+        raise ValueError("row_key is required")
+    sent_at = sent_at or datetime.now(timezone.utc).isoformat()
+    connection = connect(db_path)
+    try:
+        cursor = connection.execute(
+            """
+            INSERT INTO notification_log (
+                row_key, channel, recipient, sent_at, subject, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(row_key, channel, recipient) DO UPDATE SET
+                sent_at = excluded.sent_at,
+                subject = excluded.subject,
+                metadata_json = excluded.metadata_json
+            """,
+            (
+                row_key,
+                channel,
+                recipient,
+                sent_at,
+                subject,
+                json.dumps(metadata or {}, ensure_ascii=False),
+            ),
+        )
+        connection.commit()
+        if cursor.lastrowid:
+            return int(cursor.lastrowid)
+        row = connection.execute(
+            """
+            SELECT id FROM notification_log
+            WHERE row_key = ? AND channel = ? AND recipient = ?
+            """,
+            (row_key, channel, recipient),
+        ).fetchone()
+        return int(row[0])
+    finally:
+        connection.close()
+
+
+def notification_already_sent(db_path: Path, *, row_key: str, channel: str, recipient: str) -> bool:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        row = connection.execute(
+            """
+            SELECT 1 FROM notification_log
+            WHERE row_key = ? AND channel = ? AND recipient = ?
+            """,
+            (row_key, channel, recipient),
+        ).fetchone()
+    finally:
+        connection.close()
+    return row is not None
+
+
 def _ensure_document_columns(connection: sqlite3.Connection) -> None:
     columns = {row[1] for row in connection.execute("PRAGMA table_info(documents)").fetchall()}
     additions = {
@@ -520,6 +812,84 @@ def _ensure_document_columns(connection: sqlite3.Connection) -> None:
     for column, column_type in additions.items():
         if column not in columns:
             connection.execute(f"ALTER TABLE documents ADD COLUMN {column} {column_type}")
+
+
+def _ensure_runtime_state_tables(connection: sqlite3.Connection) -> None:
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS source_state (
+            source_id TEXT PRIMARY KEY,
+            source_family TEXT,
+            source_url TEXT,
+            fingerprint TEXT,
+            last_checked_at TEXT,
+            last_changed_at TEXT,
+            last_status TEXT NOT NULL DEFAULT 'UNKNOWN',
+            last_error TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+
+        CREATE TABLE IF NOT EXISTS source_runs (
+            id INTEGER PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            status TEXT NOT NULL,
+            fingerprint TEXT,
+            changed INTEGER NOT NULL DEFAULT 0,
+            item_count INTEGER,
+            error TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            FOREIGN KEY(source_id) REFERENCES source_state(source_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_source_runs_source_started
+        ON source_runs(source_id, started_at);
+
+        CREATE TABLE IF NOT EXISTS tender_dismissals (
+            row_key TEXT PRIMARY KEY,
+            display_id TEXT,
+            source_label TEXT,
+            title TEXT,
+            reason TEXT,
+            ignored_at TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+
+        CREATE TABLE IF NOT EXISTS notification_log (
+            id INTEGER PRIMARY KEY,
+            row_key TEXT NOT NULL,
+            channel TEXT NOT NULL,
+            recipient TEXT NOT NULL,
+            sent_at TEXT NOT NULL,
+            subject TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            UNIQUE(row_key, channel, recipient)
+        );
+        """
+    )
+
+
+def _source_state_from_row(row: sqlite3.Row | tuple[object, ...]) -> SourceState:
+    metadata: dict[str, object] = {}
+    try:
+        loaded = json.loads(str(row[8] or "{}"))
+        if isinstance(loaded, dict):
+            metadata = loaded
+    except json.JSONDecodeError:
+        metadata = {}
+    return SourceState(
+        source_id=str(row[0]),
+        source_family=str(row[1]) if row[1] is not None else None,
+        source_url=str(row[2]) if row[2] is not None else None,
+        fingerprint=str(row[3]) if row[3] is not None else None,
+        last_checked_at=str(row[4]) if row[4] is not None else None,
+        last_changed_at=str(row[5]) if row[5] is not None else None,
+        last_status=str(row[6]),
+        last_error=str(row[7]) if row[7] is not None else None,
+        metadata=metadata,
+    )
 
 
 def _upsert_tender(

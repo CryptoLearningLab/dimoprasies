@@ -499,6 +499,13 @@ The system `python` command is not present in the remote environment; use
   changes returns cached dashboard data instead of opening full discovery.
   Latest smoke returned `SKIPPED_UNCHANGED_WITH_SOURCE_WARNINGS` with zero
   discovery steps.
+- Production-like development runtime now runs on the independent DigitalOcean
+  droplet `codex-crisp-hawk-a759` at `165.227.143.152`. GitHub Actions deploys
+  `main` to the droplet immediately on push through the repository secrets
+  `TENDER_RADAR_HOST`, `TENDER_RADAR_USER` and `TENDER_RADAR_SSH_KEY`.
+- SQLite runtime state tables now exist for source fingerprints/runs, permanent
+  tender dismissals and notification-send de-duplication. The UI dismissal path
+  writes to SQLite while still reading the legacy ignored-tenders JSON file.
 
 ## Next Work
 
@@ -506,6 +513,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Make unresolved linked ESHIDIS/manual candidates actionable: expose the linked
-fetch attempt status in the UI and add a retry/manual-review path for ids such
-as `221365` where official detail exists but no attachment rows were selected.
+Migrate source poller skip state to SQLite: source fingerprint preflight should
+write `source_state`/`source_runs`, read previous fingerprints from SQLite
+first, and keep the legacy JSON fingerprint file only as compatibility output.
