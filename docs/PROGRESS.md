@@ -1718,6 +1718,37 @@ first local preflight smoke: status CHANGED_OR_NO_BASELINE, skip false, changed_
 second local preflight smoke: status CHANGED_OR_NO_BASELINE, skip false, changed_source_ids ['diavgeia_patras', 'diavgeia_thermo'], error_count 4, source_state_rows 31, source_run_rows 62
 ```
 
+### Source polling audit visible in UI
+
+Implemented behavior:
+
+- Added `/api/source-polling`, backed by SQLite `source_state`, to expose the
+  latest configured source status without running any network discovery.
+- The first UI screen now includes a compact source audit table with source
+  name/id, adapter, status, last checked timestamp, error and whether the
+  source has a selective-refresh path.
+- The UI summary separates total changed/error counts from
+  `selective_changed_total` and `selective_error_total`, so generic/non-daily
+  sources do not look like mandatory full-discovery triggers.
+- Runtime view refreshes now update both the dashboard and the source audit
+  after discovery, fetch, AI triage/enrichment and permanent dismiss actions.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_exposes_source_polling_audit tests/test_ui_server.py::test_source_polling_payload_reads_sqlite_state_and_config tests/test_ui_server.py::test_discovery_preflight_uses_sqlite_source_state_before_json
+.venv/bin/python -m pytest
+.venv/bin/python -c "import json; from tender_radar.ui_server import source_polling_payload; p=source_polling_payload(); print(json.dumps(p['summary'], ensure_ascii=False))"
+```
+
+Results:
+
+```text
+targeted UI/source polling tests: 3 passed
+full test suite: 146 passed
+local source polling smoke: configured_total 31, tracked_total 31, selective_capable_total 25, changed_total 4, selective_changed_total 2, error_total 4, selective_error_total 4, requires_identifier_total 4, never_checked_total 0
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

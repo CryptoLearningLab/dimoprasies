@@ -29,6 +29,7 @@ from tender_radar.db import (
     dismiss_tender as dismiss_tender_in_db,
     get_source_state,
     ignored_tender_keys as ignored_tender_keys_from_db,
+    list_source_states,
     record_source_run,
     upsert_source_state,
 )
@@ -117,6 +118,9 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             scope = query.get("scope", ["focus"])[0]
             sort = query.get("sort", ["deadline_asc"])[0]
             self._send_json(dashboard_payload(scope=scope, sort=sort))
+            return
+        if parsed.path == "/api/source-polling":
+            self._send_json(source_polling_payload())
             return
         if parsed.path == "/api/document-preview":
             query = parse_qs(parsed.query)
@@ -1243,6 +1247,76 @@ def _changed_source_ids(*, current: dict[str, Any], previous: dict[str, Any] | N
         if previous_sources.get(source_id) != _source_fingerprint_signature(item):
             changed.append(source_id)
     return sorted(changed)
+
+
+def source_polling_payload() -> dict[str, Any]:
+    config_path = REPO_ROOT / "config/sources.yml"
+    config = load_config(config_path) if config_path.exists() else {}
+    configured_entries = configured_source_entries(config)
+    configured_by_id = {str(entry.get("id") or ""): entry for entry in configured_entries if entry.get("id")}
+    source_states = {state.source_id: state for state in list_source_states(runtime_db_path())}
+    selective_ids = selective_source_ids_from_config()
+    ordered_ids = [str(entry.get("id") or "") for entry in configured_entries if entry.get("id")]
+    ordered_ids.extend(sorted(source_id for source_id in source_states if source_id not in set(ordered_ids)))
+
+    rows: list[dict[str, Any]] = []
+    for source_id in ordered_ids:
+        entry = configured_by_id.get(source_id, {})
+        state = source_states.get(source_id)
+        metadata = dict(state.metadata) if state else {}
+        state_family = state.source_family if state and state.source_family else None
+        adapter = str(
+            metadata.get("adapter")
+            or entry.get("adapter")
+            or entry.get("type")
+            or state_family
+            or ""
+        )
+        last_status = state.last_status if state else "NEVER_CHECKED"
+        rows.append(
+            {
+                "source_id": source_id,
+                "name": entry.get("name") or source_id,
+                "source_group": metadata.get("source_group") or entry.get("source_group"),
+                "family_or_adapter": adapter or None,
+                "source_url": state.source_url if state and state.source_url else entry.get("url"),
+                "last_status": last_status,
+                "last_checked_at": state.last_checked_at if state else None,
+                "last_changed_at": state.last_changed_at if state else None,
+                "last_error": state.last_error if state else None,
+                "changed": last_status == "CHANGED",
+                "selective_refresh_capable": source_id in selective_ids,
+                "attempted": metadata.get("attempted"),
+                "reachable": metadata.get("reachable"),
+                "count_hint": metadata.get("count_hint"),
+            }
+        )
+
+    latest_checked_values = [str(row["last_checked_at"]) for row in rows if row.get("last_checked_at")]
+    summary = {
+        "configured_total": len(configured_entries),
+        "tracked_total": len(source_states),
+        "changed_total": sum(1 for row in rows if row["last_status"] == "CHANGED"),
+        "selective_changed_total": sum(
+            1 for row in rows if row["last_status"] == "CHANGED" and row["selective_refresh_capable"]
+        ),
+        "unchanged_total": sum(1 for row in rows if row["last_status"] == "SKIPPED_UNCHANGED"),
+        "error_total": sum(1 for row in rows if row["last_status"] == "ERROR" or row.get("last_error")),
+        "selective_error_total": sum(
+            1
+            for row in rows
+            if row["selective_refresh_capable"] and (row["last_status"] == "ERROR" or row.get("last_error"))
+        ),
+        "requires_identifier_total": sum(1 for row in rows if row["last_status"] == "REQUIRES_IDENTIFIER"),
+        "never_checked_total": sum(1 for row in rows if row["last_status"] == "NEVER_CHECKED"),
+        "selective_capable_total": sum(1 for row in rows if row["selective_refresh_capable"]),
+        "last_checked_at": max(latest_checked_values, default=None),
+    }
+    return {
+        "ok": True,
+        "summary": summary,
+        "rows": rows,
+    }
 
 
 def quick_source_fingerprint(*, timeout_seconds: int = 8) -> dict[str, Any]:
@@ -3095,6 +3169,31 @@ INDEX_HTML = f"""<!doctype html>
         <div><span id="focusTenderCount">0</span><small>ταιριάζουν στην περιοχή</small></div>
       </div>
 
+      <details class="sourceAudit" open>
+        <summary>
+          <span>Έλεγχος πηγών</span>
+          <strong id="sourceAuditSummary">Δεν υπάρχει ακόμα polling state</strong>
+        </summary>
+        <div class="sourceAuditBody">
+          <div id="sourceAuditMetrics" class="sourceAuditMetrics"></div>
+          <div class="sourceAuditTableWrap">
+            <table class="sourceAuditTable">
+              <thead>
+                <tr>
+                  <th>Πηγή</th>
+                  <th>Adapter</th>
+                  <th>Status</th>
+                  <th>Τελευταίος έλεγχος</th>
+                  <th>Error</th>
+                  <th>Selective</th>
+                </tr>
+              </thead>
+              <tbody id="sourceAuditRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+
       <div class="workspace">
         <div class="tableWrap">
           <table class="tenderTable">
@@ -3424,6 +3523,98 @@ textarea {
 }
 .metrics span { display: block; font-size: 24px; font-weight: 750; }
 .metrics small { color: var(--muted); }
+.sourceAudit {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+.sourceAudit summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 800;
+}
+.sourceAudit summary strong {
+  color: var(--text);
+  font-size: 12px;
+  text-align: right;
+}
+.sourceAuditBody {
+  border-top: 1px solid var(--line);
+  padding: 12px 14px 14px;
+}
+.sourceAuditMetrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.sourceAuditMetric {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+}
+.sourceAuditTableWrap {
+  overflow: auto;
+}
+.sourceAuditTable {
+  min-width: 880px;
+  table-layout: fixed;
+}
+.sourceAuditTable td {
+  font-size: 12px;
+}
+.sourceAuditSource {
+  font-weight: 800;
+}
+.sourceAuditUrl {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.statusChip {
+  display: inline-grid;
+  place-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 900;
+}
+.statusChip.changed {
+  background: #dcfce7;
+  color: #166534;
+}
+.statusChip.unchanged {
+  background: #e0f2fe;
+  color: #075985;
+}
+.statusChip.error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.statusChip.waiting {
+  background: #fef3c7;
+  color: #92400e;
+}
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
@@ -3734,6 +3925,7 @@ APP_JS = """
 const state = {
   selected: null,
   dashboard: null,
+  sourcePolling: null,
   profiles: [],
   evaluationProfiles: [],
   documentTypes: [],
@@ -3798,6 +3990,7 @@ async function refresh() {
   fillSelect('evaluationProfileSelect', state.evaluationProfiles);
   fillSelect('ruleProfileSelect', state.evaluationProfiles);
   await loadDashboard();
+  await loadSourcePolling();
   if (!state.evaluationConfig && $('ruleProfileSelect').value) {
     await loadRules();
   }
@@ -3820,6 +4013,71 @@ async function loadDashboard() {
   const payload = await api(`/api/dashboard?scope=${scope}&sort=${sort}`);
   state.dashboard = payload;
   renderDashboard(payload);
+}
+
+async function loadSourcePolling() {
+  const payload = await api('/api/source-polling');
+  state.sourcePolling = payload;
+  renderSourcePolling(payload);
+}
+
+async function refreshRuntimeViews() {
+  await loadDashboard();
+  await loadSourcePolling();
+}
+
+function renderSourcePolling(payload) {
+  const summary = payload.summary || {};
+  const rows = payload.rows || [];
+  $('sourceAuditSummary').textContent = rows.length
+    ? `${summary.configured_total || 0} πηγές · ${summary.unchanged_total || 0} skip · ${summary.selective_changed_total || 0} selective αλλαγές · ${summary.selective_error_total || 0} selective errors`
+    : 'Δεν υπάρχει ακόμα polling state';
+  $('sourceAuditMetrics').innerHTML = [
+    ['Configured', summary.configured_total || 0],
+    ['Tracked', summary.tracked_total || 0],
+    ['Selective', summary.selective_capable_total || 0],
+    ['Changed', summary.changed_total || 0],
+    ['Selective changed', summary.selective_changed_total || 0],
+    ['Skip', summary.unchanged_total || 0],
+    ['Errors', summary.error_total || 0],
+    ['Selective errors', summary.selective_error_total || 0],
+    ['Templates', summary.requires_identifier_total || 0],
+    ['Never checked', summary.never_checked_total || 0],
+  ].map(([label, value]) => `<span class="sourceAuditMetric">${escapeHtml(label)} ${escapeHtml(value)}</span>`).join('');
+  const tbody = $('sourceAuditRows');
+  tbody.innerHTML = '';
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="emptyState">Δεν έχει τρέξει ακόμα source polling σε αυτό το runtime.</td></tr>';
+    return;
+  }
+  for (const source of rows) {
+    const statusClass = sourceStatusClass(source.last_status, source.last_error);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>
+        <span class="sourceAuditSource">${escapeHtml(source.name || source.source_id)}</span>
+        <span class="sourceAuditUrl">${escapeHtml(source.source_id || '')}${source.source_url ? ` · ${escapeHtml(source.source_url)}` : ''}</span>
+      </td>
+      <td>${escapeHtml(source.family_or_adapter || '')}</td>
+      <td><span class="statusChip ${statusClass}">${escapeHtml(source.last_status || 'UNKNOWN')}</span></td>
+      <td>${escapeHtml(formatDateTime(source.last_checked_at))}</td>
+      <td>${escapeHtml(source.last_error || '')}</td>
+      <td>${source.selective_refresh_capable ? 'Ναι' : 'Όχι'}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function sourceStatusClass(status, error) {
+  if (error || status === 'ERROR') return 'error';
+  if (status === 'CHANGED') return 'changed';
+  if (status === 'SKIPPED_UNCHANGED') return 'unchanged';
+  return 'waiting';
+}
+
+function formatDateTime(value) {
+  if (!value) return '';
+  return String(value).replace('T', ' ').replace('+00:00', ' UTC');
 }
 
 function renderDashboard(payload) {
@@ -3962,7 +4220,7 @@ async function selectTender(eshidisId, downloadFirst) {
   }
   if (downloadFirst) {
     await runAction('/api/download-all', { eshidis_id: actualEshidisId }, `Downloading files for ${actualEshidisId}...`);
-    await loadDashboard();
+    await refreshRuntimeViews();
   }
   await renderPreview(actualEshidisId);
 }
@@ -3981,7 +4239,7 @@ async function fetchTenderDocuments(rowKey, identifier) {
     { identifier },
     `Συλλογή επίσημων εγγράφων για ${identifier}...`
   );
-  await loadDashboard();
+  await refreshRuntimeViews();
   const tender = (state.dashboard?.tenders || []).find((item) => (item.row_key || item.eshidis_id) === rowKey) || {};
   if (isKimdisCode(identifier)) {
     await renderKimdisPreview(identifier);
@@ -4006,7 +4264,7 @@ async function dismissTender(rowKey) {
     state.selected = null;
     resetPreview();
   }
-  await loadDashboard();
+  await refreshRuntimeViews();
 }
 
 async function renderAuthorityPreview(rowKey) {
@@ -4086,7 +4344,7 @@ async function runAction(path, body, label) {
     $('commandOutput').textContent = JSON.stringify(result, null, 2);
     const finalResult = result.result || result;
     $('statusText').textContent = finalResult.ok === false || result.status === 'failed' ? 'Τελείωσε με σφάλματα' : 'Ολοκληρώθηκε';
-    await loadDashboard();
+    await refreshRuntimeViews();
     if (path === '/api/discover' && !body?.backfill && finalResult.ok !== false) {
       startAiTriageThenEnrichment().catch((error) => {
         $('statusText').textContent = `Σφάλμα AI ελέγχου: ${error}`;
@@ -4111,7 +4369,7 @@ async function startAiTriageThenEnrichment() {
   $('statusText').textContent = 'AI έλεγχος έργων σε εξέλιξη';
   const aiJob = await pollJob(initial.job_id, 'AI διαλογή έργων με OpenAI');
   $('commandOutput').textContent = JSON.stringify(aiJob, null, 2);
-  await loadDashboard();
+  await refreshRuntimeViews();
   const aiResult = aiJob.result || {};
   if (aiJob.status === 'failed' || aiResult.ok === false) {
     $('statusText').textContent = 'AI έλεγχος απέτυχε · συνεχίζω με deterministic enrichment';
@@ -4132,7 +4390,7 @@ async function startCandidateEnrichment() {
   const result = job.result || {};
   const summary = result.summary || {};
   $('statusText').textContent = `Έλεγχος ΕΣΗΔΗΣ: ${summary.enriched_with_eshidis || 0} συνδέθηκαν, ${summary.failed || 0} απέτυχαν`;
-  await loadDashboard();
+  await refreshRuntimeViews();
 }
 
 async function pollJob(jobId, label) {

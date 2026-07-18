@@ -27,6 +27,7 @@ from tender_radar.ui_server import (
     run_discovery_search,
     run_selected_fetch,
     short_text_sample,
+    source_polling_payload,
     start_job,
     focus_term_matches,
     url_with_encoded_path,
@@ -36,6 +37,14 @@ from tender_radar.ui_server import (
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
     assert "v0.1.1" in INDEX_HTML
+
+
+def test_ui_exposes_source_polling_audit() -> None:
+    assert 'id="sourceAuditSummary"' in INDEX_HTML
+    assert 'id="sourceAuditRows"' in INDEX_HTML
+    assert "/api/source-polling" in APP_JS
+    assert "renderSourcePolling" in APP_JS
+    assert "refreshRuntimeViews" in APP_JS
 
 
 def test_report_json_content_type_includes_utf8_charset() -> None:
@@ -272,6 +281,66 @@ def test_discovery_preflight_uses_sqlite_source_state_before_json(tmp_path, monk
     assert result["status"] == "SKIPPED_UNCHANGED"
     assert result["previous_hash"] != current["hash"]
     assert ui_server.latest_source_fingerprint()["state_source"] == "sqlite"
+
+
+def test_source_polling_payload_reads_sqlite_state_and_config(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "data").mkdir()
+    (tmp_path / "config/sources.yml").write_text(
+        """
+global_sources:
+  - id: eshidis_active_search
+    name: ΕΣΗΔΗΣ
+    type: web_app
+    url: https://example.test/eshidis
+  - id: template_source
+    name: Template
+    type: url_template
+    url: https://example.test/{ID}
+authority_adapters:
+  - id: nafpaktos_tenders
+    name: Ναύπακτος
+    adapter: html_listing
+    url: https://example.test/nafpaktos
+""".strip(),
+        encoding="utf-8",
+    )
+    ui_server.upsert_source_state(
+        ui_server.runtime_db_path(),
+        source_id="eshidis_active_search",
+        source_family="web_app",
+        source_url="https://example.test/eshidis",
+        fingerprint="a",
+        checked_at="2026-07-18T10:00:00+00:00",
+        status="CHANGED",
+        metadata={"adapter": "web_app", "source_group": "global_sources", "reachable": True},
+    )
+    ui_server.upsert_source_state(
+        ui_server.runtime_db_path(),
+        source_id="nafpaktos_tenders",
+        source_family="html_listing",
+        source_url="https://example.test/nafpaktos",
+        fingerprint="b",
+        checked_at="2026-07-18T10:01:00+00:00",
+        status="ERROR",
+        error="timeout",
+        metadata={"adapter": "html_listing", "source_group": "authority_adapters", "reachable": False},
+    )
+
+    payload = source_polling_payload()
+
+    assert payload["summary"]["configured_total"] == 3
+    assert payload["summary"]["tracked_total"] == 2
+    assert payload["summary"]["changed_total"] == 1
+    assert payload["summary"]["selective_changed_total"] == 1
+    assert payload["summary"]["error_total"] == 1
+    assert payload["summary"]["selective_error_total"] == 1
+    assert payload["summary"]["never_checked_total"] == 1
+    by_id = {row["source_id"]: row for row in payload["rows"]}
+    assert by_id["eshidis_active_search"]["selective_refresh_capable"] is True
+    assert by_id["nafpaktos_tenders"]["last_error"] == "timeout"
+    assert by_id["template_source"]["last_status"] == "NEVER_CHECKED"
 
 
 def test_ui_labels_bounded_and_backfill_discovery_modes() -> None:

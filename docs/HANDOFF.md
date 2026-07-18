@@ -510,6 +510,10 @@ The system `python` command is not present in the remote environment; use
   per-source state/run audit to SQLite and reads SQLite before the legacy
   fingerprint JSON. Errors and changed fingerprints are source-specific and
   do not automatically force global full-depth discovery.
+- The first UI screen now exposes the latest SQLite source polling audit via
+  `/api/source-polling`: 31 configured sources, 25 selective-refresh capable
+  sources in the current config, per-source status/error/last checked fields,
+  and separate total vs selective changed/error counts.
 
 ## Next Work
 
@@ -517,6 +521,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Expose source polling audit in the UI: show the latest per-source status,
-fingerprint state, error, changed/unchanged decision and whether the source was
-selectively refreshed or skipped.
+Implement email alert de-duplication for new active dashboard rows using the
+existing SQLite `notification_log`, without introducing full-depth discovery
+into the bounded daily flow.

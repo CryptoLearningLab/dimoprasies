@@ -1,38 +1,39 @@
 # NEXT TASK
 
 Execute:
-`Expose source polling audit in the UI`
+`Email alerts for new active rows`
 
 ## Current Input
 
-The UI version badge shows `v0.1.1`.
+The first UI screen now shows the live version badge and a SQLite-backed
+source polling audit table.
 
-Source preflight now writes per-source state to SQLite:
+The current source configuration has:
 
-- `source_state`
-- `source_runs`
-
-It reads previous fingerprints from SQLite first and uses the legacy
-`work/derived/source_fingerprints.json` only as compatibility fallback/output.
+- 31 configured sources
+- 25 selective-refresh capable sources
+- per-source state in `source_state`
+- per-run audit rows in `source_runs`
+- email de-duplication table `notification_log`
 
 ## Instruction
 
 Implement the next small gate:
 
-1. Add an API payload for the latest source polling state from SQLite.
-2. Show a compact UI section/table with one row per source:
-   source id, family/adapter, last status, changed/unchanged, last checked,
-   last error and whether it is selective-refresh capable.
-3. Make source failures visible without triggering global full-depth discovery
-   when unchanged successful sources can still be trusted.
-4. Keep bounded search fast; do not introduce full-depth discovery into this
-   flow.
+1. Build an email alert path that sends only dashboard rows that have not
+   already been sent to the recipient.
+2. Use SQLite `notification_log` as the canonical de-duplication source.
+3. Keep email content clickable: title, authority, budget, deadline, source
+   label and official ESHIDIS/source URL.
+4. Do not run full-depth discovery as part of email sending; consume the
+   already refreshed dashboard state.
 5. Do not expose or log secrets.
 
 ## Required Closeout
 
-1. Run targeted UI/source polling tests and `.venv/bin/python -m pytest`.
-2. Run a local source polling smoke and report per-source counts.
+1. Run targeted email/notification tests and `.venv/bin/python -m pytest`.
+2. Run a local dry-run smoke that reports how many rows would be emailed and
+   how many are skipped as already sent.
 3. Update `docs/PROGRESS.md`.
 4. Update `docs/DECISIONS.md` only if a real decision was made.
 5. Update this file with the next single executable gate.
