@@ -1269,13 +1269,19 @@ def persist_source_preflight_state(*, current: dict[str, Any], previous: dict[st
     for source_id, message in sorted(error_by_id.items()):
         if source_id in current_by_id:
             continue
+        previous_state = get_source_state(db_path, source_id)
+        metadata = dict(previous_state.metadata) if previous_state else {}
+        metadata["reachable"] = False
         upsert_source_state(
             db_path,
             source_id=source_id,
+            source_family=previous_state.source_family if previous_state else None,
+            source_url=previous_state.source_url if previous_state else None,
+            fingerprint=previous_state.fingerprint if previous_state else None,
             checked_at=checked_at,
             status="ERROR",
             error=message,
-            metadata={"reachable": False},
+            metadata=metadata,
         )
         record_source_run(
             db_path,
@@ -1284,9 +1290,10 @@ def persist_source_preflight_state(*, current: dict[str, Any], previous: dict[st
             started_at=checked_at,
             finished_at=checked_at,
             status="ERROR",
+            fingerprint=previous_state.fingerprint if previous_state else None,
             changed=False,
             error=message,
-            metadata={"reachable": False},
+            metadata=metadata,
         )
 
 

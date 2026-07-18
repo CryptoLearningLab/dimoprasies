@@ -1893,6 +1893,31 @@ targeted ESHIDIS scheduler tests: 4 passed
 full test suite: 153 passed
 ```
 
+### UI v0.1.6 transient source error state preservation
+
+Implemented behavior:
+
+- Bumped the application version from `0.1.5` to `0.1.6`.
+- When a source temporarily fails during preflight, the SQLite source state now
+  preserves the previous successful fingerprint and metadata token/date.
+- The source is still marked `ERROR` with the latest error message, but the
+  error no longer erases the last good fingerprint and causes a false changed
+  trigger on the next recovery.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_source_error_preserves_previous_successful_fingerprint tests/test_ui_server.py::test_eshidis_active_preflight_uses_cached_candidate_report tests/test_ui_server.py::test_discovery_preflight_skips_when_only_failed_sources_are_degraded
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted transient-error tests: 3 passed
+full test suite: 154 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

@@ -38,7 +38,7 @@ from tender_radar.ui_server import (
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.5" in INDEX_HTML
+    assert "v0.1.6" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -236,6 +236,54 @@ def test_discovery_preflight_skips_when_only_failed_sources_are_degraded(tmp_pat
     assert result["skip"] is True
     assert result["status"] == "SKIPPED_DEGRADED_NO_SUCCESSFUL_SOURCE_CHANGES"
     assert result["changed_source_ids"] == []
+
+
+def test_source_error_preserves_previous_successful_fingerprint(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/sources.yml").write_text(
+        """
+authority_adapters:
+  - id: diavgeia_patras
+    adapter: diavgeia_api
+    url: https://diavgeia.gov.gr/opendata/search.json
+""".strip(),
+        encoding="utf-8",
+    )
+    previous = {
+        "ok": True,
+        "computed_at": "2026-07-18T10:00:00+00:00",
+        "sources": [
+            {
+                "source_id": "diavgeia_patras",
+                "source_group": "authority_adapters",
+                "adapter": "diavgeia_api",
+                "url": "https://diavgeia.gov.gr/opendata/search.json",
+                "attempted": True,
+                "reachable": True,
+                "token": "stable-ada",
+                "date": "2026-07-18",
+            }
+        ],
+        "errors": [],
+    }
+    current = {
+        "ok": False,
+        "computed_at": "2026-07-18T11:00:00+00:00",
+        "sources": [],
+        "errors": [{"source": "diavgeia_patras", "message": "HTTP Error 503"}],
+    }
+
+    ui_server.persist_source_preflight_state(current=previous, previous=None)
+    ui_server.persist_source_preflight_state(current=current, previous=previous)
+
+    state = ui_server.get_source_state(tmp_path / "data/tender_radar.sqlite", "diavgeia_patras")
+    assert state is not None
+    assert state.last_status == "ERROR"
+    assert state.fingerprint is not None
+    assert state.metadata["token"] == "stable-ada"
+    assert state.metadata["date"] == "2026-07-18"
+    assert state.metadata["reachable"] is False
 
 
 def test_discovery_preflight_ignores_non_discovery_source_changes(tmp_path, monkeypatch) -> None:

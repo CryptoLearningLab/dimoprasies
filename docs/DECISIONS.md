@@ -456,3 +456,14 @@ This makes the 6-hour scheduler skip ESHIDIS discovery unless a new candidate
 snapshot has actually been produced by an explicit or successful discovery run.
 It is a pragmatic runtime optimization; full/backfill discovery remains
 available as an explicit manual operation.
+
+## D-046 - Transient source errors preserve last good fingerprints
+**Status:** Accepted
+
+A temporary source timeout or HTTP 503 is not evidence of new tender content.
+When a source fails during preflight, SQLite keeps the previous successful
+fingerprint and metadata token/date while recording the latest status and error
+message.
+
+This prevents error/recovery cycles from creating false changed-source triggers
+and avoids unnecessary scheduled discovery runs.
