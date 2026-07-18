@@ -490,3 +490,16 @@ HTTPS certificates and HTTP-to-HTTPS redirects.
 The Python UI process listens on `127.0.0.1:8765` only. Public browser access
 goes through the HTTPS hostname, currently `165.227.143.152.sslip.io` until a
 user-owned domain or subdomain is configured.
+
+## D-049 - Non-ESHIDIS source document provenance belongs in SQLite
+**Status:** Accepted
+
+Municipal, regional and other non-ESHIDIS source documents are tracked in
+SQLite `source_documents`, keyed by source row and document URL. The record
+stores provenance, local path, SHA-256, fetch timestamp, source signature and
+fetch errors.
+
+Authority document fetchers must reuse unchanged local files when the source
+signature and document URL match, rather than downloading duplicate copies on
+every enrichment run. Legacy JSON document indexes may remain as UI bridges,
+but SQLite is the operational state for skip/fetch decisions.

@@ -506,7 +506,7 @@ The system `python` command is not present in the remote environment; use
 - SQLite runtime state tables now exist for source fingerprints/runs, permanent
   tender dismissals and notification-send de-duplication. The UI dismissal path
   writes to SQLite while still reading the legacy ignored-tenders JSON file.
-- The UI now displays version `v0.1.7` in the header. Source preflight writes
+- The UI now displays version `v0.1.8` in the header. Source preflight writes
   per-source state/run audit to SQLite and reads SQLite before the legacy
   fingerprint JSON. Errors and changed fingerprints are source-specific and
   do not automatically force global full-depth discovery.
@@ -553,6 +553,10 @@ The system `python` command is not present in the remote environment; use
   `https://165.227.143.152.sslip.io/`. The UI service now listens only on
   `127.0.0.1:8765`; public access is through Caddy on ports 80/443. HTTP
   redirects to HTTPS, and Caddy obtained a public Let's Encrypt certificate.
+- Authority/municipal/regional document fetches now persist provenance in
+  SQLite `source_documents` and reuse unchanged local documents instead of
+  downloading them again. Droplet smoke on `AUTHORITY:AUTH-f36d0588e7c7b729`
+  proved first run `downloaded 5`, second run `downloaded 0`, `skipped 5`.
 
 ## Next Work
 
@@ -560,5 +564,5 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Continue with the document fetcher gate: ensure only new or suspect documents
-are downloaded, stored with provenance, and linked back to their source rows.
+Continue with the text extraction/OCR gate: make scanned or image-only
+documents produce useful text artifacts before AI classification.

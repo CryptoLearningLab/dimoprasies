@@ -2051,6 +2051,71 @@ listeners: 80/443 public via Caddy, 8765 localhost-only
 certificate: obtained successfully by Caddy/Let's Encrypt
 ```
 
+### UI v0.1.8 authority document provenance and re-download skip
+
+Implemented behavior:
+
+- Bumped the application version from `0.1.7` to `0.1.8`.
+- Added SQLite `source_documents` runtime state for non-ESHIDIS source
+  documents.
+- The table records:
+  - source row key,
+  - source URL,
+  - document URL,
+  - local path,
+  - size,
+  - SHA-256,
+  - fetched timestamp,
+  - fetch error,
+  - source signature,
+  - metadata such as linked ESHIDIS ids and extracted text path.
+- Authority/municipal/regional row fetches now check SQLite before downloading
+  a document again. If the same row/document URL has the same source signature,
+  a local file exists and SHA-256 is present, the document is reused and counted
+  as skipped.
+- Fetch failures are also persisted in `source_documents` with `fetch_error`
+  instead of being hidden.
+- ESHIDIS official attachment downloads already use the existing
+  `attachments` table and skip behavior. KIMDIS retains its existing document
+  index/skip behavior; future work may migrate it into `source_documents`.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_db.py::test_source_documents_track_fetch_provenance tests/test_ui_server.py::test_authority_fetch_reuses_unchanged_source_document
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_db.py::test_source_documents_track_fetch_provenance tests/test_ui_server.py::test_authority_fetch_reuses_unchanged_source_document
+.venv/bin/python -m pytest
+gh run watch 29665833050 --repo CryptoLearningLab/dimoprasies --exit-status
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'cd /root/workspace/dimoprasies && .venv/bin/python - <<\"PY\"
+from tender_radar.ui_server import run_authority_fetch
+import json
+row_key=\"AUTHORITY:AUTH-f36d0588e7c7b729\"
+first=run_authority_fetch(row_key)
+second=run_authority_fetch(row_key)
+print(json.dumps({
+  \"first\": {\"ok\": first.get(\"ok\"), \"downloaded\": first.get(\"downloaded\"), \"skipped\": first.get(\"skipped\"), \"failed\": first.get(\"failed\")},
+  \"second\": {\"ok\": second.get(\"ok\"), \"downloaded\": second.get(\"downloaded\"), \"skipped\": second.get(\"skipped\"), \"failed\": second.get(\"failed\")},
+}, ensure_ascii=False))
+PY'
+```
+
+Results:
+
+```text
+targeted document fetcher tests: 2 passed
+targeted version/provenance tests: 3 passed
+full test suite: 157 passed
+GitHub Actions deploy 29665833050: success
+droplet HEAD: 5bff693
+live UI version: v0.1.8
+droplet authority smoke first run: ok true, downloaded 5, skipped 0, failed 0
+droplet authority smoke second run: ok true, downloaded 0, skipped 5, failed 0
+SQLite source_documents smoke row: 5 rows, 5 with local path and SHA-256
+tender-radar-ui.service: active
+caddy.service: active
+tender-radar-scheduled.timer: enabled, active
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

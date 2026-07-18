@@ -1,52 +1,52 @@
 # NEXT TASK
 
 Execute:
-`Harden document fetcher for new or suspect rows`
+`Add OCR fallback for scanned fetched documents`
 
 ## Current Input
 
-The first infrastructure gates are now in place:
+The document fetcher gate is complete for authority/municipal/regional rows:
 
-- stable droplet runtime,
-- runtime `.env.local` with OpenAI and SMTP settings,
-- SQLite source/dismissal/notification state,
-- per-source poller with skip behavior,
-- production email alerts,
-- 6-hour systemd timer,
-- Caddy HTTPS access at `https://165.227.143.152.sslip.io/`.
+- non-ESHIDIS fetched document provenance is persisted in SQLite
+  `source_documents`;
+- unchanged authority documents are reused instead of re-downloaded;
+- ESHIDIS official attachment downloads keep using the existing
+  `attachments` table and skip behavior;
+- KIMDIS has an existing JSON document-index bridge and local-file skip
+  behavior.
 
-The next product gate is document fetching. The system already has per-row
-fetch/zip behavior and ESHIDIS attachment download mechanisms, but the
-production scheduler needs a stricter document fetcher contract for new or
-suspect non-ESHIDIS rows.
+The next product gate is text extraction/OCR. Existing document analysis can
+extract embedded text from supported PDFs and documents, but scanned PDFs or
+image-only files may produce weak or empty text. Those weak extractions reduce
+the AI classifier's ability to find ESHIDIS ids, deadlines and tender status
+evidence.
 
 ## Instruction
 
 Implement the next small gate:
 
-1. Identify the current document fetch paths for:
-   - ESHIDIS rows,
-   - KIMDIS rows,
-   - municipal/regional authority rows.
-2. Ensure the scheduled path downloads documents only for rows that are new,
-   changed, unprocessed, or explicitly suspect.
-3. Persist document provenance in SQLite or a clearly documented migration
-   bridge:
-   - source row key,
-   - source URL,
-   - document URL,
-   - local path,
-   - SHA-256,
-   - fetched timestamp,
-   - fetch error when applicable.
-4. Preserve originals; do not delete previously downloaded files.
-5. Add focused tests for skip vs fetch decisions.
+1. Inspect the current text extraction path in `src/tender_radar/documents.py`
+   and the document analysis CLI/UI callers.
+2. Define a deterministic "needs OCR" condition for fetched files:
+   - empty extracted text,
+   - very short extracted text,
+   - extraction error,
+   - image-only PDF/page signal when available.
+3. Add an OCR fallback behind an optional runtime dependency or available
+   system tool. Do not make the app fail when OCR tooling is missing.
+4. Persist OCR status and errors in document analysis outputs/provenance.
+5. Keep originals untouched.
+6. Add focused tests for:
+   - normal text extraction does not run OCR;
+   - weak/empty extraction attempts OCR when tooling is available;
+   - missing OCR tooling records a visible non-fatal error.
 
 ## Required Closeout
 
-1. Run targeted tests for the document fetcher changes.
+1. Run targeted OCR/document tests.
 2. Run the full test suite if app code changes.
-3. Run one droplet smoke that proves unchanged rows do not re-download.
+3. Run one droplet smoke on a known scanned/weak document if available; if not
+   available, report the gap explicitly.
 4. Report changed files and verification commands.
 5. Update `docs/PROGRESS.md`.
 6. Update `docs/DECISIONS.md` only if a real decision was made.
