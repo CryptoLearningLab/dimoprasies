@@ -38,7 +38,7 @@ from tender_radar.ui_server import (
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.3" in INDEX_HTML
+    assert "v0.1.4" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -418,7 +418,7 @@ def test_scheduled_poll_and_alert_writes_audit_reports(tmp_path, monkeypatch) ->
     )
     monkeypatch.setattr(
         ui_server,
-        "run_ai_triage",
+        "run_incremental_ai_triage",
         lambda scope="focus", sort="deadline_asc", batch_size=20: {"ok": True, "summary": {"rows": 1}},
     )
     monkeypatch.setattr(
@@ -475,6 +475,53 @@ def test_scheduled_poll_and_alert_writes_audit_reports(tmp_path, monkeypatch) ->
     assert report.exists()
     assert markdown.exists()
     assert "Scheduled Poll and Alert" in markdown.read_text(encoding="utf-8")
+
+
+def test_scheduled_poll_skips_ai_when_all_rows_already_triaged(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "work/reports/ai_triage_report.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "row_key": "AUTHORITY:AUTH-1",
+                        "ai": {
+                            "decision": "KEEP_ACTIVE_TENDER",
+                            "keep_for_daily_review": True,
+                            "confidence": 0.8,
+                            "reason": "already checked",
+                            "eshidis_id_candidates": [],
+                        },
+                    }
+                ],
+                "summary": {"errors": 0},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "dashboard_payload",
+        lambda scope="focus", sort="deadline_asc", apply_triage=True: {
+            "summary": {"visible": 1},
+            "tenders": [{"row_key": "AUTHORITY:AUTH-1", "title": "Δημοτική οδοποιία"}],
+        },
+    )
+    monkeypatch.setattr(ui_server, "ai_triage_report_status", lambda: {"exists": True, "ok": True})
+
+    def fail_build_report(*args, **kwargs):
+        raise AssertionError("scheduler should not call OpenAI when no row is pending")
+
+    monkeypatch.setattr("tender_radar.ai_triage.build_ai_triage_report", fail_build_report)
+
+    result = ui_server.run_incremental_ai_triage(scope="focus", sort="deadline_asc", batch_size=5)
+
+    assert result["ok"] is True
+    assert result["skipped"] is True
+    assert result["skip_reason"] == "NO_PENDING_AI_TRIAGE_ROWS"
+    assert result["summary"]["kept_total"] == 1
 
 
 def test_ui_labels_bounded_and_backfill_discovery_modes() -> None:

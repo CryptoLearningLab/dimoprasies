@@ -434,9 +434,11 @@ dry-runs do not mutate notification state.
 
 The droplet scheduler uses `tender-radar runtime scheduled-run` as the single
 automation entry point. It runs bounded daily discovery with `backfill=False`,
-then AI triage, linked-candidate enrichment and email alerts.
+then incremental AI triage, linked-candidate enrichment and email alerts.
 
 Each scheduled run writes JSON and Markdown audit artifacts containing source
 polling counts, changed sources, skipped sources, source errors and email
-new/skipped/sent counts. Full-depth/backfill discovery remains an explicit
-manual action, not the default 6-hour schedule.
+new/skipped/sent counts. Existing row-key AI decisions are reused, so the
+scheduled job sends only untriaged current dashboard rows to OpenAI.
+Full-depth/backfill discovery remains an explicit manual action, not the
+default 6-hour schedule.

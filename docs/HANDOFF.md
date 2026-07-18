@@ -506,7 +506,7 @@ The system `python` command is not present in the remote environment; use
 - SQLite runtime state tables now exist for source fingerprints/runs, permanent
   tender dismissals and notification-send de-duplication. The UI dismissal path
   writes to SQLite while still reading the legacy ignored-tenders JSON file.
-- The UI now displays version `v0.1.3` in the header. Source preflight writes
+- The UI now displays version `v0.1.4` in the header. Source preflight writes
   per-source state/run audit to SQLite and reads SQLite before the legacy
   fingerprint JSON. Errors and changed fingerprints are source-specific and
   do not automatically force global full-depth discovery.
@@ -522,6 +522,8 @@ The system `python` command is not present in the remote environment; use
   It runs bounded discovery with `backfill=False`, AI triage, linked-candidate
   enrichment and email alerts, then writes
   `work/reports/scheduled_poll_alert_latest.json` and `.md`.
+- Scheduled AI triage is incremental: existing row-key AI decisions are reused
+  and only untriaged current dashboard rows are sent to OpenAI.
 - Systemd templates live in `deploy/systemd/tender-radar-scheduled.service`
   and `deploy/systemd/tender-radar-scheduled.timer`; the timer cadence is every
   6 hours and the service is guarded by `flock`.

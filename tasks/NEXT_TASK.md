@@ -7,11 +7,12 @@ Execute:
 
 The UI now exposes:
 
-- version badge `v0.1.3`
+- version badge `v0.1.4`
 - SQLite-backed source polling audit
 - email alert path `/api/email-alerts`
 - SQLite de-duplication through `notification_log`
 - CLI scheduled runtime path `tender-radar runtime scheduled-run`
+- incremental scheduled AI triage that reuses existing row-key decisions
 - systemd templates for `tender-radar-scheduled.service` and
   `tender-radar-scheduled.timer`
 

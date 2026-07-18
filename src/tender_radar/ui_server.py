@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date
+from datetime import date, datetime, timezone
 from email.message import EmailMessage
 import hashlib
 import io
@@ -685,6 +685,84 @@ def run_ai_triage(*, scope: str = "focus", sort: str = "deadline_asc", batch_siz
     result["dashboard"] = dashboard_payload(scope=safe_scope, sort=safe_sort)
     result["ai_triage_report"] = ai_triage_report_status()
     return result
+
+
+def run_incremental_ai_triage(*, scope: str = "focus", sort: str = "deadline_asc", batch_size: int = 20) -> dict[str, Any]:
+    dashboard = dashboard_payload(scope=scope, sort=sort, apply_triage=False)
+    rows = [row for row in dashboard.get("tenders") or [] if isinstance(row, dict)]
+    current_keys = {str(row.get("row_key") or "") for row in rows if row.get("row_key")}
+    existing_report = load_ai_triage_report_payload()
+    existing_rows = [row for row in existing_report.get("rows") or [] if isinstance(row, dict)]
+    existing_by_key = {str(row.get("row_key") or ""): row for row in existing_rows if row.get("row_key")}
+    pending_rows = [row for row in rows if str(row.get("row_key") or "") not in existing_by_key]
+    retained_rows = [row for key, row in existing_by_key.items() if key in current_keys]
+
+    if not pending_rows:
+        return {
+            "ok": True,
+            "skipped": True,
+            "skip_reason": "NO_PENDING_AI_TRIAGE_ROWS",
+            "summary": incremental_ai_triage_summary(retained_rows, []),
+            "dashboard": dashboard_payload(scope=scope, sort=sort),
+            "ai_triage_report": ai_triage_report_status(),
+        }
+
+    from tender_radar.ai_triage import build_ai_triage_report, write_ai_triage_report
+
+    new_report = build_ai_triage_report(
+        pending_rows,
+        batch_size=max(1, min(int(batch_size), 50)),
+        timeout_seconds=90,
+    )
+    merged_rows = retained_rows + [row for row in new_report.get("rows") or [] if isinstance(row, dict)]
+    merged_report = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "model": new_report.get("model") or existing_report.get("model"),
+        "input_rows": len(merged_rows),
+        "summary": incremental_ai_triage_summary(merged_rows, new_report.get("errors") or []),
+        "rows": merged_rows,
+        "errors": new_report.get("errors") or [],
+        "safety_note": new_report.get("safety_note") or existing_report.get("safety_note"),
+        "incremental": True,
+        "pending_rows": len(pending_rows),
+        "retained_rows": len(retained_rows),
+    }
+    write_ai_triage_report(merged_report, ai_triage_report_path(), REPO_ROOT / "work/reports/ai_triage_report.md")
+    return {
+        "ok": int((merged_report.get("summary") or {}).get("errors") or 0) == 0,
+        "skipped": False,
+        "pending_rows": len(pending_rows),
+        "retained_rows": len(retained_rows),
+        "summary": merged_report["summary"],
+        "dashboard": dashboard_payload(scope=scope, sort=sort),
+        "ai_triage_report": ai_triage_report_status(),
+    }
+
+
+def load_ai_triage_report_payload() -> dict[str, Any]:
+    path = ai_triage_report_path()
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def incremental_ai_triage_summary(rows: list[dict[str, Any]], errors: list[dict[str, Any]]) -> dict[str, Any]:
+    decisions: dict[str, int] = {}
+    kept = 0
+    dropped = 0
+    for row in rows:
+        ai = row.get("ai") if isinstance(row.get("ai"), dict) else {}
+        decision = str(ai.get("decision") or "REVIEW_TENDER_CANDIDATE")
+        decisions[decision] = decisions.get(decision, 0) + 1
+        if ai.get("keep_for_daily_review"):
+            kept += 1
+        else:
+            dropped += 1
+    return {"decisions": decisions, "kept_total": kept, "dropped_total": dropped, "errors": len(errors)}
 
 
 def run_candidate_enrichment(*, scope: str = "focus", limit: int = 50) -> dict[str, Any]:
@@ -1384,7 +1462,7 @@ def run_scheduled_poll_and_alert(
     enrichment: dict[str, Any] = {"ok": True, "skipped": False}
     email_result: dict[str, Any] = {"ok": True, "skipped": False}
     if discovery.get("ok") is not False:
-        ai_result = run_ai_triage(scope=scope, sort=sort, batch_size=ai_batch_size)
+        ai_result = run_incremental_ai_triage(scope=scope, sort=sort, batch_size=ai_batch_size)
         if ai_result.get("ok") is False:
             errors.append({"stage": "ai_triage", "message": str(ai_result.get("error") or "AI triage failed")})
         enrichment = run_candidate_enrichment(scope=scope, limit=enrichment_limit)

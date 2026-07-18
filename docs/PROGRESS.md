@@ -1782,16 +1782,19 @@ local email dry-run smoke: candidate_rows 29, new_count 29, skipped_already_sent
 first dry-run link: https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/221566
 ```
 
-### UI v0.1.3 scheduled poll and alert
+### UI v0.1.4 scheduled poll and alert
 
 Implemented behavior:
 
-- Bumped the application version from `0.1.2` to `0.1.3` so the live header
+- Bumped the application version from `0.1.2` to `0.1.4` so the live header
   identifies the scheduler build.
 - Added `tender-radar runtime scheduled-run`, a bounded runtime entry point for
   the droplet scheduler.
 - The scheduled command runs the daily sequence only: bounded discovery with
   `backfill=False`, AI triage, linked-candidate enrichment and email alerts.
+- Scheduled AI triage is incremental: it reuses existing row-key decisions and
+  sends only untriaged rows to OpenAI. When every current row already has AI
+  triage, the scheduled job skips the OpenAI stage.
 - The scheduled command writes JSON and Markdown audit artifacts with source
   counts, changed sources, skipped sources, source errors, stage summaries and
   email new/skipped/sent counts.
@@ -1812,6 +1815,20 @@ Results:
 targeted scheduler/version tests: 4 passed
 full test suite: 151 passed
 local scheduled dry-run smoke: ok true, dry_run true, changed_source_ids ['diavgeia_pde', 'diavgeia_pste'], source_errors 4, email candidate_rows 27, new_count 27, sent 0
+```
+
+Follow-up fix verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_scheduled_poll_and_alert_writes_audit_reports tests/test_ui_server.py::test_scheduled_poll_skips_ai_when_all_rows_already_triaged tests/test_cli.py::CliTests::test_runtime_help_lists_scheduled_run tests/test_cli.py::CliTests::test_scheduled_run_parser_supports_dry_run
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted incremental scheduler tests: 4 passed
+full test suite: 152 passed
 ```
 
 ## Handoff Discipline
