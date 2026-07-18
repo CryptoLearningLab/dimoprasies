@@ -783,6 +783,94 @@ regions: []
     assert unfiltered["summary"]["triage_hidden"] == 0
 
 
+def test_dashboard_hides_cached_authority_landing_pages(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities: []
+regions:
+  - id: aitoloakarnania
+    name: "Περιφέρεια Δυτικής Ελλάδας / Π.Ε. Αιτωλοακαρνανίας"
+    aliases: ["Αιτωλοακαρνανία"]
+    nuts: ["EL631"]
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps(
+            {
+                "focus_authority_candidates": [
+                    {
+                        "source": "AUTHORITY",
+                        "record_type": "AUTHORITY_WEB",
+                        "official_id": "AUTH-d8c24f1b30d23177",
+                        "title": "Έργα & Δράσεις",
+                        "authority": "Περιφέρεια Δυτικής Ελλάδας / Π.Ε. Αιτωλοακαρνανίας",
+                        "source_url": "https://pde.gov.gr/el/erga-drasis/",
+                        "matched_scopes": ["Περιφέρεια Δυτικής Ελλάδας / Π.Ε. Αιτωλοακαρνανίας"],
+                        "match_notes": [],
+                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    payload = dashboard_payload(scope="focus", apply_triage=False)
+
+    assert payload["summary"]["visible"] == 0
+    assert payload["summary"]["total_known"] == 0
+
+
+def test_dashboard_extracts_linked_eshidis_ids_from_authority_rows(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Πάτρα", "Πατρών"]
+    nuts: ["EL632"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps(
+            {
+                "focus_authority_candidates": [
+                    {
+                        "source": "AUTHORITY",
+                        "record_type": "AUTHORITY_WEB",
+                        "official_id": "AUTH-abc",
+                        "title": "Διακήρυξη έργου",
+                        "authority": "Δήμος Πατρέων",
+                        "source_url": "https://e-patras.gr/el/tender",
+                        "row_text": "Άρθρο 2.2 URL http://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/221744",
+                        "matched_scopes": ["Δήμος Πατρέων"],
+                        "match_notes": [],
+                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    payload = dashboard_payload(scope="focus", apply_triage=False)
+
+    assert payload["tenders"][0]["linked_eshidis_ids"] == ["221744"]
+
+
 def test_discovery_search_steps_run_eshidis_then_expanded_kimdis() -> None:
     steps = discovery_search_steps(limit=25, as_of_date="2026-07-17")
 

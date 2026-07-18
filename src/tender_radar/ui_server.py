@@ -32,6 +32,7 @@ from tender_radar.discovery_watermark import (
     utc_now_iso,
 )
 from tender_radar.evaluation import normalize_evaluation_config, save_evaluation_config
+from tender_radar.sources.kimdis_fetch import extract_eshidis_ids_from_text
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -1432,6 +1433,8 @@ def authority_candidate_rows() -> list[dict[str, Any]]:
     for candidate in payload.get("focus_authority_candidates", []):
         if not isinstance(candidate, dict):
             continue
+        if non_tender_landing_row(candidate):
+            continue
         official_id = str(candidate.get("official_id") or "").strip()
         record_type = str(candidate.get("record_type") or "")
         if not official_id:
@@ -1443,6 +1446,14 @@ def authority_candidate_rows() -> list[dict[str, Any]]:
         attachment_urls = [str(url) for url in candidate.get("attachment_urls") or [] if str(url).strip()]
         if not attachment_urls and candidate.get("attachment_url"):
             attachment_urls = [str(candidate.get("attachment_url"))]
+        linked_eshidis_ids = extract_eshidis_ids_from_text(
+            candidate.get("title"),
+            candidate.get("source_url"),
+            candidate.get("detail_url"),
+            candidate.get("attachment_url"),
+            " ".join(attachment_urls),
+            candidate.get("row_text"),
+        )
         rows.append(
             {
                 "source": "authority",
@@ -1461,7 +1472,17 @@ def authority_candidate_rows() -> list[dict[str, Any]]:
                 "status_confidence": 0.0,
                 "row_text": " ".join(
                     str(candidate.get(key) or "")
-                    for key in ("title", "authority", "published_at", "source_url", "attachment_url", "matched_scopes", "match_notes")
+                    for key in (
+                        "title",
+                        "authority",
+                        "published_at",
+                        "source_url",
+                        "detail_url",
+                        "attachment_url",
+                        "matched_scopes",
+                        "match_notes",
+                        "row_text",
+                    )
                 ),
                 "official_url": candidate.get("source_url"),
                 "attachment_url": candidate.get("attachment_url"),
@@ -1473,12 +1494,21 @@ def authority_candidate_rows() -> list[dict[str, Any]]:
                 "supports_eshidis_actions": is_eshidis,
                 "supports_kimdis_actions": is_kimdis,
                 "supports_authority_actions": bool(attachment_urls),
+                "linked_eshidis_ids": linked_eshidis_ids,
                 "interest_match": bool(candidate.get("matched_scopes")),
                 "interest_reason": ", ".join([*(candidate.get("matched_scopes") or []), *(candidate.get("match_notes") or [])]),
                 "authority_record_type": record_type,
             }
         )
     return rows
+
+
+def non_tender_landing_row(row: dict[str, Any]) -> bool:
+    title = normalize_greek(str(row.get("title") or ""))
+    url = str(row.get("source_url") or row.get("official_url") or row.get("detail_url") or "").casefold().rstrip("/")
+    if url.endswith("/erga-drasis"):
+        return True
+    return title in {"εργα & δρασεις", "εργα και δρασεις"}
 
 
 def authority_row_by_key(row_key: str) -> dict[str, Any] | None:

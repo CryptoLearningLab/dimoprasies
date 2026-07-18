@@ -57,6 +57,26 @@ def test_ai_triage_report_normalizes_openai_classifications() -> None:
     assert report["rows"][1]["ai"]["decision"] == "DROP_ADMIN"
 
 
+def test_ai_triage_rejects_seven_digit_eshidis_hints() -> None:
+    rows = [{"row_key": "AUTH-1", "source": "authority", "title": "Διακήρυξη έργου"}]
+    ai_result = [
+        {
+            "row_key": "AUTH-1",
+            "decision": "REVIEW_TENDER_CANDIDATE",
+            "confidence": 0.7,
+            "reason": "Έχει έργο αλλά ο αριθμός είναι ύποπτος.",
+            "eshidis_id_candidates": ["221744", "1234567"],
+        }
+    ]
+
+    with patch("tender_radar.ai_triage.load_openai_api_key", return_value="test-key"), patch(
+        "tender_radar.ai_triage.classify_batch_with_openai", return_value=ai_result
+    ):
+        report = build_ai_triage_report(rows, batch_size=10)
+
+    assert report["rows"][0]["ai"]["eshidis_id_candidates"] == ["221744"]
+
+
 def test_ai_triage_markdown_contains_summary() -> None:
     markdown = render_ai_triage_markdown(
         {

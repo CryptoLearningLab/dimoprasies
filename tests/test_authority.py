@@ -93,6 +93,41 @@ def test_authority_reference_detection_handles_dotted_eshidis() -> None:
     assert candidates[0].record_type == "ESHIDIS"
 
 
+def test_html_listing_skips_public_authority_landing_pages() -> None:
+    listing = """
+    <div class="premium-blog-post-outer-container">
+      <h2><a href="/el/erga-drasis/">Έργα & Δράσεις</a></h2>
+    </div>
+    <div class="premium-blog-post-outer-container">
+      <h2><a href="/el/prokirikseis/24844/">Διακήρυξη έργου</a></h2>
+    </div>
+    """
+    detail = "<p>ΚΗΜΔΗΣ 26PROC019417347</p>"
+    config = {
+        "authority_adapters": [
+            {
+                "id": "pde_prokirikseis",
+                "name": "Περιφέρεια Δυτικής Ελλάδας - Προκηρύξεις",
+                "scope_id": "aitoloakarnania",
+                "scope_name": "Περιφέρεια Δυτικής Ελλάδας / Π.Ε. Αιτωλοακαρνανίας",
+                "adapter": "html_listing",
+                "url": "https://pde.gov.gr/el/diafaneia/prokirikseis/",
+            }
+        ]
+    }
+
+    def fake_urlopen(request, **kwargs):
+        return Response(detail if request.full_url.endswith("/el/prokirikseis/24844/") else listing)
+
+    with patch("tender_radar.sources.authority.urlopen", side_effect=fake_urlopen):
+        candidates, errors, pages = discover_authority_candidates(config)
+
+    assert not errors
+    assert pages[0]["items_returned"] == 1
+    assert candidates[0].title == "Διακήρυξη έργου"
+    assert candidates[0].official_id == "26PROC019417347"
+
+
 def test_wordpress_category_extracts_attachment_links() -> None:
     config = {
         "authority_adapters": [

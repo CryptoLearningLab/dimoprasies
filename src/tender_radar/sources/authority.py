@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 import ssl
+import unicodedata
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urljoin
@@ -503,6 +504,8 @@ def _parse_html_listing(
     candidates = []
     for item in parser.items[:limit]:
         detail_url = item.get("detail_url")
+        if _non_tender_landing_candidate(item.get("title"), detail_url):
+            continue
         detail_html = ""
         detail_links: list[str] = []
         if detail_url:
@@ -571,6 +574,21 @@ def _candidate_from_item(
     links = _dedupe([*item.get("attachment_urls", []), *(extra_links or [])])
     row_text = _clean_text(" ".join([str(item.get("title") or ""), str(item.get("published_at") or ""), " ".join(item.get("text") or []), _strip_html(detail_html)[:5000]]))
     return _candidate_from_parts(source, source_url, _none_or_str(item.get("detail_url")), links, _none_or_str(item.get("title")), _none_or_str(item.get("published_at")), row_text, retrieved_at)
+
+
+def _non_tender_landing_candidate(title: object, url: object) -> bool:
+    normalized_title = _normalize_text(str(title or ""))
+    normalized_url = str(url or "").casefold().rstrip("/")
+    if normalized_url.endswith("/erga-drasis") or normalized_url.endswith("/erga-drasis/"):
+        return True
+    return normalized_title in {"εργα & δρασεις", "εργα και δρασεις"}
+
+
+def _normalize_text(value: str) -> str:
+    decomposed = unicodedata.normalize("NFD", value.casefold())
+    without_accents = "".join(char for char in decomposed if unicodedata.category(char) != "Mn")
+    normalized = unicodedata.normalize("NFC", without_accents)
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def _candidate_from_parts(

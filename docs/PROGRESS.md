@@ -1300,6 +1300,58 @@ official ESHIDIS resource 216631: 200 text/html;charset=UTF-8
 full test suite: 115 passed
 ```
 
+### Hotfix - Hide authority landing pages and surface deterministic ESHIDIS hints
+
+The PDE `Έργα & Δράσεις` row was a generic authority landing/navigation page
+captured from `https://pde.gov.gr/el/erga-drasis/`. It is not a tender
+publication and is now excluded before it reaches the main dashboard.
+
+Implemented behavior:
+
+- The authority HTML adapter skips known non-tender landing candidates such as
+  `/erga-drasis/` / `Έργα & Δράσεις`.
+- The dashboard defensively hides the same landing rows from cached expanded
+  reports, so old reports do not keep the noise visible.
+- Authority rows now run the existing deterministic ESHIDIS id extractor over
+  title, source/detail URLs, attachment URLs and row text. Any found ids are
+  exposed as `linked_eshidis_ids` and shown in the dashboard pills.
+- The AI triage prompt now explicitly instructs the model to look for article
+  `2.2`, official `resources/search/<id>` URLs, guarded `Α/Α Διαγωνισμού`,
+  `ΟΠΣ ΕΣΗΔΗΣ`, `Α/Α ΕΣΗΔΗΣ`, and `ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ` /
+  `Α/Α ΣΥΣΤΗΜΑΤΟΣ` contexts.
+- AI ESHIDIS hints are normalized to 5- or 6-digit ids only; broad 7-digit
+  hints are rejected.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ai_triage.py tests/test_authority.py tests/test_ui_server.py
+.venv/bin/python -c "from tender_radar.ui_server import dashboard_payload; p=dashboard_payload(scope='focus', apply_triage=False); rows=p['tenders']; linked=[(r.get('row_key'), r.get('source_label'), r.get('title'), r.get('linked_eshidis_ids')) for r in rows if r.get('linked_eshidis_ids')]; print(p['summary']); print('linked_visible', len(linked)); print(linked[:15])"
+.venv/bin/python -c "from tender_radar.ai_triage import build_ai_triage_report; rows=[{'row_key':'test','source_label':'Φορέας','title':'Διακήρυξη έργου Α/Α ΕΣΗΔΗΣ 221744','authority_name':'Δήμος'}]; r=build_ai_triage_report(rows,batch_size=1,timeout_seconds=15); print(r['summary']); print(r['rows'][0]['ai'])"
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted tests: 48 passed
+dashboard unfiltered focus summary: total_known 253, visible 206,
+  duplicate_hidden 9; Έργα & Δράσεις no longer present
+deterministic linked_visible: 2
+single-row AI smoke: KEEP_ACTIVE_TENDER with eshidis_id_candidates ['221744']
+full test suite: 119 passed
+```
+
+AI full-list refresh note:
+
+- A full `sources ai-triage-report` run over the current focus list was
+  attempted twice (`batch-size 20` and `batch-size 5`) but both stayed blocked
+  inside an OpenAI HTTPS response until interrupted.
+- The single-row AI smoke succeeded, so credentials and prompt work. The
+  production AI enrichment path needs batch-level progress/partial writes and
+  a dedicated title/document enrichment job before it should be used for long
+  runs from the UI.
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

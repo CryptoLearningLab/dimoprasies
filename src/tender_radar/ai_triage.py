@@ -362,7 +362,11 @@ def _prompt_text(batch: list[dict[str, Any]]) -> str:
         "- DROP_NOT_PUBLIC_WORKS: not a public works opportunity for contractors.\n"
         "Return JSON object exactly: {\"classifications\":[{\"row_key\":\"...\",\"decision\":\"...\","
         "\"confidence\":0.0,\"reason\":\"short Greek reason\",\"eshidis_id_candidates\":[\"221744\"]}]}.\n"
-        "Do not invent ESHIDIS ids. Extract only explicit 5-7 digit ESHIDIS-like ids when text/link context supports it.\n"
+        "Do not invent ESHIDIS ids. Extract only explicit 6-digit ESHIDIS-like ids when text/link context supports it; "
+        "accept 5-digit ids only with explicit ESHIDIS wording. Strong contexts: article 2.2 of a declaration, "
+        "pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/<id>, publicworks.eprocurement.gov.gr, "
+        "Α/Α Διαγωνισμού near ESHIDIS/eprocurement wording, ΟΠΣ ΕΣΗΔΗΣ, Α/Α ΕΣΗΔΗΣ, and economic offer forms "
+        "(ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ) where Α/Α ΣΥΣΤΗΜΑΤΟΣ is likely the ESHIDIS number.\n"
         "Rows:\n"
         f"{json.dumps(batch, ensure_ascii=False)}"
     )
@@ -407,7 +411,7 @@ def _normalize_classification(item: dict[str, Any]) -> dict[str, Any]:
         confidence = float(item.get("confidence"))
     except (TypeError, ValueError):
         confidence = 0.0
-    hints = [str(value) for value in item.get("eshidis_id_candidates") or [] if re.fullmatch(r"\d{5,7}", str(value))]
+    hints = [str(value) for value in item.get("eshidis_id_candidates") or [] if re.fullmatch(r"\d{5,6}", str(value))]
     return {
         "decision": decision,
         "confidence": max(0.0, min(1.0, confidence)),

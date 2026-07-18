@@ -1,55 +1,52 @@
 # NEXT TASK
 
 Execute:
-`Add clickable email notifications and source skip reporting`
+`Add AI/document enrichment progress job`
 
 ## Current Input
 
-The daily dashboard now loads cached AI triage and uses a fast source
-fingerprint preflight before expensive discovery. A live smoke returned
-`skipped: true`, `steps: 0` in 4.24s with temporary Diavgeia 503 warnings
-instead of running the full discovery pipeline.
+The daily dashboard now uses source fingerprint preflight, selective
+non-ESHIDIS refresh and canonical ESHIDIS duplicate suppression.
 
-Selective non-ESHIDIS refresh now exists: when the preflight identifies a
-changed KIMDIS/authority source id, `sources expanded-report` fetches only
-that source and retains skipped sources from the previous expanded report.
+Generic PDE landing rows such as `Έργα & Δράσεις` /
+`https://pde.gov.gr/el/erga-drasis/` are excluded from the dashboard.
+Authority rows surface deterministic `linked_eshidis_ids` when their cached
+text or URLs contain guarded ESHIDIS references.
 
-Dashboard duplicate suppression also exists: linked KIMDIS/authority rows are
-hidden when an active/canonical ESHIDIS row for the same id is present.
-
-ESHIDIS id extraction is now context-first: official resource URLs and article
+ESHIDIS id extraction is context-first: official resource URLs and article
 `2.2` style references use 6-digit primary ids, `ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ
 ΠΡΟΣΦΟΡΑΣ` can expose `Α/Α ΣΥΣΤΗΜΑΤΟΣ`, and broad 7-digit matching is removed.
 
-Noisy decision/context sources removed from active source config:
-
-- Δήμος Αμφιλοχίας - Αποφάσεις Δημάρχου
-- Δήμος Αμφιλοχίας - Αποφάσεις Δημοτικού Συμβουλίου
-- Δήμος Δωρίδος - Αποφάσεις Επιτροπών source link
-- Δήμος Πατρέων - Αποφάσεις Δημοτικής Επιτροπής
+The AI prompt now knows about article `2.2` and economic-offer-form contexts.
+A single-row AI smoke succeeded, but full-list AI refresh stayed blocked inside
+an OpenAI HTTPS response until interrupted. It must not be exposed as a silent
+long UI action.
 
 ## Instruction
 
-Implement the notification/reporting gate:
+Implement the AI/document enrichment gate:
 
-1. Add email report generation with clickable rows and official ESHIDIS links
-   for new/kept rows.
-2. Show source preflight status in the UI technical result, including
-   `SKIPPED_UNCHANGED`, `SKIPPED_UNCHANGED_WITH_SOURCE_WARNINGS`, reachable
-   count and warning count.
-3. Show `duplicate_hidden` count and optional duplicate review details in the
-   UI technical result without cluttering the main dashboard.
-4. Add a separate explicit UI control for full ESHIDIS refresh/backfill so the
-   normal daily button can remain selective and fast.
-5. Preserve raw reports/provenance, no title-only deduplication, no
-    `VERIFIED_ACTIVE` promotion.
+1. Add a background job for AI/document enrichment with batch-level progress
+   and partial JSON writes, so a slow OpenAI/source request does not lose all
+   completed work.
+2. For each visible/candidate row, fetch available authority/KIMDIS documents
+   first when public attachment URLs exist.
+3. Extract ESHIDIS ids deterministically from article `2.2`,
+   `resources/search/<id>`, guarded `Α/Α Διαγωνισμού`, and
+   `ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ` / `Α/Α ΣΥΣΤΗΜΑΤΟΣ`.
+4. Add an optional exact-title public search enrichment step only when it can
+   record source URL, retrieved-at time and evidence snippet.
+5. Write refreshed `linked_eshidis_ids` / `ai_triage_report` caches and surface
+   the ids visibly in the dashboard.
+6. Preserve raw reports/provenance, no title-only deduplication, no
+   `VERIFIED_ACTIVE` promotion.
 
 ## Required Closeout
 
 At the end of the task:
 
 1. Run targeted tests and `.venv/bin/python -m pytest`.
-2. Run a bounded live smoke and report skipped/fetched source counts.
+2. Run a bounded local smoke and report enriched/failed/skipped counts.
 3. Update `docs/PROGRESS.md`.
 4. Update `docs/DECISIONS.md` only if a real decision was made.
 5. Update this file with the next single executable gate.

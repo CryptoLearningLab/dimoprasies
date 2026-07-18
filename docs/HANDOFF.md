@@ -431,6 +431,14 @@ The system `python` command is not present in the remote environment; use
   `2.2`/guarded `Α/Α Διαγωνισμού` contexts, and `ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ
   ΠΡΟΣΦΟΡΑΣ` files with `Α/Α ΣΥΣΤΗΜΑΤΟΣ`. Broad 7-digit matching is removed;
   5-digit ids are accepted only with explicit ESHIDIS context.
+- Generic authority landing pages such as PDE `Έργα & Δράσεις`
+  (`/el/erga-drasis/`) are excluded from the dashboard. Authority rows also
+  expose deterministic `linked_eshidis_ids` when cached row text or URLs
+  contain guarded ESHIDIS references.
+- The AI triage prompt now includes explicit extraction guidance for article
+  `2.2`, official ESHIDIS URLs and economic-offer-form system numbers. A
+  single-row AI smoke succeeded, but full-list AI refresh currently needs a
+  progress/partial-write job before being reliable for large lists.
 
 ## Next Work
 
@@ -438,8 +446,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Implement notification delivery and clearer skip reporting: send a clickable
-email list with official ESHIDIS links for new/kept rows, show per-source
-`SKIPPED_UNCHANGED`/warning/fetched counts clearly in the UI result, and add
-a manual full ESHIDIS refresh control distinct from normal selective daily
-refresh.
+Implement AI/document enrichment as a background job with progress and partial
+results: fetch available authority/KIMDIS documents, extract ESHIDIS ids from
+article `2.2` and economic offer forms, optionally search exact-title public
+sources with provenance, then refresh clickable email notifications.
