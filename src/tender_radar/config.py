@@ -72,6 +72,9 @@ def _validate_shape(path: Path, data: Any) -> None:
         _require(data, "scopes", list)
         _require(data, "collection_order", list)
         _require(data, "rules", list)
+        authority_adapters = data.get("authority_adapters", [])
+        if not isinstance(authority_adapters, list):
+            raise ConfigValidationError("authority_adapters must be a list")
         for item in data["global_sources"]:
             if not isinstance(item, dict):
                 raise ConfigValidationError("global_sources entries must be mappings")
@@ -87,6 +90,12 @@ def _validate_shape(path: Path, data: Any) -> None:
             if not isinstance(item["aliases"], list) or not isinstance(item["sources"], list):
                 raise ConfigValidationError("scope aliases and sources must be lists")
             _validate_ambiguous_aliases(item)
+        for item in authority_adapters:
+            if not isinstance(item, dict):
+                raise ConfigValidationError("authority_adapters entries must be mappings")
+            for key in ("id", "name", "scope_id", "scope_name", "adapter", "url"):
+                if key not in item:
+                    raise ConfigValidationError(f"authority adapter missing required key: {key}")
     elif name == "deduplication.yml":
         _require(data, "version", int)
         identity_keys = _require(data, "identity_keys", dict)

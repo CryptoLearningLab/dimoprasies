@@ -158,6 +158,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="ESHIDIS candidates JSON path to include.",
     )
     expanded_report.add_argument("--kimdis-pages", type=int, default=20, help="KIMDIS pages per record family.")
+    expanded_report.add_argument(
+        "--authority-limit-per-source",
+        type=int,
+        default=20,
+        help="Maximum municipal/authority listing rows to extract per configured source.",
+    )
     expanded_report.add_argument("--timeout", type=int, default=20, help="Per-request timeout in seconds.")
     expanded_report.add_argument(
         "--as-of-date",
@@ -428,6 +434,7 @@ def _sources_expanded_report(args: argparse.Namespace) -> int:
         sources_config_path=Path(args.config),
         eshidis_candidates_path=Path(args.eshidis_candidates) if args.eshidis_candidates else None,
         kimdis_pages=args.kimdis_pages,
+        authority_limit_per_source=args.authority_limit_per_source,
         timeout_seconds=args.timeout,
         allow_insecure_tls=args.allow_insecure_tls,
         as_of=date.fromisoformat(args.as_of_date) if args.as_of_date else None,

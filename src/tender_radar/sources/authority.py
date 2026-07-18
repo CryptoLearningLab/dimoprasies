@@ -1,0 +1,309 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from html.parser import HTMLParser
+import hashlib
+import re
+import ssl
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin
+from urllib.request import Request, urlopen
+
+
+DOCUMENT_EXTENSIONS = (".pdf", ".zip", ".doc", ".docx", ".xls", ".xlsx", ".odt", ".ods")
+
+
+@dataclass(frozen=True)
+class AuthorityCandidate:
+    source_id: str
+    source_name: str
+    scope_id: str | None
+    scope_name: str | None
+    source_family: str
+    adapter: str
+    official_id: str
+    record_type: str
+    title: str | None
+    authority: str | None
+    published_at: str | None
+    submission_deadline: str | None
+    source_url: str
+    detail_url: str | None
+    attachment_url: str | None
+    attachment_urls: list[str]
+    retrieved_at: str
+    parser_status: str
+    status: str
+    status_reason: str
+    row_text: str
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+def discover_authority_candidates(
+    config: dict[str, Any],
+    *,
+    timeout_seconds: int = 20,
+    allow_insecure_tls: bool = False,
+    limit_per_source: int = 20,
+) -> tuple[list[AuthorityCandidate], list[dict[str, object]], list[dict[str, object]]]:
+    candidates: list[AuthorityCandidate] = []
+    errors: list[dict[str, object]] = []
+    source_pages: list[dict[str, object]] = []
+    context = ssl._create_unverified_context() if allow_insecure_tls else None
+    for source in config.get("authority_adapters") or []:
+        if not isinstance(source, dict):
+            continue
+        source_id = str(source.get("id") or "")
+        adapter = str(source.get("adapter") or "")
+        url = str(source.get("url") or "")
+        if adapter != "drupal_listing":
+            source_pages.append(
+                {
+                    "source": source_id,
+                    "adapter": adapter,
+                    "url": url,
+                    "items_returned": None,
+                    "error": "Unsupported authority adapter.",
+                }
+            )
+            continue
+        try:
+            html = _fetch_text(url, timeout_seconds=timeout_seconds, context=context)
+            parsed = _parse_drupal_listing(
+                source,
+                html,
+                source_url=url,
+                retrieved_at=datetime.now(timezone.utc).isoformat(),
+                timeout_seconds=timeout_seconds,
+                context=context,
+                limit=max(0, limit_per_source),
+            )
+            candidates.extend(parsed)
+            source_pages.append(
+                {
+                    "source": source_id,
+                    "adapter": adapter,
+                    "url": url,
+                    "items_returned": len(parsed),
+                    "error": None,
+                }
+            )
+        except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError) as exc:
+            message = str(exc)
+            errors.append({"source": source_id, "url": url, "message": message})
+            source_pages.append(
+                {
+                    "source": source_id,
+                    "adapter": adapter,
+                    "url": url,
+                    "items_returned": None,
+                    "error": message,
+                }
+            )
+    return candidates, errors, source_pages
+
+
+def _parse_drupal_listing(
+    source: dict[str, Any],
+    html: str,
+    *,
+    source_url: str,
+    retrieved_at: str,
+    timeout_seconds: int,
+    context: ssl.SSLContext | None,
+    limit: int,
+) -> list[AuthorityCandidate]:
+    parser = DrupalListingParser(source_url)
+    parser.feed(html)
+    items = parser.items[:limit] if limit else []
+    candidates: list[AuthorityCandidate] = []
+    for item in items:
+        detail_url = item.get("detail_url")
+        detail_html = ""
+        detail_links: list[str] = []
+        if detail_url:
+            try:
+                detail_html = _fetch_text(detail_url, timeout_seconds=timeout_seconds, context=context)
+                detail_parser = LinkCollector(detail_url)
+                detail_parser.feed(detail_html)
+                detail_links = detail_parser.document_links
+            except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError):
+                detail_html = ""
+                detail_links = []
+        attachment_urls = _dedupe([*item.get("attachment_urls", []), *detail_links])
+        row_text = _clean_text(" ".join([str(item.get("title") or ""), str(item.get("published_at") or ""), detail_html[:5000]]))
+        official_id, record_type = _official_reference(row_text, detail_url or source_url)
+        candidates.append(
+            AuthorityCandidate(
+                source_id=str(source.get("id") or ""),
+                source_name=str(source.get("name") or source.get("id") or ""),
+                scope_id=_none_or_str(source.get("scope_id")),
+                scope_name=_none_or_str(source.get("scope_name")),
+                source_family=str(source.get("source_family") or "authority_html"),
+                adapter=str(source.get("adapter") or "drupal_listing"),
+                official_id=official_id,
+                record_type=record_type,
+                title=_none_or_str(item.get("title")),
+                authority=_none_or_str(source.get("scope_name")),
+                published_at=_none_or_str(item.get("published_at")),
+                submission_deadline=None,
+                source_url=source_url,
+                detail_url=detail_url,
+                attachment_url=attachment_urls[0] if attachment_urls else None,
+                attachment_urls=attachment_urls,
+                retrieved_at=retrieved_at,
+                parser_status="PARSED",
+                status="AUTHORITY_DISCOVERY_CANDIDATE",
+                status_reason=(
+                    "Public authority page candidate only; official submission status must be verified "
+                    "through ESHIDIS/KIMDIS or newer official acts."
+                ),
+                row_text=row_text,
+            )
+        )
+    return candidates
+
+
+class DrupalListingParser(HTMLParser):
+    def __init__(self, base_url: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self.base_url = base_url
+        self.items: list[dict[str, Any]] = []
+        self._article_depth = 0
+        self._current: dict[str, Any] | None = None
+        self._capture_title = False
+        self._capture_time = False
+        self._text_parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attrs_dict = {key: value or "" for key, value in attrs}
+        if tag == "article":
+            self._article_depth += 1
+            if self._current is None:
+                self._current = {"attachment_urls": [], "text": []}
+            return
+        if self._current is None:
+            return
+        if tag == "a":
+            href = attrs_dict.get("href")
+            if href:
+                absolute = urljoin(self.base_url, href)
+                if _document_url(absolute):
+                    self._current["attachment_urls"].append(absolute)
+                elif self._current.get("detail_url") is None:
+                    self._current["detail_url"] = absolute
+                    self._capture_title = True
+                    self._text_parts = []
+        if tag == "time":
+            self._capture_time = True
+            self._text_parts = []
+            if attrs_dict.get("datetime"):
+                self._current["published_at"] = attrs_dict["datetime"]
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._current is None:
+            return
+        if tag == "a" and self._capture_title:
+            text = _clean_text(" ".join(self._text_parts))
+            if text and not self._current.get("title"):
+                self._current["title"] = text
+            self._capture_title = False
+            self._text_parts = []
+        if tag == "time" and self._capture_time:
+            text = _clean_text(" ".join(self._text_parts))
+            if text and not self._current.get("published_at"):
+                self._current["published_at"] = text
+            self._capture_time = False
+            self._text_parts = []
+        if tag == "article":
+            self._article_depth = max(0, self._article_depth - 1)
+            if self._article_depth == 0:
+                if self._current.get("title") or self._current.get("detail_url") or self._current.get("attachment_urls"):
+                    self.items.append(self._current)
+                self._current = None
+
+    def handle_data(self, data: str) -> None:
+        if self._current is None:
+            return
+        text = _clean_text(data)
+        if text:
+            self._current.setdefault("text", []).append(text)
+        if self._capture_title or self._capture_time:
+            self._text_parts.append(data)
+
+
+class LinkCollector(HTMLParser):
+    def __init__(self, base_url: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self.base_url = base_url
+        self.document_links: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a":
+            return
+        href = dict(attrs).get("href")
+        if not href:
+            return
+        absolute = urljoin(self.base_url, href)
+        if _document_url(absolute):
+            self.document_links.append(absolute)
+
+
+def _fetch_text(url: str, *, timeout_seconds: int, context: ssl.SSLContext | None) -> str:
+    request = Request(url, headers={"User-Agent": "TenderRadar/0.1 authority-discovery", "Accept": "text/html"})
+    with urlopen(request, timeout=timeout_seconds, context=context) as response:
+        return response.read().decode("utf-8", errors="replace")
+
+
+def _official_reference(text: str, fallback_url: str) -> tuple[str, str]:
+    proc = re.search(r"\b\d{2}PROC\d{9}\b", text, flags=re.IGNORECASE)
+    if proc:
+        return proc.group(0).upper(), "PROC"
+    eshidis = _extract_contextual_eshidis_id(text)
+    if eshidis:
+        return eshidis, "ESHIDIS"
+    digest = hashlib.sha256(fallback_url.encode("utf-8")).hexdigest()[:16]
+    return f"AUTH-{digest}", "AUTHORITY_WEB"
+
+
+def _extract_contextual_eshidis_id(text: str) -> str | None:
+    patterns = [
+        r"(?:Ε\.?\s*Σ\.?\s*Η\.?\s*Δ\.?\s*Η\.?\s*Σ\.?|ΕΣΗΔΗΣ|ΟΠΣ)\s*(?:Α/?Α|αριθ(?:μός|\.?)|διαγωνισμού)?\s*[:#-]?\s*(\d{5,7})",
+        r"/(?:resources/search|search)/(\d{5,7})(?:\b|/)",
+        r"(?:Α/?Α\s+Διαγωνισμού)\s*(\d{5,7})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _document_url(url: str) -> bool:
+    lowered = url.lower().split("?", 1)[0]
+    return lowered.endswith(DOCUMENT_EXTENSIONS)
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
+def _clean_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _none_or_str(value: object) -> str | None:
+    if value in (None, ""):
+        return None
+    return str(value)

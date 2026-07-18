@@ -36,6 +36,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_ESHIDIS_DISCOVERY_LIMIT = 100
 DEFAULT_KIMDIS_DISCOVERY_PAGES = 20
+DEFAULT_AUTHORITY_LIMIT_PER_SOURCE = 10
 MAX_BACKFILL_ESHIDIS_LIMIT = 500
 MAX_BACKFILL_KIMDIS_PAGES = 80
 COMMAND_LOCK = threading.Lock()
@@ -642,6 +643,8 @@ def discovery_search_steps(
                 "--allow-insecure-tls",
                 "--kimdis-pages",
                 str(kimdis_pages),
+                "--authority-limit-per-source",
+                str(DEFAULT_AUTHORITY_LIMIT_PER_SOURCE),
                 "--timeout",
                 "20",
                 "--as-of-date",
@@ -811,10 +814,15 @@ def location_focus_profile() -> dict[str, Any]:
 
 def merged_tender_rows() -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
+    for candidate in authority_candidate_rows():
+        row_key = str(candidate.get("row_key") or "")
+        if row_key:
+            merged[row_key] = candidate
     for candidate in kimdis_open_proc_rows():
         official_id = str(candidate.get("official_id") or "")
         if official_id:
-            merged[f"KIMDIS:{official_id}"] = candidate
+            existing = merged.get(f"KIMDIS:{official_id}", {})
+            merged[f"KIMDIS:{official_id}"] = {**existing, **candidate}
     for candidate in discovery_candidate_rows():
         eshidis_id = str(candidate.get("eshidis_id") or "")
         if eshidis_id:
@@ -831,7 +839,7 @@ def merged_tender_rows() -> list[dict[str, Any]]:
 def expanded_report_payload() -> dict[str, Any]:
     path = REPO_ROOT / "work/reports/expanded_discovery_report.json"
     if not path.exists():
-        return {"exists": False, "path": str(path), "focus_open_proc_candidates": []}
+        return {"exists": False, "path": str(path), "focus_open_proc_candidates": [], "focus_authority_candidates": []}
     payload = json.loads(path.read_text(encoding="utf-8"))
     return {
         "exists": True,
@@ -839,7 +847,54 @@ def expanded_report_payload() -> dict[str, Any]:
         "markdown_path": str(REPO_ROOT / "work/reports/expanded_discovery_report.md"),
         "summary": payload.get("summary") or {},
         "focus_open_proc_candidates": payload.get("focus_open_proc_candidates") or [],
+        "focus_authority_candidates": payload.get("focus_authority_candidates") or [],
     }
+
+
+def authority_candidate_rows() -> list[dict[str, Any]]:
+    payload = expanded_report_payload()
+    rows = []
+    for candidate in payload.get("focus_authority_candidates", []):
+        if not isinstance(candidate, dict):
+            continue
+        official_id = str(candidate.get("official_id") or "").strip()
+        record_type = str(candidate.get("record_type") or "")
+        if not official_id:
+            continue
+        is_kimdis = is_kimdis_identifier(official_id)
+        is_eshidis = official_id.isdigit() and 5 <= len(official_id) <= 7
+        row_key = f"KIMDIS:{official_id}" if is_kimdis else official_id if is_eshidis else f"AUTHORITY:{official_id}"
+        rows.append(
+            {
+                "source": "authority",
+                "source_label": "Φορέας",
+                "row_key": row_key,
+                "official_id": official_id,
+                "eshidis_id": official_id if is_eshidis else None,
+                "display_id": official_id,
+                "title": candidate.get("title"),
+                "authority_name": candidate.get("authority"),
+                "region": ", ".join(candidate.get("matched_scopes") or []),
+                "budget_with_vat": candidate.get("budget"),
+                "current_deadline_at": candidate.get("submission_deadline"),
+                "published_at": candidate.get("published_at"),
+                "status": candidate.get("status"),
+                "status_confidence": 0.0,
+                "row_text": " ".join(
+                    str(candidate.get(key) or "")
+                    for key in ("title", "authority", "published_at", "source_url", "attachment_url", "matched_scopes", "match_notes")
+                ),
+                "official_url": candidate.get("source_url"),
+                "attachment_url": candidate.get("attachment_url"),
+                "download_url": candidate.get("attachment_url"),
+                "supports_eshidis_actions": is_eshidis,
+                "supports_kimdis_actions": is_kimdis,
+                "interest_match": bool(candidate.get("matched_scopes")),
+                "interest_reason": ", ".join([*(candidate.get("matched_scopes") or []), *(candidate.get("match_notes") or [])]),
+                "authority_record_type": record_type,
+            }
+        )
+    return rows
 
 
 def kimdis_open_proc_rows() -> list[dict[str, Any]]:

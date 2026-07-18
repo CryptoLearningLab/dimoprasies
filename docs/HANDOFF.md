@@ -360,7 +360,8 @@ The system `python` command is not present in the remote environment; use
 
 ## What Is Missing
 
-- Production-grade source adapter coverage beyond the proven sample flow.
+- Production-grade source adapter coverage beyond the proven ESHIDIS/KIMDIS
+  paths and the first e-Patras authority adapter.
 - Persisted status history/transitions; current `status verify` reports are
   advisory and do not update `tenders.status`.
 - Strong active-status verification model. Discovery rows remain
@@ -386,9 +387,9 @@ The system `python` command is not present in the remote environment; use
   53 focus-related records are candidates, not `VERIFIED_ACTIVE` tenders.
 - Search/evaluation over KIMDIS text artifacts. The current search/evaluation
   pipeline still primarily uses SQLite ESHIDIS documents.
-- Municipal-source document fetching is still future work. Once municipal
-  adapters download documents, they should reuse the same explicit
-  KIMDIS/municipal-document to ESHIDIS-id cross-reference path.
+- Municipal-source document downloading is still future work. The first
+  e-Patras authority adapter discovers candidate rows and document links, but
+  direct municipal file archiving still needs a dedicated download/index path.
 
 ## Next Work
 
@@ -396,6 +397,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Add municipal/authority website discovery adapters, starting with the reachable
-e-Patras tender and municipal-committee pages, then feed normalized candidates
-into the existing dashboard/dedup/provenance path.
+Extend the authority discovery adapter coverage to the remaining source
+families from the double-checked audit: WordPress municipal categories,
+Messolonghi table page, PDE/PSTE regional pages, Diavgeia API and TED API.
+Keep each family candidate-only until official status verification is proven.

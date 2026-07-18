@@ -11,6 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from tender_radar.config import load_config
+from tender_radar.sources.authority import discover_authority_candidates
 
 
 KIMDIS_FAMILIES = {
@@ -58,6 +59,7 @@ def build_expanded_report(
     sources_config_path: Path,
     eshidis_candidates_path: Path | None,
     kimdis_pages: int = 5,
+    authority_limit_per_source: int = 20,
     timeout_seconds: int = 20,
     allow_insecure_tls: bool = False,
     as_of: date | None = None,
@@ -91,6 +93,33 @@ def build_expanded_report(
     candidates.extend(kimdis_candidates)
     errors.extend(kimdis_errors)
 
+    authority_candidates, authority_errors, authority_page_stats = discover_authority_candidates(
+        sources_config,
+        timeout_seconds=timeout_seconds,
+        allow_insecure_tls=allow_insecure_tls,
+        limit_per_source=authority_limit_per_source,
+    )
+    for candidate in authority_candidates:
+        candidates.append(
+            ExpandedTenderCandidate(
+                source="AUTHORITY",
+                record_type=candidate.record_type,
+                official_id=candidate.official_id,
+                title=candidate.title,
+                authority=candidate.authority,
+                budget=None,
+                published_at=candidate.published_at,
+                submission_deadline=candidate.submission_deadline,
+                source_url=candidate.detail_url or candidate.source_url,
+                attachment_url=candidate.attachment_url,
+                matched_scopes=[candidate.scope_name] if candidate.scope_name else _matched_scopes(candidate.to_dict(), scope_aliases),
+                match_notes=[f"{candidate.source_name}: {candidate.parser_status}"],
+                status=candidate.status,
+                status_reason=candidate.status_reason,
+            )
+        )
+    errors.extend(authority_errors)
+
     unique_candidates = _dedupe_by_official_source_id(candidates)
     focus_candidates = [candidate for candidate in unique_candidates if candidate.matched_scopes]
     focus_open_proc = [
@@ -98,18 +127,22 @@ def build_expanded_report(
         for candidate in focus_candidates
         if candidate.record_type == "PROC" and candidate.status == "SUBMISSION_OPEN_CANDIDATE"
     ]
+    focus_authority_candidates = [candidate for candidate in focus_candidates if candidate.source == "AUTHORITY"]
     return {
         "checked_at": checked_at,
         "as_of_date": as_of_date.isoformat(),
         "sources_config_path": str(sources_config_path),
         "eshidis_candidates_path": str(eshidis_candidates_path) if eshidis_candidates_path else None,
         "kimdis_pages": kimdis_pages,
+        "authority_limit_per_source": authority_limit_per_source,
         "summary": {
             "total_candidates": len(unique_candidates),
             "focus_candidates": len(focus_candidates),
             "eshidis_candidates": sum(1 for item in unique_candidates if item.source == "ESHIDIS"),
             "kimdis_candidates": sum(1 for item in unique_candidates if item.source == "KIMDIS"),
+            "authority_candidates": sum(1 for item in unique_candidates if item.source == "AUTHORITY"),
             "focus_open_proc_candidates": len(focus_open_proc),
+            "focus_authority_candidates": len(focus_authority_candidates),
             "focus_expired_proc_candidates": sum(
                 1
                 for item in focus_candidates
@@ -121,9 +154,10 @@ def build_expanded_report(
             "errors": len(errors),
         },
         "focus_open_proc_candidates": [candidate.to_dict() for candidate in focus_open_proc],
+        "focus_authority_candidates": [candidate.to_dict() for candidate in focus_authority_candidates],
         "focus_candidates": [candidate.to_dict() for candidate in focus_candidates],
         "all_candidates": [candidate.to_dict() for candidate in unique_candidates],
-        "source_pages": kimdis_page_stats,
+        "source_pages": [*kimdis_page_stats, *authority_page_stats],
         "errors": errors,
         "deduplication": {
             "method": "official source id only",
@@ -157,6 +191,7 @@ def render_expanded_report_markdown(report: dict[str, Any]) -> str:
         f"- Focus historical AWRD/SYMV records: `{summary.get('focus_historical_awrd_symv_records', 0)}`",
         f"- ESHIDIS candidates: `{summary.get('eshidis_candidates', 0)}`",
         f"- KIMDIS candidates: `{summary.get('kimdis_candidates', 0)}`",
+        f"- Authority candidates: `{summary.get('authority_candidates', 0)}`",
         f"- Errors: `{summary.get('errors', 0)}`",
         "- Deduplication: official source id only; title-only merge is disabled.",
         "",
@@ -177,6 +212,12 @@ def render_expanded_report_markdown(report: dict[str, Any]) -> str:
         lines.extend(_candidate_table(focus))
     else:
         lines.append("No focus-area candidates were found in this controlled pass.")
+    authority = report.get("focus_authority_candidates") if isinstance(report.get("focus_authority_candidates"), list) else []
+    lines.extend(["", "## Authority Website Candidates", ""])
+    if authority:
+        lines.extend(_candidate_table(authority))
+    else:
+        lines.append("No focus-area authority website candidates were extracted.")
     lines.extend(["", "## All Candidates", ""])
     lines.extend(_candidate_table(all_candidates[:100]) if all_candidates else ["No candidates found."])
     if errors:

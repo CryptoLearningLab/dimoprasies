@@ -153,6 +153,31 @@ collection_order:
   - khmdhs_contract
   - ted
 
+authority_adapters:
+  - id: epatras_tenders
+    name: "Δήμος Πατρέων - Διαγωνισμοί"
+    scope_id: patras
+    scope_name: "Δήμος Πατρέων"
+    source_family: municipal_html
+    adapter: drupal_listing
+    url: "https://e-patras.gr/el/tenders"
+    pagination:
+      type: query_param
+      param: page
+      start: 0
+    extraction_note: "Parse public Drupal article listing; fetch detail pages for /sites/default/files document links."
+
+  - id: epatras_municipal_committee
+    name: "Δήμος Πατρέων - Αποφάσεις Δημοτικής Επιτροπής"
+    scope_id: patras
+    scope_name: "Δήμος Πατρέων"
+    source_family: municipal_html
+    adapter: drupal_listing
+    url: "https://e-patras.gr/el/e-democracy/decisions/municipal-committee-decisions"
+    pagination:
+      type: none_seen
+    extraction_note: "Decision/context source; records remain candidate-only unless cross-linked to official ESHIDIS/KIMDIS evidence."
+
 rules:
   - "Do not filter only by authority headquarters."
   - "Use NUTS, execution place, title, tender documents, technical description and aliases."

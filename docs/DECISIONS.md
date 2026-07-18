@@ -243,3 +243,15 @@ source exhaustion.
 
 Bounded demo scans remain available for speed, but they are labeled as
 bounded and do not imply no-miss coverage after a long gap.
+
+## D-030 - Authority website adapters are discovery-only
+**Status:** Accepted
+
+Municipal and regional website adapters feed candidate records into the
+expanded discovery/dashboard path with source URL, detail URL, attachments,
+retrieved-at time and parser status.
+
+These records are not active-status proof. When they expose an official
+KIMDIS `PROC` ADAM or ESHIDIS numeric id, the UI may use that explicit
+cross-reference for the existing official fetch path. Otherwise they remain
+`AUTHORITY_DISCOVERY_CANDIDATE` rows for human review.

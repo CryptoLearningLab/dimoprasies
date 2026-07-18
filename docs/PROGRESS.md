@@ -875,13 +875,52 @@ source_whitelist_latest_failed: 1
 source_whitelist_latest_unresolved_blockers: 0
 epatras_tenders_reachable: true
 epatras_committee_decisions_reachable: true
+authority_adapters_configured: 2
+authority_adapter_first_scope: patras
+authority_adapter_supported_type: drupal_listing
+authority_smoke_candidates: 2
+authority_smoke_errors: 0
 ```
 
 ## Next Gate
 
-Add scheduled discovery/report notification wiring for production-style use:
-run discovery on a fixed interval, compare against the latest successful
-watermark, and notify only for newly seen active candidates.
+Extend the authority discovery adapter coverage to the remaining municipal,
+regional, Diavgeia and TED sources from the double-checked audit, one source
+family at a time, while keeping non-official-status records candidate-only.
+
+## Latest Update - 2026-07-18
+
+Implemented the first municipal/authority discovery adapter path:
+
+- Added `src/tender_radar/sources/authority.py` with a public Drupal listing
+  adapter for authority websites.
+- Added `authority_adapters` configuration for:
+  - `epatras_tenders`
+  - `epatras_municipal_committee`
+- Integrated authority candidates into `sources expanded-report`.
+- Routed focus authority candidates into the dashboard merge path.
+- Extracted explicit KIMDIS `26PROC...` and contextual ESHIDIS ids such as
+  `Ε.Σ.Η.Δ.Η.Σ Α/Α 207024` where present.
+- Kept authority rows as `AUTHORITY_DISCOVERY_CANDIDATE`; no record is promoted
+  to `VERIFIED_ACTIVE`.
+
+Verification:
+
+```bash
+.venv/bin/python -m tender_radar config validate
+.venv/bin/python -m pytest tests/test_authority.py tests/test_expanded_report.py
+.venv/bin/python -m tender_radar sources expanded-report --kimdis-pages 0 --authority-limit-per-source 2 --timeout 12 --report work/reports/authority_smoke.json --markdown-report work/reports/authority_smoke.md --allow-insecure-tls
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+config validate: OK for all configured YAML files
+targeted tests: 11 passed
+authority smoke: 2 focus authority candidates, 0 errors
+full test suite: 96 passed
+```
 
 ## Handoff Discipline
 
