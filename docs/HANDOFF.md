@@ -360,8 +360,8 @@ The system `python` command is not present in the remote environment; use
 
 ## What Is Missing
 
-- Production-grade source adapter coverage beyond the proven ESHIDIS/KIMDIS
-  paths and the first e-Patras authority adapter.
+- Production-grade hardening beyond the proven ESHIDIS/KIMDIS paths and the
+  first broad authority adapter pass.
 - Persisted status history/transitions; current `status verify` reports are
   advisory and do not update `tenders.status`.
 - Strong active-status verification model. Discovery rows remain
@@ -401,7 +401,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Extend the authority discovery adapter coverage to the remaining source
-families from the double-checked audit: WordPress municipal categories,
-Messolonghi table page, PDE/PSTE regional pages, Diavgeia API and TED API.
-Keep each family candidate-only until official status verification is proven.
+Harden authority discovery quality now that broad source coverage is present:
+prioritize tender-like authority rows, suppress low-value decision/context rows
+from the main daily view unless they carry explicit KIMDIS/ESHIDIS evidence,
+and add source-family pagination/backfill metrics.

@@ -93,6 +93,146 @@ def test_authority_reference_detection_handles_dotted_eshidis() -> None:
     assert candidates[0].record_type == "ESHIDIS"
 
 
+def test_wordpress_category_extracts_attachment_links() -> None:
+    config = {
+        "authority_adapters": [
+            {
+                "id": "wp",
+                "name": "WP",
+                "scope_id": "scope",
+                "scope_name": "Scope",
+                "adapter": "wordpress_category",
+                "url": "https://example.test/wp-json/wp/v2/posts",
+                "query_params": {"categories": 18, "per_page": 2},
+            }
+        ]
+    }
+    payload = """
+    [
+      {
+        "date": "2026-07-18T10:00:00",
+        "link": "https://example.test/post",
+        "title": {"rendered": "Διακήρυξη έργου"},
+        "excerpt": {"rendered": "Περίληψη"},
+        "content": {"rendered": "<p>ΚΗΜΔΗΣ 26PROC019417347</p><a href='/files/diakiryxi.pdf'>PDF</a>"}
+      }
+    ]
+    """
+
+    with patch("tender_radar.sources.authority.urlopen", return_value=Response(payload)):
+        candidates, errors, pages = discover_authority_candidates(config)
+
+    assert not errors
+    assert pages[0]["items_returned"] == 1
+    assert candidates[0].official_id == "26PROC019417347"
+    assert candidates[0].attachment_urls == ["https://example.test/files/diakiryxi.pdf"]
+
+
+def test_wordpress_page_table_extracts_table_rows() -> None:
+    config = {
+        "authority_adapters": [
+            {
+                "id": "table",
+                "name": "Table",
+                "scope_id": "scope",
+                "scope_name": "Scope",
+                "adapter": "wordpress_page_table",
+                "url": "https://example.test/wp-json/wp/v2/pages",
+                "query_params": {"slug": "diagonismoi-2"},
+            }
+        ]
+    }
+    payload = """
+    [
+      {
+        "content": {
+          "rendered": "<table><tr><td><a href='/detail'>Έργο Μεσολογγίου</a></td><td>18/07/2026</td><td><a href='/files/budget.pdf'>PDF</a></td></tr></table>"
+        }
+      }
+    ]
+    """
+
+    with patch("tender_radar.sources.authority.urlopen", return_value=Response(payload)):
+        candidates, _, _ = discover_authority_candidates(config)
+
+    assert candidates[0].title == "Έργο Μεσολογγίου"
+    assert candidates[0].detail_url == "https://example.test/detail"
+    assert candidates[0].attachment_url == "https://example.test/files/budget.pdf"
+
+
+def test_diavgeia_api_extracts_decisions_as_candidate_only() -> None:
+    config = {
+        "authority_adapters": [
+            {
+                "id": "diavgeia",
+                "name": "Διαύγεια",
+                "scope_id": "scope",
+                "scope_name": "Scope",
+                "adapter": "diavgeia_api",
+                "url": "https://diavgeia.gov.gr/opendata/search.json",
+                "query_params": {"org": "nafpaktia", "size": 1},
+            }
+        ]
+    }
+    payload = """
+    {
+      "decisions": [
+        {
+          "ada": "6ΤΛΡΩΚΓ-9ΡΟ",
+          "subject": "Απόφαση για έργο Ναυπάκτου",
+          "issueDate": "2026-07-18",
+          "documentUrl": "https://diavgeia.gov.gr/doc/6ΤΛΡΩΚΓ-9ΡΟ"
+        }
+      ]
+    }
+    """
+
+    with patch("tender_radar.sources.authority.urlopen", return_value=Response(payload)):
+        candidates, _, _ = discover_authority_candidates(config)
+
+    assert candidates[0].title == "Απόφαση για έργο Ναυπάκτου"
+    assert candidates[0].record_type == "AUTHORITY_WEB"
+    assert candidates[0].status == "AUTHORITY_DISCOVERY_CANDIDATE"
+
+
+def test_ted_api_extracts_notice_links() -> None:
+    config = {
+        "authority_adapters": [
+            {
+                "id": "ted",
+                "name": "TED",
+                "scope_id": "scope",
+                "scope_name": "Scope",
+                "adapter": "ted_api",
+                "url": "https://api.ted.europa.eu/v3/notices/search",
+                "body": {"query": "buyer-country = GRC", "limit": 1},
+            }
+        ]
+    }
+    payload = """
+    {
+      "notices": [
+        {
+          "publication-number": "449222-2026",
+          "notice-title": {"ell": "Δημόσιο έργο"},
+          "publication-date": "2026-07-18",
+          "links": {
+            "html": {"ELL": "https://ted.europa.eu/el/notice/-/detail/449222-2026"},
+            "pdf": {"ELL": "https://ted.europa.eu/el/notice/449222-2026/pdf"}
+          }
+        }
+      ]
+    }
+    """
+
+    with patch("tender_radar.sources.authority.urlopen", return_value=Response(payload)):
+        candidates, _, _ = discover_authority_candidates(config)
+
+    assert candidates[0].title == "Δημόσιο έργο"
+    assert candidates[0].detail_url == "https://ted.europa.eu/el/notice/-/detail/449222-2026"
+    assert candidates[0].attachment_url == "https://ted.europa.eu/el/notice/449222-2026/pdf"
+
+
 def test_expanded_report_includes_authority_candidates(tmp_path) -> None:
     config_path = tmp_path / "sources.yml"
     config_path.write_text(

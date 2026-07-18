@@ -154,6 +154,104 @@ collection_order:
   - ted
 
 authority_adapters:
+  - id: nafpaktos_tenders
+    name: "Δήμος Ναυπακτίας - Προκηρύξεις / Διαγωνισμοί"
+    scope_id: nafpaktia
+    scope_name: "Δήμος Ναυπακτίας"
+    source_family: municipal_html
+    adapter: html_listing
+    url: "https://www.nafpaktos.gr/el/prokirixeis-diagonismoi"
+    extraction_note: "Public HTML listing with possible PDF/ZIP attachments."
+
+  - id: thermo_wp
+    name: "Δήμος Θέρμου - Διακηρύξεις / Προκηρύξεις"
+    scope_id: thermos
+    scope_name: "Δήμος Θέρμου"
+    source_family: municipal_html
+    adapter: wordpress_category
+    url: "https://www.dimos-thermou.gr/website/wp-json/wp/v2/posts"
+    query_params:
+      categories: 188
+      per_page: 20
+      page: 1
+      _fields: "id,date,link,title,excerpt,content"
+
+  - id: amfilochia_prokiryxis
+    name: "Δήμος Αμφιλοχίας - Προκηρύξεις"
+    scope_id: amfilochia
+    scope_name: "Δήμος Αμφιλοχίας"
+    source_family: municipal_html
+    adapter: wordpress_category
+    url: "https://www.dimosamfilochias.gr/wp-json/wp/v2/posts"
+    query_params:
+      categories: 194
+      per_page: 20
+      page: 1
+      _fields: "id,date,link,title,excerpt,content"
+
+  - id: amfilochia_proskliseis
+    name: "Δήμος Αμφιλοχίας - Προσκλήσεις ενδιαφέροντος"
+    scope_id: amfilochia
+    scope_name: "Δήμος Αμφιλοχίας"
+    source_family: municipal_html
+    adapter: wordpress_category
+    url: "https://www.dimosamfilochias.gr/wp-json/wp/v2/posts"
+    query_params:
+      categories: 205
+      per_page: 20
+      page: 1
+      _fields: "id,date,link,title,excerpt,content"
+
+  - id: amfilochia_apofaseis_dimarchou
+    name: "Δήμος Αμφιλοχίας - Αποφάσεις Δημάρχου"
+    scope_id: amfilochia
+    scope_name: "Δήμος Αμφιλοχίας"
+    source_family: municipal_html
+    adapter: wordpress_category
+    url: "https://www.dimosamfilochias.gr/wp-json/wp/v2/posts"
+    query_params:
+      categories: 217
+      per_page: 20
+      page: 1
+      _fields: "id,date,link,title,excerpt,content"
+
+  - id: amfilochia_apofaseis_ds
+    name: "Δήμος Αμφιλοχίας - Αποφάσεις Δημοτικού Συμβουλίου"
+    scope_id: amfilochia
+    scope_name: "Δήμος Αμφιλοχίας"
+    source_family: municipal_html
+    adapter: wordpress_category
+    url: "https://www.dimosamfilochias.gr/wp-json/wp/v2/posts"
+    query_params:
+      categories: 251
+      per_page: 20
+      page: 1
+      _fields: "id,date,link,title,excerpt,content"
+
+  - id: messolonghi_diagonismoi
+    name: "Δήμος Ι.Π. Μεσολογγίου - Διαγωνισμοί"
+    scope_id: messolonghi
+    scope_name: "Δήμος Ιερής Πόλης Μεσολογγίου"
+    source_family: municipal_html
+    adapter: wordpress_page_table
+    url: "https://messolonghi.gov.gr/wp-json/wp/v2/pages"
+    query_params:
+      slug: "diagonismoi-2"
+      _fields: "id,date,link,title,content"
+
+  - id: dorida_prokiryxeis
+    name: "Δήμος Δωρίδος - Προκηρύξεις"
+    scope_id: dorida_eupalio
+    scope_name: "Δήμος Δωρίδος / Ευπάλιο"
+    source_family: municipal_html
+    adapter: wordpress_category
+    url: "https://www.dorida.gr/wp-json/wp/v2/posts"
+    query_params:
+      categories: 18
+      per_page: 20
+      page: 1
+      _fields: "id,date,link,title,excerpt,content"
+
   - id: epatras_tenders
     name: "Δήμος Πατρέων - Διαγωνισμοί"
     scope_id: patras
@@ -177,6 +275,198 @@ authority_adapters:
     pagination:
       type: none_seen
     extraction_note: "Decision/context source; records remain candidate-only unless cross-linked to official ESHIDIS/KIMDIS evidence."
+
+  - id: deyap_prokurhxeis
+    name: "ΔΕΥΑΠ - Προκηρύξεις"
+    scope_id: patras
+    scope_name: "Δήμος Πατρέων"
+    source_family: municipal_html
+    adapter: wordpress_category
+    url: "https://deyap.gr/wp-json/wp/v2/posts"
+    query_params:
+      categories: 268
+      per_page: 20
+      page: 1
+      _fields: "id,date,link,title,excerpt,content"
+
+  - id: pde_prokirikseis
+    name: "Περιφέρεια Δυτικής Ελλάδας - Προκηρύξεις"
+    scope_id: western_greece_aitoloakarnania
+    scope_name: "Περιφέρεια Δυτικής Ελλάδας / Π.Ε. Αιτωλοακαρνανίας"
+    source_family: regional_html
+    adapter: html_listing
+    url: "https://pde.gov.gr/el/diafaneia/prokirikseis/"
+
+  - id: pde_perifereiaki_epitropi
+    name: "Περιφέρεια Δυτικής Ελλάδας - Περιφερειακή Επιτροπή"
+    scope_id: western_greece_aitoloakarnania
+    scope_name: "Περιφέρεια Δυτικής Ελλάδας / Π.Ε. Αιτωλοακαρνανίας"
+    source_family: regional_html
+    adapter: html_listing
+    url: "https://pde.gov.gr/el/perifereia/perifereiaki_epitropi/"
+
+  - id: pste_diafania_cat3
+    name: "Περιφέρεια Στερεάς Ελλάδας - Διαφάνεια"
+    scope_id: central_greece_fokida
+    scope_name: "Περιφέρεια Στερεάς Ελλάδας / Π.Ε. Φωκίδας"
+    source_family: regional_html
+    adapter: wordpress_category
+    url: "https://diafania.pste.gov.gr/"
+    query_params:
+      rest_route: "/wp/v2/posts"
+      categories: 3
+      per_page: 20
+      page: 1
+      _fields: "id,date,link,title,excerpt,content"
+
+  - id: diavgeia_nafpaktia
+    name: "Διαύγεια - Δήμος Ναυπακτίας"
+    scope_id: nafpaktia
+    scope_name: "Δήμος Ναυπακτίας"
+    source_family: diavgeia
+    adapter: diavgeia_api
+    url: "https://diavgeia.gov.gr/opendata/search.json"
+    query_params:
+      org: "nafpaktia"
+      size: 20
+      page: 0
+      sort: recent
+      status: published
+
+  - id: diavgeia_deya_nafpaktias
+    name: "Διαύγεια - ΔΕΥΑ Ναυπακτίας"
+    scope_id: nafpaktia
+    scope_name: "Δήμος Ναυπακτίας"
+    source_family: diavgeia
+    adapter: diavgeia_api
+    url: "https://diavgeia.gov.gr/opendata/search.json"
+    query_params:
+      org: "deya_nafpaktias"
+      size: 20
+      page: 0
+      sort: recent
+      status: published
+
+  - id: diavgeia_thermo
+    name: "Διαύγεια - Δήμος Θέρμου"
+    scope_id: thermos
+    scope_name: "Δήμος Θέρμου"
+    source_family: diavgeia
+    adapter: diavgeia_api
+    url: "https://diavgeia.gov.gr/opendata/search.json"
+    query_params:
+      org: "dimosthermo"
+      size: 20
+      page: 0
+      sort: recent
+      status: published
+
+  - id: diavgeia_amfilochia
+    name: "Διαύγεια - Δήμος Αμφιλοχίας"
+    scope_id: amfilochia
+    scope_name: "Δήμος Αμφιλοχίας"
+    source_family: diavgeia
+    adapter: diavgeia_api
+    url: "https://diavgeia.gov.gr/opendata/search.json"
+    query_params:
+      org: "dimosamfiloxias_ota"
+      size: 20
+      page: 0
+      sort: recent
+      status: published
+
+  - id: diavgeia_messolonghi
+    name: "Διαύγεια - Δήμος Ι.Π. Μεσολογγίου"
+    scope_id: messolonghi
+    scope_name: "Δήμος Ιερής Πόλης Μεσολογγίου"
+    source_family: diavgeia
+    adapter: diavgeia_api
+    url: "https://diavgeia.gov.gr/opendata/search.json"
+    query_params:
+      org: "dimos_i_p_mesolonghiou"
+      size: 20
+      page: 0
+      sort: recent
+      status: published
+
+  - id: diavgeia_doridos
+    name: "Διαύγεια - Δήμος Δωρίδος"
+    scope_id: dorida_eupalio
+    scope_name: "Δήμος Δωρίδος / Ευπάλιο"
+    source_family: diavgeia
+    adapter: diavgeia_api
+    url: "https://diavgeia.gov.gr/opendata/search.json"
+    query_params:
+      org: "DHMOSDORIDOS"
+      size: 20
+      page: 0
+      sort: recent
+      status: published
+
+  - id: diavgeia_patras
+    name: "Διαύγεια - Δήμος Πατρέων"
+    scope_id: patras
+    scope_name: "Δήμος Πατρέων"
+    source_family: diavgeia
+    adapter: diavgeia_api
+    url: "https://diavgeia.gov.gr/opendata/search.json"
+    query_params:
+      org: "dimospatras"
+      size: 20
+      page: 0
+      sort: recent
+      status: published
+
+  - id: diavgeia_pde
+    name: "Διαύγεια - Περιφέρεια Δυτικής Ελλάδας"
+    scope_id: western_greece_aitoloakarnania
+    scope_name: "Περιφέρεια Δυτικής Ελλάδας / Π.Ε. Αιτωλοακαρνανίας"
+    source_family: diavgeia
+    adapter: diavgeia_api
+    url: "https://diavgeia.gov.gr/opendata/search.json"
+    query_params:
+      org: "pde"
+      size: 20
+      page: 0
+      sort: recent
+      status: published
+
+  - id: diavgeia_pste
+    name: "Διαύγεια - Περιφέρεια Στερεάς Ελλάδας"
+    scope_id: central_greece_fokida
+    scope_name: "Περιφέρεια Στερεάς Ελλάδας / Π.Ε. Φωκίδας"
+    source_family: diavgeia
+    adapter: diavgeia_api
+    url: "https://diavgeia.gov.gr/opendata/search.json"
+    query_params:
+      org: "pste"
+      size: 20
+      page: 0
+      sort: recent
+      status: published
+
+  - id: ted_search
+    name: "TED - Greek active notices"
+    scope_id: all_greece
+    scope_name: "TED"
+    source_family: ted
+    adapter: ted_api
+    url: "https://api.ted.europa.eu/v3/notices/search"
+    body:
+      query: "buyer-country = GRC AND publication-date >= 20260701"
+      fields:
+        - publication-number
+        - notice-title
+        - buyer-name
+        - publication-date
+        - deadline-receipt-tender-date-lot
+        - place-of-performance-subdiv-proc
+        - links
+      page: 1
+      limit: 20
+      scope: "ACTIVE"
+      checkQuerySyntax: false
+      paginationMode: "PAGE_NUMBER"
 
 rules:
   - "Do not filter only by authority headquarters."

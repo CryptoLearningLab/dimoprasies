@@ -885,6 +885,12 @@ authority_runtime_document_index: true
 authority_ignore_list_enabled: true
 sample_authority_row_downloaded_files: 9
 sample_authority_zip_bytes: 9736178
+authority_adapter_families: 5
+authority_adapters_configured_latest: 24
+authority_all_sources_smoke_candidates: 65
+authority_all_sources_smoke_errors: 0
+expanded_report_authority_candidates_latest: 108
+dashboard_visible_focus_rows_latest: 128
 ```
 
 ## Next Gate
@@ -959,6 +965,45 @@ full test suite: 99 passed
 authority smoke: 4 focus authority candidates, 0 errors
 authority row AUTH-d448a0b21a42080a: downloaded 9, failed 0
 authority ZIP: tender_AUTHORITY_AUTH-d448a0b21a42080a_documents.zip, 9736178 bytes
+```
+
+## Latest Update - 2026-07-18 Authority Source Expansion
+
+Expanded the authority discovery layer beyond e-Patras.
+
+Added adapter families:
+
+- `wordpress_category`
+- `wordpress_page_table`
+- `html_listing`
+- `diavgeia_api`
+- `ted_api`
+
+Configured source coverage now includes Ναυπακτία, Θέρμο, Αμφιλοχία,
+Μεσολόγγι, Δωρίδα/Ευπάλιο, Πάτρα/ΔΕΥΑΠ, ΠΔΕ, ΠΣΤΕ, Διαύγεια org feeds and
+TED active Greek notices. All authority records remain
+`AUTHORITY_DISCOVERY_CANDIDATE` unless a separate official status check proves
+active tender status.
+
+Verification:
+
+```bash
+.venv/bin/python -m tender_radar config validate
+.venv/bin/python -m pytest tests/test_authority.py tests/test_expanded_report.py tests/test_config.py
+.venv/bin/python -m pytest
+.venv/bin/python -m tender_radar sources expanded-report --kimdis-pages 0 --authority-limit-per-source 3 --timeout 8 --report work/reports/authority_all_sources_smoke.json --markdown-report work/reports/authority_all_sources_smoke.md --allow-insecure-tls
+.venv/bin/python -m tender_radar sources expanded-report --allow-insecure-tls --kimdis-pages 20 --authority-limit-per-source 5 --timeout 12 --as-of-date 2026-07-18 --eshidis-candidates work/reports/eshidis_active_candidates.json --report work/reports/expanded_discovery_report.json --markdown-report work/reports/expanded_discovery_report.md
+```
+
+Results:
+
+```text
+config validate: OK for all configured YAML files
+targeted tests: 16 passed
+full test suite: 103 passed
+authority all-sources smoke: 65 authority candidates, 0 errors
+expanded report: 3123 total candidates, 385 focus candidates, 108 authority candidates, 0 errors
+dashboard focus payload: 148 total_known, 128 visible, 1 expired_hidden, 2 ignored
 ```
 
 ## Handoff Discipline
