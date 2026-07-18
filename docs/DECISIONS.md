@@ -382,3 +382,15 @@ When a non-ESHIDIS row yields an ESHIDIS id, the system uses that id to fetch
 the official ESHIDIS detail and attachment folder. This creates a linked
 official path but does not merge records by title and does not promote
 anything to `VERIFIED_ACTIVE` without the separate status-verification gate.
+
+## D-040 - Linked ESHIDIS enrichment is attempted once per unresolved id
+**Status:** Accepted
+
+After discovery finds explicit linked ESHIDIS ids in KIMDIS or authority rows,
+the UI attempts the official ESHIDIS detail and attachment fetch for ids that
+are not already canonical.
+
+If an id still does not become canonical after the attempt, it is recorded in
+`work/derived/linked_eshidis_fetch_attempts.json` and skipped on later bounded
+searches. This prevents repeated slow retries while preserving the candidate
+row and failure evidence for manual review or a later explicit Fetch action.

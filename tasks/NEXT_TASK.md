@@ -1,56 +1,48 @@
 # NEXT TASK
 
 Execute:
-`Promote linked ESHIDIS ids into canonical dashboard rows`
+`Expose unresolved linked ESHIDIS attempts in the UI`
 
 ## Current Input
 
-The daily dashboard now uses source fingerprint preflight, selective
-non-ESHIDIS refresh and canonical ESHIDIS duplicate suppression.
-The preflight counts all configured source entries: 31 configured entries in
-the current `config/sources.yml`, 27 directly attempted endpoints and 4
-identifier templates.
-Changed `eshidis_active_search`, KIMDIS families and authority adapters now use
-delta refresh orchestration; unchanged source rows are retained from the
-previous report instead of forcing full discovery.
-Discovery rows now pass a deterministic public-works gate before the dashboard
-daily list: ESHIDIS rows are kept as official public-works rows, while KIMDIS
-and authority rows are filtered or kept with `public_works_gate` reasons.
+The UI discovery pipeline now performs canonical linked-ESHIDIS enrichment:
 
-Generic PDE landing rows such as `Έργα & Δράσεις` /
-`https://pde.gov.gr/el/erga-drasis/` are excluded from the dashboard.
-Authority rows surface deterministic `linked_eshidis_ids` when their cached
-text or URLs contain guarded ESHIDIS references.
+- source preflight can skip unchanged sources before expensive discovery,
+- selective refresh runs only changed delta-capable sources,
+- KIMDIS/authority rows pass a deterministic public-works gate,
+- non-ESHIDIS documents/source text can produce `linked_eshidis_ids`,
+- missing linked ids are fetched through the official ESHIDIS detail and
+  attachment commands,
+- KIMDIS/authority duplicates are hidden only after the linked id appears as a
+  real canonical ESHIDIS dashboard row,
+- failed unresolved linked ids are logged in
+  `work/derived/linked_eshidis_fetch_attempts.json` and skipped on later
+  bounded searches.
 
-ESHIDIS id extraction is context-first: official resource URLs and article
-`2.2` style references use 6-digit primary ids, `ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ
-ΠΡΟΣΦΟΡΑΣ` can expose `Α/Α ΣΥΣΤΗΜΑΤΟΣ`, and broad 7-digit matching is removed.
+Current smoke found one unresolved linked id:
 
-The next stage is to make linked ESHIDIS ids canonical in the dashboard after
-document enrichment finds them.
+- `221365`: `sources fetch-resource` succeeded, but
+  `sources download-attachment --all` failed with `No attachment rows
+  selected.`
 
 ## Instruction
 
-Implement the linked-ESHIDIS canonicalization gate:
+Implement a small UI/status gate for unresolved linked ESHIDIS attempts:
 
-1. When a KIMDIS/authority row has `linked_eshidis_ids`, ensure each id has an
-   official ESHIDIS detail fetch attempted.
-2. Add or refresh the corresponding ESHIDIS dashboard row from official
-   ESHIDIS metadata/files when available.
-3. Hide the linked non-ESHIDIS row behind the ESHIDIS row only when the official
-   id is present as a real dashboard row; otherwise keep both with clear
-   provenance.
-4. Preserve raw KIMDIS/authority rows in reports and keep title-only
-   deduplication forbidden.
-5. Do not promote to `VERIFIED_ACTIVE`; official row means official source, not
-   verified active status.
+1. Show unresolved linked ESHIDIS attempt status on candidate previews and/or
+   row pills without hiding the source candidate.
+2. Add a clear manual retry path for a single unresolved linked ESHIDIS id.
+3. Keep the bounded search fast by preserving the attempt ledger skip behavior.
+4. Do not mark unresolved ids as `VERIFIED_ACTIVE`.
+5. Preserve raw KIMDIS/authority provenance and do not dedupe by title.
 
 ## Required Closeout
 
 At the end of the task:
 
-1. Run targeted tests and `.venv/bin/python -m pytest`.
-2. Run a bounded local smoke and report enriched/failed/skipped counts.
+1. Run targeted UI tests and `.venv/bin/python -m pytest`.
+2. Run a bounded local smoke and report attempted/enriched/failed/skipped
+   counts.
 3. Update `docs/PROGRESS.md`.
 4. Update `docs/DECISIONS.md` only if a real decision was made.
 5. Update this file with the next single executable gate.

@@ -466,6 +466,16 @@ The system `python` command is not present in the remote environment; use
   supported documents, extracts ESHIDIS ids from filenames/links/document text,
   stores them in the authority document index, and chains the official ESHIDIS
   detail plus attachment download when ids are found.
+- After a discovery run, missing `linked_eshidis_ids` now trigger official
+  ESHIDIS detail and attachment fetch attempts. Once the linked id exists as a
+  canonical ESHIDIS dashboard row, the secondary KIMDIS/authority row is hidden
+  from the main dashboard and counted as `duplicate_hidden`; raw source rows
+  remain in reports.
+- Linked ids that were attempted but did not become canonical are logged in
+  `work/derived/linked_eshidis_fetch_attempts.json` and skipped on later
+  bounded searches to avoid repeated slow retries. Current smoke: `221365`
+  fetched detail successfully but attachment download failed with no selected
+  attachment rows, so it remains unresolved and skipped by the ledger.
 
 ## Next Work
 
@@ -473,7 +483,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Implement AI/document enrichment as a background job with progress and partial
-results: fetch available authority/KIMDIS documents, extract ESHIDIS ids from
-article `2.2` and economic offer forms, optionally search exact-title public
-sources with provenance, then refresh clickable email notifications.
+Make unresolved linked ESHIDIS/manual candidates actionable: expose the linked
+fetch attempt status in the UI and add a retry/manual-review path for ids such
+as `221365` where official detail exists but no attachment rows were selected.

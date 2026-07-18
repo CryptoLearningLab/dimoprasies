@@ -464,6 +464,11 @@ def run_selected_fetch(identifier: str) -> dict[str, Any]:
 
 
 def run_official_eshidis_fetch(eshidis_ids: list[str]) -> dict[str, Any]:
+    steps = official_eshidis_fetch_steps(eshidis_ids)
+    return run_cli_steps(steps, dashboard_scope="focus") if steps else {"ok": True, "steps": [], "dashboard": dashboard_payload(scope="focus")}
+
+
+def official_eshidis_fetch_steps(eshidis_ids: list[str]) -> list[dict[str, Any]]:
     steps: list[dict[str, Any]] = []
     for eshidis_id in list(dict.fromkeys(str(value) for value in eshidis_ids if str(value).strip())):
         steps.extend(
@@ -488,7 +493,7 @@ def run_official_eshidis_fetch(eshidis_ids: list[str]) -> dict[str, Any]:
                 },
             ]
         )
-    return run_cli_steps(steps, dashboard_scope="focus") if steps else {"ok": True, "steps": [], "dashboard": dashboard_payload(scope="focus")}
+    return steps
 
 
 def run_authority_fetch(row_key: str) -> dict[str, Any]:
@@ -700,6 +705,10 @@ def run_discovery_search(*, limit: int, backfill: bool = False) -> dict[str, Any
                 result["name"] = step["name"]
                 pass_results.append(result)
                 results.append(result)
+            enrichment_results, linked_enrichment = run_linked_eshidis_enrichment()
+            for result in enrichment_results:
+                pass_results.append(result)
+                results.append(result)
             completed_at = utc_now_iso()
             expanded_result = next((item for item in pass_results if item.get("name") == "expanded_report"), {})
             warnings = [
@@ -721,13 +730,19 @@ def run_discovery_search(*, limit: int, backfill: bool = False) -> dict[str, Any
             if not backfill:
                 if pass_ok and preflight and preflight.get("current", {}).get("ok"):
                     save_source_fingerprint(preflight["current"])
-                return discovery_response(results, warnings, pass_ok, records, preflight)
+                response = discovery_response(results, warnings, pass_ok, records, preflight)
+                response["linked_eshidis_enrichment"] = linked_enrichment
+                return response
             if record.get("watermark", {}).get("complete"):
                 if pass_ok and preflight and preflight.get("current", {}).get("ok"):
                     save_source_fingerprint(preflight["current"])
-                return discovery_response(results, warnings, pass_ok, records, preflight)
+                response = discovery_response(results, warnings, pass_ok, records, preflight)
+                response["linked_eshidis_enrichment"] = linked_enrichment
+                return response
             if current_limit >= MAX_BACKFILL_ESHIDIS_LIMIT and current_kimdis_pages >= MAX_BACKFILL_KIMDIS_PAGES:
-                return discovery_response(results, warnings, False, records, preflight)
+                response = discovery_response(results, warnings, False, records, preflight)
+                response["linked_eshidis_enrichment"] = linked_enrichment
+                return response
             current_limit = min(MAX_BACKFILL_ESHIDIS_LIMIT, max(current_limit + 1, current_limit * 2))
             current_kimdis_pages = min(MAX_BACKFILL_KIMDIS_PAGES, max(current_kimdis_pages + 1, current_kimdis_pages * 2))
     except subprocess.TimeoutExpired as exc:
@@ -1415,13 +1430,7 @@ def dashboard_payload(
 
 
 def suppress_linked_eshidis_duplicates(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    canonical_eshidis_ids = {
-        str(row.get("eshidis_id") or row.get("display_id") or "")
-        for row in rows
-        if str(row.get("source_label") or "") == "ΕΣΗΔΗΣ"
-        and (str(row.get("source") or "") != "sqlite" or bool(row.get("current_deadline_at")))
-        and str(row.get("eshidis_id") or row.get("display_id") or "").isdigit()
-    }
+    canonical_eshidis_ids = canonical_eshidis_ids_in_rows(rows)
     if not canonical_eshidis_ids:
         return rows, []
     kept: list[dict[str, Any]] = []
@@ -1444,6 +1453,106 @@ def suppress_linked_eshidis_duplicates(rows: list[dict[str, Any]]) -> tuple[list
             continue
         kept.append(row)
     return kept, hidden
+
+
+def linked_eshidis_enrichment_steps() -> list[dict[str, Any]]:
+    return official_eshidis_fetch_steps(linked_eshidis_ids_missing_official_rows(merged_tender_rows()))
+
+
+def run_linked_eshidis_enrichment() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    missing_ids = linked_eshidis_ids_missing_official_rows(merged_tender_rows())
+    attempted = linked_eshidis_fetch_attempts()
+    skipped_ids = [eshidis_id for eshidis_id in missing_ids if eshidis_id in attempted]
+    fetch_ids = [eshidis_id for eshidis_id in missing_ids if eshidis_id not in attempted]
+    results: list[dict[str, Any]] = []
+    attempt_records: list[dict[str, Any]] = []
+    for eshidis_id in fetch_ids:
+        id_results: list[dict[str, Any]] = []
+        for step in official_eshidis_fetch_steps([eshidis_id]):
+            result = run_cli_process(step["args"], timeout=int(step["timeout"]))
+            result["name"] = step["name"]
+            id_results.append(result)
+            results.append(result)
+            if result.get("returncode") != 0:
+                break
+        attempt_records.append(
+            {
+                "eshidis_id": eshidis_id,
+                "attempted_at": utc_now_iso(),
+                "ok": bool(id_results) and all(item.get("returncode") == 0 for item in id_results),
+                "steps": [
+                    {"name": item.get("name"), "returncode": item.get("returncode")}
+                    for item in id_results
+                ],
+            }
+        )
+    if attempt_records:
+        write_linked_eshidis_fetch_attempts(attempt_records)
+    canonical_after = canonical_eshidis_ids_in_rows(merged_tender_rows())
+    enriched_ids = sorted({eshidis_id for eshidis_id in fetch_ids if eshidis_id in canonical_after})
+    failed_ids = sorted(set(fetch_ids) - set(enriched_ids))
+    return results, {
+        "missing_before": missing_ids,
+        "attempted": fetch_ids,
+        "enriched": enriched_ids,
+        "failed": failed_ids,
+        "skipped_previously_attempted": skipped_ids,
+    }
+
+
+def linked_eshidis_fetch_attempts_path() -> Path:
+    return REPO_ROOT / "work/derived/linked_eshidis_fetch_attempts.json"
+
+
+def linked_eshidis_fetch_attempts() -> dict[str, dict[str, Any]]:
+    path = linked_eshidis_fetch_attempts_path()
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    attempts: dict[str, dict[str, Any]] = {}
+    for item in payload.get("attempts") or []:
+        if not isinstance(item, dict):
+            continue
+        eshidis_id = str(item.get("eshidis_id") or "").strip()
+        if eshidis_id.isdigit():
+            attempts[eshidis_id] = item
+    return attempts
+
+
+def write_linked_eshidis_fetch_attempts(attempt_records: list[dict[str, Any]]) -> None:
+    path = linked_eshidis_fetch_attempts_path()
+    existing = linked_eshidis_fetch_attempts()
+    for item in attempt_records:
+        eshidis_id = str(item.get("eshidis_id") or "").strip()
+        if eshidis_id:
+            existing[eshidis_id] = item
+    payload = {"updated_at": utc_now_iso(), "attempts": list(existing.values())}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def linked_eshidis_ids_missing_official_rows(rows: list[dict[str, Any]]) -> list[str]:
+    linked_ids: set[str] = set()
+    for row in rows:
+        if str(row.get("source_label") or "") == "ΕΣΗΔΗΣ":
+            continue
+        linked_ids.update(linked_eshidis_ids_for_row(row))
+    return sorted(linked_ids - canonical_eshidis_ids_in_rows(rows))
+
+
+def canonical_eshidis_ids_in_rows(rows: list[dict[str, Any]]) -> set[str]:
+    ids: set[str] = set()
+    for row in rows:
+        eshidis_id = str(row.get("eshidis_id") or row.get("display_id") or "").strip()
+        if not eshidis_id.isdigit() or str(row.get("source_label") or "") != "ΕΣΗΔΗΣ":
+            continue
+        source = str(row.get("source") or "")
+        if source != "sqlite" or row.get("current_deadline_at"):
+            ids.add(eshidis_id)
+    return ids
 
 
 def linked_eshidis_ids_for_row(row: dict[str, Any]) -> list[str]:

@@ -363,6 +363,172 @@ regions: []
     assert payload["tenders"][0]["display_id"] == "221744"
 
 
+def test_dashboard_hides_authority_duplicate_when_linked_eshidis_row_exists(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "work/derived").mkdir(parents=True)
+    (tmp_path / "data").mkdir()
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Πάτρα", "Πατρών"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps(
+            {
+                "focus_authority_candidates": [
+                    {
+                        "source": "AUTHORITY",
+                        "record_type": "AUTHORITY_WEB",
+                        "official_id": "AUTH-1234567890abcdef",
+                        "title": "Διακήρυξη έργου Δήμου Πατρέων",
+                        "authority": "Δήμος Πατρέων",
+                        "source_url": "https://e-patras.gr/el/work",
+                        "attachment_urls": ["https://e-patras.gr/work.pdf"],
+                        "row_text": "Άρθρο 2.2 resources/search/221473",
+                        "matched_scopes": ["Δήμος Πατρέων"],
+                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "work/derived/authority_documents.json").write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {
+                        "row_key": "AUTHORITY:AUTH-1234567890abcdef",
+                        "linked_eshidis_ids": ["221473"],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    import sqlite3
+
+    connection = sqlite3.connect(tmp_path / "data/tender_radar.sqlite")
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE tenders (
+              id INTEGER PRIMARY KEY,
+              eshidis_id TEXT,
+              title TEXT,
+              authority_name TEXT,
+              region TEXT,
+              budget_with_vat REAL,
+              current_deadline_at TEXT,
+              status TEXT,
+              status_confidence REAL
+            );
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO tenders (
+              id, eshidis_id, title, authority_name, region,
+              budget_with_vat, current_deadline_at, status, status_confidence
+            ) VALUES (1, '221473', 'Official ΕΣΗΔΗΣ Πατρών', 'ΔΗΜΟΣ ΠΑΤΡΕΩΝ', NULL, NULL, '2026-08-20T10:00:00', 'UNKNOWN', 0.0)
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    payload = dashboard_payload(scope="focus", as_of=date(2026, 7, 18))
+
+    assert payload["summary"]["total_known"] == 2
+    assert payload["summary"]["duplicate_hidden"] == 1
+    assert payload["summary"]["visible"] == 1
+    assert payload["tenders"][0]["source_label"] == "ΕΣΗΔΗΣ"
+    assert payload["tenders"][0]["display_id"] == "221473"
+    assert payload["tenders"][0]["title"] == "Official ΕΣΗΔΗΣ Πατρών"
+
+
+def test_discovery_search_fetches_missing_linked_eshidis_after_expanded_report(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Πάτρα", "Πατρών"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/eshidis_active_candidates.json").write_text('{"candidates": []}', encoding="utf-8")
+    monkeypatch.setattr(
+        ui_server,
+        "discovery_change_preflight",
+        lambda: {
+            "skip": False,
+            "current": {"ok": True},
+            "changed_source_ids": ["epatras_tenders"],
+            "previous_hash": "old",
+        },
+    )
+    monkeypatch.setattr(ui_server, "latest_successful_discovery_run", lambda path: None)
+    monkeypatch.setattr(ui_server, "save_source_fingerprint", lambda fingerprint: None)
+    monkeypatch.setattr(
+        ui_server,
+        "record_discovery_pass",
+        lambda **kwargs: {"success": True, "watermark": {"complete": True}},
+    )
+    calls = []
+
+    def fake_run_cli_process(args, *, timeout):
+        calls.append(args)
+        if args[:2] == ["sources", "expanded-report"]:
+            (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+                json.dumps(
+                    {
+                        "focus_authority_candidates": [
+                            {
+                                "source": "AUTHORITY",
+                                "record_type": "AUTHORITY_WEB",
+                                "official_id": "AUTH-1234567890abcdef",
+                                "title": "Διακήρυξη έργου Δήμου Πατρέων",
+                                "authority": "Δήμος Πατρέων",
+                                "source_url": "https://e-patras.gr/el/work",
+                                "attachment_urls": ["https://e-patras.gr/work.pdf"],
+                                "row_text": "Άρθρο 2.2 resources/search/221473",
+                                "matched_scopes": ["Δήμος Πατρέων"],
+                                "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+        return {"ok": True, "returncode": 0, "command": " ".join(args), "stdout": "{}", "stderr": ""}
+
+    monkeypatch.setattr(ui_server, "run_cli_process", fake_run_cli_process)
+
+    result = ui_server.run_discovery_search(limit=25)
+
+    names = [step["name"] for step in result["steps"]]
+    assert "fetch_detail_221473" in names
+    assert "download_files_221473" in names
+    assert ["sources", "fetch-resource", "221473", "--allow-insecure-tls"] in calls
+
+
 def test_dashboard_can_sort_by_budget_desc(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "config").mkdir()

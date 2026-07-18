@@ -1524,6 +1524,47 @@ full test suite: 126 passed
 cached dashboard smoke: visible 79, total_known 126
 ```
 
+### Step 5 - Linked ESHIDIS canonical promotion
+
+The UI discovery pipeline now promotes explicit linked ESHIDIS ids into the
+official path instead of leaving KIMDIS/authority duplicates as primary
+dashboard rows.
+
+Implemented behavior:
+
+- After `sources expanded-report`, the UI scans dashboard rows for
+  `linked_eshidis_ids` that do not yet exist as canonical ESHIDIS rows.
+- Missing linked ids trigger the same official `sources fetch-resource` and
+  `sources download-attachment --all --limit 50` steps used by the Fetch
+  button.
+- KIMDIS/authority rows are hidden from the main dashboard only when their
+  linked id is present as a real ESHIDIS dashboard row from the current
+  ESHIDIS report or SQLite metadata with a deadline.
+- SQLite-only stale ESHIDIS rows without a deadline do not hide KIMDIS rows,
+  so unresolved candidates remain visible with provenance.
+- Linked ESHIDIS ids that were already attempted but still did not become
+  canonical are recorded in `work/derived/linked_eshidis_fetch_attempts.json`
+  and skipped on the next bounded search to avoid repeated slow retries.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py -q
+.venv/bin/python -m pytest
+.venv/bin/python -c "import json; from tender_radar.ui_server import run_linked_eshidis_enrichment, dashboard_payload; results, summary=run_linked_eshidis_enrichment(); print(json.dumps({'steps': [(r.get('name'), r.get('returncode')) for r in results], 'summary': summary, 'dashboard': dashboard_payload(scope='focus')['summary']}, ensure_ascii=False))"
+.venv/bin/python -c "import json; from tender_radar.ui_server import run_linked_eshidis_enrichment; results, summary=run_linked_eshidis_enrichment(); print(json.dumps({'steps': [(r.get('name'), r.get('returncode')) for r in results], 'summary': summary}, ensure_ascii=False))"
+```
+
+Results:
+
+```text
+targeted UI tests: 44 passed
+full test suite: 128 passed
+linked ESHIDIS smoke #1: attempted 221365, fetch_detail passed, download_files failed because no attachment rows were selected; enriched 0, failed 1
+linked ESHIDIS smoke #2: attempted 0, skipped_previously_attempted 221365
+cached dashboard after smoke: total_known 126, visible 35, duplicate_hidden 9, triage_hidden 44
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:
