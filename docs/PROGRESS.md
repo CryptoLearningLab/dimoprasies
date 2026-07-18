@@ -1228,6 +1228,40 @@ targeted tests: 58 passed
 full test suite: 111 passed
 ```
 
+### Hotfix - Prefer canonical ESHIDIS rows over linked KIMDIS duplicates
+
+Dashboard duplicate suppression now hides secondary KIMDIS/authority rows when
+they explicitly link to an ESHIDIS id that already exists as a canonical
+ESHIDIS dashboard row. This is deterministic and does not rely on AI triage.
+
+Implemented behavior:
+
+- KIMDIS rows with `linked_eshidis_ids` are suppressed when the linked ESHIDIS
+  id is already present as an active/canonical ESHIDIS row.
+- AI-proposed `eshidis_id_candidates` are also considered for duplicate
+  suppression after AI triage is attached.
+- SQLite-only ESHIDIS metadata without a deadline does not suppress KIMDIS
+  rows, so local document-preview tests and stale metadata do not hide the
+  only actionable row.
+- Dashboard summary now includes `duplicate_hidden`.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py tests/test_cli.py
+.venv/bin/python -c "from tender_radar.ui_server import dashboard_payload; import json; p=dashboard_payload(scope='focus'); print(json.dumps(p['summary'], ensure_ascii=False)); print([(r.get('display_id'), r.get('source_label'), r.get('title')) for r in p['tenders'][:8]])"
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted tests: 44 passed
+dashboard focus summary: total_known 255, visible 47, focus_matches 208,
+  expired_hidden 2, duplicate_hidden 9, triage_hidden 161, ignored 2
+full test suite: 112 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

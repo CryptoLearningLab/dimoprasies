@@ -222,6 +222,84 @@ regions: []
     assert payload["tenders"][0]["deadline_display"] == "24-07-2026 13:00"
 
 
+def test_dashboard_hides_kimdis_duplicate_when_linked_eshidis_row_exists(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "work/derived").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: amfilochia
+    name: "Δήμος Αμφιλοχίας"
+    aliases: ["Αμφιλοχίας"]
+    nuts: ["EL631"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/eshidis_active_candidates.json").write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {
+                        "eshidis_id": "221744",
+                        "title": "ΣΥΝΤΗΡΗΣΕΙΣ ΑΓΡΙΝΙΟΥ ΑΜΦΙΛΟΧΙΑΣ 2026-2027",
+                        "authority_name": "ΔΗΜΟΣ ΑΜΦΙΛΟΧΙΑΣ",
+                        "submission_deadline": "2026-08-20T10:00:00",
+                        "status": "DISCOVERED_ACTIVE_CANDIDATE",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps(
+            {
+                "focus_open_proc_candidates": [
+                    {
+                        "source": "KIMDIS",
+                        "record_type": "PROC",
+                        "official_id": "26PROC019444361",
+                        "title": "ΣΥΝΤΗΡΗΣΕΙΣ ΕΠΑΡΧΙΑΚΟΥ ΟΔΙΚΟΥ ΔΙΚΤΥΟΥ Δ. ΑΓΡΙΝΙΟΥ ΚΑΙ Δ. ΑΜΦΙΛΟΧΙΑΣ",
+                        "authority": "ΠΕΡΙΦΕΡΕΙΑ ΔΥΤΙΚΗΣ ΕΛΛΑΔΑΣ",
+                        "submission_deadline": "2026-08-20T10:00:00",
+                        "matched_scopes": ["Δήμος Αμφιλοχίας"],
+                        "status": "SUBMISSION_OPEN_CANDIDATE",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "work/derived/kimdis_open_proc_documents.json").write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {
+                        "official_id": "26PROC019444361",
+                        "linked_eshidis_ids": ["221744"],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    payload = dashboard_payload(scope="focus", as_of=date(2026, 7, 18))
+
+    assert payload["summary"]["total_known"] == 2
+    assert payload["summary"]["duplicate_hidden"] == 1
+    assert payload["summary"]["visible"] == 1
+    assert payload["tenders"][0]["source_label"] == "ΕΣΗΔΗΣ"
+    assert payload["tenders"][0]["display_id"] == "221744"
+
+
 def test_dashboard_can_sort_by_budget_desc(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "config").mkdir()

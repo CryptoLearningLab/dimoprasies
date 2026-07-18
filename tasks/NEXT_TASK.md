@@ -14,6 +14,9 @@ Selective non-ESHIDIS refresh now exists: when the preflight identifies a
 changed KIMDIS/authority source id, `sources expanded-report` fetches only
 that source and retains skipped sources from the previous expanded report.
 
+Dashboard duplicate suppression also exists: linked KIMDIS/authority rows are
+hidden when an active/canonical ESHIDIS row for the same id is present.
+
 Noisy decision/context sources removed from active source config:
 
 - Δήμος Αμφιλοχίας - Αποφάσεις Δημάρχου
@@ -30,8 +33,8 @@ Implement the notification/reporting gate:
 2. Show source preflight status in the UI technical result, including
    `SKIPPED_UNCHANGED`, `SKIPPED_UNCHANGED_WITH_SOURCE_WARNINGS`, reachable
    count and warning count.
-3. Add per-source skipped/fetched counts to discovery run reports where the
-   current data model supports it.
+3. Show `duplicate_hidden` count and optional duplicate review details in the
+   UI technical result without cluttering the main dashboard.
 4. Add a separate explicit UI control for full ESHIDIS refresh/backfill so the
    normal daily button can remain selective and fast.
 5. Preserve raw reports/provenance, no title-only deduplication, no

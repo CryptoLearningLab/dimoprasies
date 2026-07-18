@@ -313,3 +313,15 @@ discovery rather than producing an unsafe partial refresh. The ESHIDIS active
 browser search remains a special heavy source; selective non-ESHIDIS refreshes
 reuse the existing ESHIDIS candidate report unless the user runs full/backfill
 discovery.
+
+## D-035 - ESHIDIS rows are canonical dashboard representatives
+**Status:** Accepted
+
+When a KIMDIS or municipal/regional source row explicitly links to an ESHIDIS
+id that is already present as an active/canonical ESHIDIS dashboard row, the
+dashboard hides the secondary row and keeps the ESHIDIS row.
+
+This is deterministic duplicate suppression, not title-only deduplication and
+not AI deletion. The suppressed source row remains in raw reports/provenance.
+SQLite-only stale ESHIDIS metadata without a deadline does not suppress a
+KIMDIS row, because it may be the only actionable document row.

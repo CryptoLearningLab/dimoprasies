@@ -1224,7 +1224,8 @@ def dashboard_payload(
     rows = merged_tender_rows()
     rows = [row for row in rows if str(row.get("row_key") or row.get("eshidis_id") or row.get("display_id") or "") not in ignored]
     rows = [attach_ai_triage(row, triage) for row in rows]
-    active_rows = [row for row in rows if dashboard_row_is_active(row, as_of=as_of)]
+    canonical_rows, duplicate_hidden_rows = suppress_linked_eshidis_duplicates(rows)
+    active_rows = [row for row in canonical_rows if dashboard_row_is_active(row, as_of=as_of)]
     triage_hidden = [row for row in active_rows if row.get("ai_triage_hidden")]
     triage_visible_rows = [row for row in active_rows if not row.get("ai_triage_hidden")]
     visible_rows = triage_visible_rows if all_greece else [row for row in triage_visible_rows if row["interest_match"]]
@@ -1238,7 +1239,8 @@ def dashboard_payload(
             "visible": len(visible_rows),
             "focus_matches": sum(1 for row in active_rows if row["interest_match"]),
             "verified_active": sum(1 for row in rows if row.get("verified_active")),
-            "expired_hidden": len(rows) - len(active_rows),
+            "expired_hidden": len(canonical_rows) - len(active_rows),
+            "duplicate_hidden": len(duplicate_hidden_rows),
             "triage_hidden": len(triage_hidden),
             "triage_kept": len(triage_visible_rows),
             "ignored": len(ignored),
@@ -1250,6 +1252,45 @@ def dashboard_payload(
             "Discovery rows remain candidates until official detail/status verification."
         ),
     }
+
+
+def suppress_linked_eshidis_duplicates(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    canonical_eshidis_ids = {
+        str(row.get("eshidis_id") or row.get("display_id") or "")
+        for row in rows
+        if str(row.get("source_label") or "") == "ΕΣΗΔΗΣ"
+        and (str(row.get("source") or "") != "sqlite" or bool(row.get("current_deadline_at")))
+        and str(row.get("eshidis_id") or row.get("display_id") or "").isdigit()
+    }
+    if not canonical_eshidis_ids:
+        return rows, []
+    kept: list[dict[str, Any]] = []
+    hidden: list[dict[str, Any]] = []
+    for row in rows:
+        source_label = str(row.get("source_label") or "")
+        if source_label == "ΕΣΗΔΗΣ":
+            kept.append(row)
+            continue
+        linked_ids = linked_eshidis_ids_for_row(row)
+        duplicate_ids = sorted(canonical_eshidis_ids & set(linked_ids))
+        if duplicate_ids:
+            hidden.append(
+                {
+                    **row,
+                    "duplicate_hidden": True,
+                    "duplicate_reason": f"Duplicate of ESHIDIS {', '.join(duplicate_ids)}",
+                }
+            )
+            continue
+        kept.append(row)
+    return kept, hidden
+
+
+def linked_eshidis_ids_for_row(row: dict[str, Any]) -> list[str]:
+    values = [str(value) for value in row.get("linked_eshidis_ids") or [] if str(value).strip()]
+    ai = row.get("ai_triage") if isinstance(row.get("ai_triage"), dict) else {}
+    values.extend(str(value) for value in ai.get("eshidis_id_candidates") or [] if str(value).strip())
+    return sorted({value for value in values if value.isdigit()})
 
 
 def ai_triage_report_path() -> Path:

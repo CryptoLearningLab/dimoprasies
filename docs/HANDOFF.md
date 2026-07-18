@@ -422,6 +422,10 @@ The system `python` command is not present in the remote environment; use
   Unchanged KIMDIS/authority sources are retained from the previous expanded
   report and recorded in `source_pages` as `SKIPPED_UNCHANGED`. If changed ids
   cannot be identified, the UI falls back to full discovery.
+- Dashboard duplicate suppression now treats active/canonical ESHIDIS rows as
+  the primary representative. KIMDIS/authority rows that explicitly link to an
+  existing ESHIDIS id are hidden from the main dashboard and counted as
+  `duplicate_hidden`; raw reports/provenance remain intact.
 
 ## Next Work
 
