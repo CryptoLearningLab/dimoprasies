@@ -4,6 +4,7 @@ from datetime import date
 import json
 import sqlite3
 
+import tender_radar.entalmata as entalmata
 from tender_radar.entalmata import list_entalmata, safe_request_url, scan_entalmata
 
 
@@ -146,3 +147,35 @@ def test_safe_request_url_percent_encodes_greek_paths() -> None:
 
     assert encoded.startswith("https://diavgeia.gov.gr/doc/%CE%A8")
     assert "%CE%91%CF%80%CF%8C%CF%86%CE%B1%CF%83%CE%B7.pdf" in encoded
+
+
+def test_scan_entalmata_matches_keyword_inside_pdf_text(tmp_path, monkeypatch) -> None:
+    config_path = tmp_path / "diavgeia_entalmata.yml"
+    write_config(config_path)
+    db_path = tmp_path / "state.sqlite"
+    download_dir = tmp_path / "downloads"
+    monkeypatch.setattr(entalmata, "extract_pdf_text", lambda path: "Επωνυμία δικαιούχου ΛΑΤΩ ΑΤΕ")
+
+    report = scan_entalmata(
+        db_path=db_path,
+        config_path=config_path,
+        download_dir=download_dir,
+        today=date(2026, 7, 19),
+        json_fetcher=lambda url: {
+            "decisions": [
+                {
+                    "ada": "PDFMATCH",
+                    "subject": "ΕΝΤΟΛΗ ΠΛΗΡΩΜΗΣ 1739-08/07/2026",
+                    "protocolNumber": "1739",
+                    "issueDate": "2026-07-08",
+                    "documentUrl": "https://example.test/1739.pdf",
+                }
+            ]
+        },
+        bytes_fetcher=lambda url: b"%PDF-1.4 fake",
+    )
+
+    assert report["summary"]["matched"] == 1
+    records = list_entalmata(db_path, today=date(2026, 7, 19), visible_window_days=15)
+    assert [record.ada for record in records] == ["PDFMATCH"]
+    assert records[0].matched_keywords == ["ΛΑΤΩ"]

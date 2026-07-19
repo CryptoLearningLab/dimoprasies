@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 
 from tender_radar.config import load_config
 from tender_radar.db import initialize
+from tender_radar.documents import extract_text_with_metadata
 
 
 JsonFetcher = Callable[[str], dict[str, Any]]
@@ -342,12 +343,14 @@ def extract_pdf_text(path: Path) -> str:
     try:
         import fitz  # type: ignore
     except Exception:
-        return ""
+        extraction = extract_text_with_metadata(path)
+        return extraction.full_text or extraction.text_sample or ""
     try:
         with fitz.open(path) as document:
             return "\n".join(page.get_text("text") for page in document).strip()
     except Exception:
-        return ""
+        extraction = extract_text_with_metadata(path)
+        return extraction.full_text or extraction.text_sample or ""
 
 
 def matched_keywords(text: str, keywords: list[str]) -> list[str]:

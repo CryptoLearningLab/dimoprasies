@@ -738,6 +738,12 @@ The system `python` command is not present in the remote environment; use
   homepage `v0.1.28`, `Εντάλματα` tab present. A bounded live Diavgeia scan
   checked `80` decisions across `2` configured organizations, completed with
   `errors 0`, found `matched 0`, and stored `80` `REJECTED` audit rows.
+- Local `v0.1.29` fixes the entalmata PDF extraction parity issue with the
+  Windows `.exe`: if PyMuPDF/`fitz` is missing or fails, entalmata extraction
+  falls back to the shared `documents.extract_text_with_metadata()` path
+  (`pypdf` plus OCR fallback). `PyMuPDF` is now included in the `docs` optional
+  dependencies so the droplet deploy installs the same primary extractor used
+  by the desktop script.
 
 ## Next Work
 
@@ -745,6 +751,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Review whether the Diavgeia entalmata keyword list should be expanded or
-whether `REJECTED` rows should be exposed in a small admin-only audit panel for
-manual keyword tuning.
+Deploy `v0.1.29`, rerun `tender-radar entalmata scan` on the droplet and
+confirm PDF-body keyword matches such as `ΛΑΤΩ` or `ΓΚΟΛΙΟΠΟΥΛΟΣ` become
+`VISIBLE`.

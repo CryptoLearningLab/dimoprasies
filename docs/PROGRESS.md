@@ -3092,6 +3092,41 @@ bounded entalmata scan:
 SQLite status counts: [('REJECTED', 80)]
 ```
 
+### UI v0.1.29 Diavgeia PDF extraction parity
+
+- Compared the NAS Windows utility implementation with the integrated
+  `tender_radar.entalmata` workflow.
+- Root cause: the live droplet had no `fitz`/PyMuPDF installed, and the
+  first integrated extractor returned empty text instead of falling back to
+  the repository document extractor. The scan downloaded the PDFs but matched
+  only title/protocol fallback text, so entries whose contractor keyword was
+  only inside the PDF body were rejected.
+- Added fallback from `extract_pdf_text()` to the shared
+  `documents.extract_text_with_metadata()` path. This uses the installed
+  `pypdf` extractor and existing OCR path when needed.
+- Added `PyMuPDF` to the `docs` optional dependency group so the droplet
+  runtime follows the desktop utility's primary extraction method after
+  deploy.
+- Kept downloaded PDFs as evidence. The entalmata scan does not delete
+  non-matching PDFs; it stores rejected rows in SQLite for audit/tuning.
+- Bumped the application version from `0.1.28` to `0.1.29`.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_entalmata.py tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_config.py -q
+# 6 passed in 1.66s
+
+.venv/bin/python -m py_compile src/tender_radar/entalmata.py
+# passed
+
+.venv/bin/python -m tender_radar config validate
+# all repository configs ok
+
+.venv/bin/python -m pytest -q
+# 215 passed in 16.03s
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

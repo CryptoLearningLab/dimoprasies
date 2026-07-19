@@ -8,7 +8,8 @@ Execute:
 The deadline-evidence dashboard gate is deployed and admin audit re-enrichment
 is implemented. Nationwide search is disabled in production version `0.1.26`.
 Production version `0.1.28` adds the Diavgeia entalmata workflow and fixes
-Greek Diavgeia PDF URL encoding.
+Greek Diavgeia PDF URL encoding. Local version `0.1.29` fixes PDF-body text
+matching parity with the Windows `.exe`.
 
 - `dashboard_payload` enriches rows with fetched document evidence before
   active filtering.
@@ -57,17 +58,20 @@ Greek Diavgeia PDF URL encoding.
   the two configured organizations with `errors 0`; none matched the current
   six keywords, so the UI correctly shows `0` visible entalmata and SQLite has
   `80` `REJECTED` rows.
+- Follow-up inspection found this was not a source/filter problem: PDFs were
+  downloaded, but the integrated extractor used only `fitz` and returned empty
+  text when PyMuPDF was absent. Local `v0.1.29` falls back to the shared
+  `pypdf`/OCR extractor and adds PyMuPDF to the deploy dependency group.
 
 ## Instruction
 
 Complete the next gate:
 
-1. Inspect a sample of the `REJECTED` entalmata rows.
-2. Decide whether the keyword list should match contractor names only or also
-   project/account wording.
-3. If useful, add an admin-only rejected-entalmata audit view with restore or
-   keyword-tuning notes.
-4. Keep the entalmata workflow separate from tender dashboard filtering.
+1. Deploy `v0.1.29`.
+2. Rerun one bounded `tender-radar entalmata scan` on the droplet.
+3. Confirm PDF-body keyword matches become visible.
+4. Confirm previously downloaded PDFs are reused instead of downloaded again.
+5. Keep the entalmata workflow separate from tender dashboard filtering.
 
 ## Required Tests
 
