@@ -3284,6 +3284,41 @@ reverse_search query οδοποιία:
   matches 0
 ```
 
+### UI v0.1.33 Auth cleanup and user-specific dismissals
+
+- The UI version was bumped from `0.1.32` to `0.1.33`.
+- `Δεν με ενδιαφέρει` now stores personal dismissals in SQLite
+  `user_tender_dismissals` using the logged-in user email. One user's hidden
+  tenders no longer disappear from another user's dashboard.
+- Admin restore removes legacy and per-user dismissals for the selected row and
+  keeps the existing force-keep override behavior.
+- Admin audit includes user-specific dismissals with the user email in the
+  reason text.
+- Added password reset from the login screen. It reuses the existing
+  time-limited password setup link and stores only the resulting password hash.
+- Added login footer sections for `Όροι χρήσης`, `Privacy` and `Οδηγίες`.
+- Replaced stale build/debug copy in discovery status with product-facing text.
+- Improved missing-deadline audit reason text so new hidden rows explain the
+  product reason without exposing internal `parseable` language.
+- Mobile tender cards now reserve more space for row labels so long labels such
+  as `Προϋπολογισμός` do not collide with values.
+
+Verification so far:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/db.py src/tender_radar/ui_server.py tests/test_ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py -k "version_badge or login_screen_exposes_password_reset or password_reset or dismiss or admin_audit_separates_missing_deadline or reverse_search_payload"
+# 8 passed, 104 deselected
+
+.venv/bin/python -m pytest tests/test_db.py
+# 14 passed
+
+.venv/bin/python -m pytest
+# 222 passed in 17.22s
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

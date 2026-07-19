@@ -767,6 +767,11 @@ The system `python` command is not present in the remote environment; use
   trigger discovery, fetch, OCR, AI triage or enrichment. Full local suite
   passed with `219 passed`; production smoke found `221566` for query
   `Ναυπάκτου` across `11` active rows.
+- Local `v0.1.33` adds the auth/UI cleanup gate before the next reverse-search
+  expansion: per-user `Δεν με ενδιαφέρει` state in SQLite, password reset via
+  the existing setup-link flow, login footer terms/privacy/help, cleaner
+  discovery/audit copy and wider mobile card label spacing. Admin restore now
+  clears both legacy and per-user dismissals for a row.
 
 ## Next Work
 

@@ -5,7 +5,16 @@ Execute:
 
 ## Current Input
 
-Local version `0.1.32` scaffolds the second tab
+Local version `0.1.33` has the second tab scaffolded and includes the cleanup
+gate before FTS:
+
+- per-user `Δεν με ενδιαφέρει` dismissals in SQLite,
+- password reset through setup-token links,
+- login footer terms/privacy/help,
+- cleaner discovery/audit UI copy,
+- mobile label/value spacing improvements.
+
+Version `0.1.32` scaffolded the second tab
 `Αντίστροφη αναζήτηση` from `docs/PRODUCT_SPECIFICATION.md`
 `MODE B — Αντίστροφη αναζήτηση περιεχομένου`.
 

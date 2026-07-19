@@ -1026,6 +1026,136 @@ def list_tender_dismissals(db_path: Path) -> list[dict[str, object]]:
     return items
 
 
+def dismiss_user_tender(
+    db_path: Path,
+    *,
+    user_email: str,
+    row_key: str,
+    display_id: str | None = None,
+    source_label: str | None = None,
+    title: str | None = None,
+    reason: str | None = None,
+    ignored_at: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> None:
+    initialize(db_path)
+    user_email = user_email.strip().lower()
+    if not user_email:
+        raise ValueError("user_email is required")
+    if not row_key.strip():
+        raise ValueError("row_key is required")
+    ignored_at = ignored_at or datetime.now(timezone.utc).isoformat()
+    connection = connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO user_tender_dismissals (
+                user_email, row_key, display_id, source_label, title, reason,
+                ignored_at, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_email, row_key) DO UPDATE SET
+                display_id = COALESCE(excluded.display_id, user_tender_dismissals.display_id),
+                source_label = COALESCE(excluded.source_label, user_tender_dismissals.source_label),
+                title = COALESCE(excluded.title, user_tender_dismissals.title),
+                reason = COALESCE(excluded.reason, user_tender_dismissals.reason),
+                ignored_at = user_tender_dismissals.ignored_at,
+                metadata_json = excluded.metadata_json
+            """,
+            (
+                user_email,
+                row_key,
+                display_id,
+                source_label,
+                title,
+                reason,
+                ignored_at,
+                json.dumps(metadata or {}, ensure_ascii=False),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def ignored_user_tender_keys(db_path: Path, *, user_email: str) -> set[str]:
+    initialize(db_path)
+    user_email = user_email.strip().lower()
+    if not user_email:
+        return set()
+    connection = connect(db_path)
+    try:
+        rows = connection.execute(
+            "SELECT row_key FROM user_tender_dismissals WHERE user_email = ?",
+            (user_email,),
+        ).fetchall()
+    finally:
+        connection.close()
+    return {str(row[0]) for row in rows}
+
+
+def list_user_tender_dismissals(db_path: Path, *, user_email: str | None = None) -> list[dict[str, object]]:
+    initialize(db_path)
+    params: tuple[str, ...] = ()
+    where = ""
+    if user_email:
+        where = "WHERE user_email = ?"
+        params = (user_email.strip().lower(),)
+    connection = connect(db_path)
+    try:
+        rows = connection.execute(
+            f"""
+            SELECT user_email, row_key, display_id, source_label, title, reason,
+                   ignored_at, metadata_json
+            FROM user_tender_dismissals
+            {where}
+            ORDER BY ignored_at DESC
+            """,
+            params,
+        ).fetchall()
+    finally:
+        connection.close()
+    items: list[dict[str, object]] = []
+    for row in rows:
+        try:
+            metadata = json.loads(row[7] or "{}")
+        except json.JSONDecodeError:
+            metadata = {}
+        items.append(
+            {
+                "user_email": row[0],
+                "row_key": row[1],
+                "display_id": row[2],
+                "source_label": row[3],
+                "title": row[4],
+                "reason": row[5],
+                "ignored_at": row[6],
+                "metadata": metadata,
+            }
+        )
+    return items
+
+
+def remove_user_tender_dismissal(
+    db_path: Path,
+    *,
+    row_key: str,
+    user_email: str | None = None,
+) -> None:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        if user_email:
+            connection.execute(
+                "DELETE FROM user_tender_dismissals WHERE row_key = ? AND user_email = ?",
+                (row_key, user_email.strip().lower()),
+            )
+        else:
+            connection.execute("DELETE FROM user_tender_dismissals WHERE row_key = ?", (row_key,))
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def upsert_admin_hidden_event(
     db_path: Path,
     *,
@@ -1495,6 +1625,18 @@ def _ensure_runtime_state_tables(connection: sqlite3.Connection) -> None:
             reason TEXT,
             ignored_at TEXT NOT NULL,
             metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+
+        CREATE TABLE IF NOT EXISTS user_tender_dismissals (
+            user_email TEXT NOT NULL,
+            row_key TEXT NOT NULL,
+            display_id TEXT,
+            source_label TEXT,
+            title TEXT,
+            reason TEXT,
+            ignored_at TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            PRIMARY KEY(user_email, row_key)
         );
 
         CREATE TABLE IF NOT EXISTS notification_log (

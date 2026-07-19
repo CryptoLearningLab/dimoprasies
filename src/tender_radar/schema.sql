@@ -192,6 +192,18 @@ CREATE TABLE IF NOT EXISTS tender_dismissals (
     metadata_json TEXT NOT NULL DEFAULT '{}'
 );
 
+CREATE TABLE IF NOT EXISTS user_tender_dismissals (
+    user_email TEXT NOT NULL,
+    row_key TEXT NOT NULL,
+    display_id TEXT,
+    source_label TEXT,
+    title TEXT,
+    reason TEXT,
+    ignored_at TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY(user_email, row_key)
+);
+
 CREATE TABLE IF NOT EXISTS admin_hidden_events (
     row_key TEXT NOT NULL,
     category TEXT NOT NULL,

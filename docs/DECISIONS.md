@@ -755,3 +755,27 @@ This gives the UI a stable Mode B contract before adding richer search grammar,
 SQLite FTS indexing, document filters, article/revision parsing, quantities or
 price extraction. Future expansion can replace the backend query engine without
 changing the basic UI request/response shape.
+
+## D-066 - Front-page tender dismissals are user-specific
+**Status:** Accepted
+
+The `Δεν με ενδιαφέρει` action is personal state. A user hiding a tender must
+not remove it from another user's dashboard. New dismissals are stored in
+SQLite table `user_tender_dismissals` keyed by `user_email` and `row_key`.
+Legacy global dismissals remain readable for audit/backward compatibility, but
+new UI actions do not write global ignore state.
+
+Admin restore removes both legacy and per-user dismissals for the row, then
+adds the existing force-keep override. Admin audit lists dismissed rows with
+the user email so support can distinguish personal preference from AI/system
+filtering.
+
+## D-067 - Password reset reuses secure setup links
+**Status:** Accepted
+
+Password reset uses the same invite/setup-token flow as first password
+creation. The app sends a time-limited `/password-setup?token=...` link to an
+existing enabled user and stores only the resulting password hash.
+
+The reset request returns a generic success response for unknown emails to
+avoid exposing whether an address is registered.

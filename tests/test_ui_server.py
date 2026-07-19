@@ -69,7 +69,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.32" in INDEX_HTML
+    assert "v0.1.33" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -103,6 +103,14 @@ def test_ui_exposes_reverse_search_tab() -> None:
     assert "/api/reverse-search" in APP_JS
     assert "runReverseSearch" in APP_JS
     assert "renderReverseSearch" in APP_JS
+
+
+def test_login_screen_exposes_password_reset_and_legal_footer() -> None:
+    assert 'id="forgotPasswordBtn"' in INDEX_HTML
+    assert "/api/auth/request-password-reset" in APP_JS
+    assert "Όροι χρήσης" in INDEX_HTML
+    assert "Privacy" in INDEX_HTML
+    assert "Οδηγίες" in INDEX_HTML
 
 
 def test_reverse_search_payload_searches_active_dashboard_and_documents(monkeypatch, tmp_path: Path) -> None:
@@ -254,6 +262,42 @@ def test_admin_password_setup_hashes_password(tmp_path, monkeypatch) -> None:
     assert ui_server.verify_password("long-secure-password", user.password_hash) is True
 
 
+def test_password_reset_sends_setup_link_for_existing_user(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    sent: list[dict[str, str]] = []
+
+    monkeypatch.setattr(ui_server, "runtime_db_path", lambda: db_path)
+    monkeypatch.setattr(
+        ui_server,
+        "send_email_alert",
+        lambda recipient, subject, text_body, html_body: sent.append(
+            {"recipient": recipient, "subject": subject, "text": text_body, "html": html_body}
+        ),
+    )
+    monkeypatch.setattr(ui_server.secrets, "token_urlsafe", lambda size=32: "reset-token")
+    ui_server.upsert_admin_user(db_path, email="owner@example.test", role="admin", enabled=True)
+
+    result = ui_server.request_password_reset({"email": "owner@example.test"}, base_url="https://example.test")
+
+    assert result["ok"] is True
+    assert result["sent"] is True
+    assert sent[0]["recipient"] == "owner@example.test"
+    assert "https://example.test/password-setup?token=reset-token" in sent[0]["text"]
+
+
+def test_password_reset_does_not_reveal_missing_user(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    sent: list[str] = []
+
+    monkeypatch.setattr(ui_server, "runtime_db_path", lambda: db_path)
+    monkeypatch.setattr(ui_server, "send_email_alert", lambda recipient, subject, text_body, html_body: sent.append(text_body))
+
+    result = ui_server.request_password_reset({"email": "missing@example.test"}, base_url="https://example.test")
+
+    assert result == {"ok": True, "sent": True}
+    assert sent == []
+
+
 def test_admin_invite_user_creates_user_role(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "runtime.sqlite"
     sent: list[str] = []
@@ -358,7 +402,7 @@ def test_dashboard_pills_use_wrapping_stack() -> None:
 
 def test_mobile_table_label_column_fits_long_budget_label() -> None:
     assert "Προϋπολογισμός" in APP_JS
-    assert "grid-template-columns: minmax(132px, 36%) minmax(0, 1fr)" in STYLES_CSS
+    assert "grid-template-columns: minmax(146px, 38%) minmax(0, 1fr)" in STYLES_CSS
 
 
 def test_report_json_content_type_includes_utf8_charset() -> None:
@@ -1194,7 +1238,7 @@ def test_scheduled_poll_treats_auto_document_fetch_failure_as_warning(tmp_path, 
 
 
 def test_ui_labels_bounded_and_backfill_discovery_modes() -> None:
-    assert "Η γρήγορη αναζήτηση είναι bounded" in INDEX_HTML
+    assert "Η αναζήτηση ελέγχει τις συνδεδεμένες πηγές" in INDEX_HTML
     assert 'id="backfillToggle"' in INDEX_HTML
     assert "Backfill safety" in INDEX_HTML
     assert "discoverySafetyText" in APP_JS
@@ -1892,7 +1936,7 @@ regions: []
     assert audit["summary"]["expired"] == 1
     by_category = {row["category"]: row for row in audit["hidden_rows"]}
     assert "NO_DEADLINE_EVIDENCE" in by_category
-    assert "δεν βρέθηκε parseable καταληκτική ημερομηνία" in by_category["NO_DEADLINE_EVIDENCE"]["reason"]
+    assert "ενεργή καταληκτική ημερομηνία" in by_category["NO_DEADLINE_EVIDENCE"]["reason"]
     assert "10-01-2026 10:00" in by_category["EXPIRED"]["reason"]
 
 
@@ -2682,13 +2726,16 @@ regions: []
         encoding="utf-8",
     )
 
-    assert dashboard_payload(scope="focus")["summary"]["visible"] == 1
-    result = ui_server.dismiss_tender(row_key)
-    payload = dashboard_payload(scope="focus")
+    assert dashboard_payload(scope="focus", user_email="owner@example.test")["summary"]["visible"] == 1
+    result = ui_server.dismiss_tender(row_key, user_email="owner@example.test")
+    payload = dashboard_payload(scope="focus", user_email="owner@example.test")
+    other_payload = dashboard_payload(scope="focus", user_email="other@example.test")
 
     assert result["ok"] is True
     assert payload["summary"]["visible"] == 0
     assert payload["summary"]["ignored"] == 1
+    assert other_payload["summary"]["visible"] == 1
+    assert other_payload["summary"]["ignored"] == 0
 
 
 def test_dashboard_uses_cached_ai_triage_to_hide_drops(tmp_path, monkeypatch) -> None:
@@ -2964,13 +3011,14 @@ def test_admin_restore_dismissed_row_removes_ignore(tmp_path, monkeypatch) -> No
     )
     row_key = "AUTHORITY:AUTH-dismissed"
 
-    ui_server.dismiss_tender(row_key)
-    assert dashboard_payload(scope="focus")["summary"]["visible"] == 0
+    ui_server.dismiss_tender(row_key, user_email="owner@example.test")
+    assert dashboard_payload(scope="focus", user_email="owner@example.test")["summary"]["visible"] == 0
+    assert dashboard_payload(scope="focus", user_email="other@example.test")["summary"]["visible"] == 1
     assert ui_server.admin_audit_payload()["summary"]["dismissed"] == 1
 
     ui_server.restore_admin_row(row_key=row_key, reason="κατά λάθος")
 
-    assert dashboard_payload(scope="focus")["summary"]["visible"] == 1
+    assert dashboard_payload(scope="focus", user_email="owner@example.test")["summary"]["visible"] == 1
     assert ui_server.admin_audit_payload()["summary"]["dismissed"] == 0
 
 

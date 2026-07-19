@@ -36,16 +36,19 @@ from tender_radar.db import (
     create_admin_invite,
     delete_stale_verified_tender_links,
     dismiss_tender as dismiss_tender_in_db,
+    dismiss_user_tender,
     get_admin_invite,
     get_admin_user,
     get_admin_user_by_id,
     get_source_document,
     get_source_state,
+    ignored_user_tender_keys,
     ignored_tender_keys as ignored_tender_keys_from_db,
     list_admin_users,
     list_searchable_documents,
     list_source_documents,
     list_tender_dismissals,
+    list_user_tender_dismissals,
     list_source_states,
     list_verified_tender_links,
     mark_admin_invite_used,
@@ -54,6 +57,7 @@ from tender_radar.db import (
     record_source_run,
     record_notification_sent,
     remove_tender_dismissal,
+    remove_user_tender_dismissal,
     triage_overrides_by_key as db_triage_overrides_by_key,
     upsert_admin_hidden_event,
     upsert_admin_user,
@@ -166,7 +170,8 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             scope = query.get("scope", ["focus"])[0]
             sort = query.get("sort", ["deadline_asc"])[0]
-            self._send_json(dashboard_payload(scope=scope, sort=sort))
+            session = self._admin_session() or {}
+            self._send_json(dashboard_payload(scope=scope, sort=sort, user_email=session.get("email")))
             return
         if parsed.path == "/api/source-polling":
             self._send_json(source_polling_payload())
@@ -277,6 +282,9 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/auth/logout":
                 self._admin_logout()
                 return
+            if parsed.path == "/api/auth/request-password-reset":
+                self._send_json(request_password_reset(payload, base_url=self._public_base_url()))
+                return
             if parsed.path == "/api/admin/set-password":
                 self._admin_set_password(payload)
                 return
@@ -338,14 +346,19 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 self._send_json(start_job("email-alerts", run_email_alerts, scope=scope, sort=sort, recipient=recipient, dry_run=dry_run), status=202)
                 return
             if parsed.path == "/api/reverse-search":
-                self._send_json(reverse_search_payload(payload))
+                session = self._admin_session() or {}
+                self._send_json(reverse_search_payload(payload, user_email=session.get("email")))
                 return
             if parsed.path == "/api/entalmata/scan":
                 self._send_json(start_job("entalmata-scan", run_entalmata_scan), status=202)
                 return
             if parsed.path == "/api/dismiss-tender":
                 row_key = require_row_key(payload)
-                self._send_json(dismiss_tender(row_key))
+                session = self._admin_session()
+                if not session or not session.get("email"):
+                    self._send_json({"ok": False, "error": "Login required."}, status=401)
+                    return
+                self._send_json(dismiss_tender(row_key, user_email=session["email"]))
                 return
             if parsed.path == "/api/admin/login":
                 self._admin_login(payload)
@@ -3322,12 +3335,13 @@ def dashboard_payload(
     as_of: date | None = None,
     *,
     apply_triage: bool = True,
+    user_email: str | None = None,
 ) -> dict[str, Any]:
     safe_scope = dashboard_scope(scope)
     profile = location_focus_profile()
     overrides = triage_overrides_by_key()
     force_keep_keys = {key for key, item in overrides.items() if item.get("action") == "FORCE_KEEP"}
-    ignored = ignored_tender_keys() - force_keep_keys
+    ignored = ignored_tender_keys(user_email=user_email) - force_keep_keys
     triage = ai_triage_by_row_key() if apply_triage else {}
     rows = merged_tender_rows()
     rows = [row for row in rows if str(row.get("row_key") or row.get("eshidis_id") or row.get("display_id") or "") not in ignored]
@@ -3368,7 +3382,7 @@ def dashboard_payload(
     }
 
 
-def reverse_search_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def reverse_search_payload(payload: dict[str, Any], *, user_email: str | None = None) -> dict[str, Any]:
     query = str(payload.get("query") or "").strip()
     if len(query) < 2:
         return {
@@ -3378,7 +3392,7 @@ def reverse_search_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "results": [],
             "empty_message": "Γράψε τουλάχιστον 2 χαρακτήρες για αναζήτηση.",
         }
-    dashboard = dashboard_payload(scope="focus", sort="deadline_asc")
+    dashboard = dashboard_payload(scope="focus", sort="deadline_asc", user_email=user_email)
     rows = [row for row in dashboard.get("tenders") or [] if isinstance(row, dict)]
     docs_by_eshidis = reverse_search_documents_by_eshidis(rows)
     results: list[dict[str, Any]] = []
@@ -3896,8 +3910,15 @@ def ignored_tenders_path() -> Path:
     return REPO_ROOT / "work/derived/ignored_tenders.json"
 
 
-def ignored_tender_keys() -> set[str]:
+def ignored_tender_keys(user_email: str | None = None) -> set[str]:
     keys = set()
+    normalized_email = (user_email or "").strip().lower()
+    if normalized_email:
+        try:
+            keys.update(ignored_user_tender_keys(runtime_db_path(), user_email=normalized_email))
+        except (OSError, sqlite3.Error):
+            pass
+        return {key for key in keys if key}
     try:
         keys.update(ignored_tender_keys_from_db(runtime_db_path()))
     except (OSError, sqlite3.Error):
@@ -3913,22 +3934,29 @@ def ignored_tender_keys() -> set[str]:
     return {key for key in keys if key}
 
 
-def dismiss_tender(row_key: str) -> dict[str, Any]:
-    dismiss_tender_in_db(runtime_db_path(), row_key=row_key)
-    path = ignored_tenders_path()
-    existing = []
-    if path.exists():
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            payload = {}
-        existing = [item for item in payload.get("ignored") or [] if isinstance(item, dict)]
-    if not any(item.get("row_key") == row_key for item in existing):
-        existing.append({"row_key": row_key, "ignored_at": utc_now_iso()})
-    payload = {"updated_at": utc_now_iso(), "ignored": existing}
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"ok": True, "row_key": row_key, "ignored": len(existing), "dashboard": dashboard_payload(scope="focus")}
+def dismiss_tender(row_key: str, *, user_email: str) -> dict[str, Any]:
+    normalized_email = user_email.strip().lower()
+    if not normalized_email:
+        raise ValueError("User email is required.")
+    row = next((item for item in merged_tender_rows() if row_key_for_tender(item) == row_key), {})
+    dismiss_user_tender(
+        runtime_db_path(),
+        user_email=normalized_email,
+        row_key=row_key,
+        display_id=str(row.get("display_id") or row.get("official_id") or row.get("eshidis_id") or "") or None,
+        source_label=str(row.get("source_label") or row.get("source") or "") or None,
+        title=str(row.get("title") or "") or None,
+        reason="Δεν με ενδιαφέρει",
+        metadata={"source": "front_page"},
+    )
+    ignored = ignored_tender_keys(user_email=normalized_email)
+    return {
+        "ok": True,
+        "row_key": row_key,
+        "user_email": normalized_email,
+        "ignored": len(ignored),
+        "dashboard": dashboard_payload(scope="focus", user_email=normalized_email),
+    }
 
 
 def remove_legacy_ignored_tender(row_key: str) -> None:
@@ -3946,6 +3974,7 @@ def remove_legacy_ignored_tender(row_key: str) -> None:
 
 def restore_admin_row(*, row_key: str, reason: str | None = None) -> dict[str, Any]:
     remove_tender_dismissal(runtime_db_path(), row_key=row_key)
+    remove_user_tender_dismissal(runtime_db_path(), row_key=row_key)
     remove_legacy_ignored_tender(row_key)
     upsert_triage_override(
         runtime_db_path(),
@@ -4067,6 +4096,23 @@ def request_admin_password_setup(payload: dict[str, Any], *, base_url: str) -> d
     token, link = create_password_setup_invite(email=requested_email, role="admin", created_by="owner-bootstrap", base_url=base_url)
     send_password_setup_email(requested_email, link, role="admin")
     return {"ok": True, "sent": True, "email": requested_email, "role": "admin", "token_preview": token[:6]}
+
+
+def request_password_reset(payload: dict[str, Any], *, base_url: str) -> dict[str, Any]:
+    email = str(payload.get("email") or "").strip().lower()
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise ValueError("Valid email is required.")
+    user = get_admin_user(runtime_db_path(), email)
+    if user and user.enabled:
+        token, link = create_password_setup_invite(
+            email=email,
+            role=user.role,
+            created_by="password-reset",
+            base_url=base_url,
+        )
+        send_password_setup_email(email, link, role=user.role)
+        return {"ok": True, "sent": True, "token_preview": token[:6]}
+    return {"ok": True, "sent": True}
 
 
 def invite_admin_user(payload: dict[str, Any], *, inviter: str | None, base_url: str) -> dict[str, Any]:
@@ -4249,6 +4295,22 @@ def admin_audit_payload() -> dict[str, Any]:
                 restorable=True,
             )
         )
+    for item in list_user_tender_dismissals(runtime_db_path()):
+        row_key = str(item.get("row_key") or "")
+        if row_key in force_keep_keys:
+            continue
+        row = row_by_key.get(row_key, {})
+        if row:
+            row = {**row, "ignored_at": item.get("ignored_at")}
+        user_email = str(item.get("user_email") or "")
+        dismissed_rows.append(
+            admin_hidden_row(
+                row or item,
+                category="DISMISSED",
+                reason=f"Χρήστης {user_email}: {item.get('reason') or 'Δεν με ενδιαφέρει'}",
+                restorable=True,
+            )
+        )
 
     triage_hidden_rows = [
         admin_hidden_row(
@@ -4307,11 +4369,7 @@ def admin_audit_payload() -> dict[str, Any]:
                 admin_hidden_row(
                     row,
                     category="NO_DEADLINE_EVIDENCE",
-                    reason=(
-                        f"Κρύφτηκε επειδή δεν βρέθηκε parseable καταληκτική ημερομηνία υποβολής προσφορών. "
-                        f"Fetched/OCR έγγραφα που ελέγχθηκαν: {document_count}. "
-                        "Δεν βρέθηκε αρκετά ισχυρή αντιστοίχιση με υπάρχον επίσημο ΕΣΗΔΗΣ row."
-                    ),
+                    reason=missing_deadline_reason(row, document_count=document_count),
                     restorable=False,
                 )
             )
@@ -4540,11 +4598,25 @@ def token_overlap_score(left: set[str], right: set[str]) -> float:
 
 def possible_duplicate_reason(row: dict[str, Any], match: dict[str, Any], *, document_count: int) -> str:
     return (
-        f"Κρύφτηκε από την αρχική επειδή δεν είχε δική του parseable προθεσμία, "
-        f"αλλά το audit το συσχέτισε ως πιθανό duplicate του επίσημου ΕΣΗΔΗΣ {match.get('eshidis_id')} "
+        f"Κρύφτηκε από την αρχική επειδή δεν τεκμηριώθηκε ξεχωριστή ενεργή προθεσμία, "
+        f"αλλά το audit το συσχέτισε ως πιθανή διπλοεγγραφή του επίσημου ΕΣΗΔΗΣ {match.get('eshidis_id')} "
         f"({match.get('title')}) με λήξη {deadline_display(str(match.get('deadline') or '')) or match.get('deadline') or 'UNKNOWN'}. "
         f"Σήματα: {', '.join(match.get('signals') or []) or 'UNKNOWN'}. "
         f"Fetched/OCR έγγραφα που ελέγχθηκαν: {document_count}."
+    )
+
+
+def missing_deadline_reason(row: dict[str, Any], *, document_count: int) -> str:
+    source_label = str(row.get("source_label") or row.get("source") or "πηγή")
+    if document_count > 0:
+        return (
+            f"Κρύφτηκε από την αρχική επειδή στα {document_count} κατεβασμένα/OCR έγγραφα της πηγής {source_label} "
+            "δεν τεκμηριώθηκε ενεργή καταληκτική ημερομηνία υποβολής προσφορών και δεν βρέθηκε ισχυρή σύνδεση "
+            "με επίσημη εγγραφή ΕΣΗΔΗΣ."
+        )
+    return (
+        f"Κρύφτηκε από την αρχική επειδή η πηγή {source_label} δεν έδωσε επαρκή έγγραφα ή κείμενο για να τεκμηριωθεί "
+        "ενεργή καταληκτική ημερομηνία υποβολής προσφορών και δεν βρέθηκε ισχυρή σύνδεση με επίσημη εγγραφή ΕΣΗΔΗΣ."
     )
 
 
@@ -5591,8 +5663,23 @@ INDEX_HTML = f"""<!doctype html>
       <label>Email <input id="loginEmailInput" type="email" autocomplete="email" placeholder="you@example.com"></label>
       <label>Password <input id="loginPasswordInput" type="password" autocomplete="current-password" placeholder="Password"></label>
       <button id="loginBtn" class="loginButton">Σύνδεση <span aria-hidden="true">→</span></button>
+      <button id="forgotPasswordBtn" class="textButton" type="button">Ξέχασα το password</button>
       <p id="loginStatus" class="noteText"></p>
     </div>
+    <footer class="legalFooter">
+      <details>
+        <summary>Όροι χρήσης</summary>
+        <p>Το Tender Radar οργανώνει δημόσια διαθέσιμες αναρτήσεις διαγωνισμών. Πριν από προσφορά ελέγχεις πάντα την επίσημη καρτέλα ΕΣΗΔΗΣ και τα τεύχη του φορέα.</p>
+      </details>
+      <details>
+        <summary>Privacy</summary>
+        <p>Αποθηκεύονται email, ρόλος, hash password, session cookie και προσωπικές επιλογές απόκρυψης. Δεν αποθηκεύονται plaintext passwords.</p>
+      </details>
+      <details>
+        <summary>Οδηγίες</summary>
+        <p>Η αρχική δείχνει ενεργά δημόσια έργα περιοχής. Τα κουμπιά ΕΣΗΔΗΣ, ZIP και Δεν με ενδιαφέρει ανοίγουν επίσημα στοιχεία, κατεβάζουν φάκελο ή κρύβουν έργο μόνο για τον δικό σου χρήστη.</p>
+      </details>
+    </footer>
   </section>
 
   <div id="appShell" class="appShell" hidden>
@@ -5630,8 +5717,8 @@ INDEX_HTML = f"""<!doctype html>
           <p class="eyebrow">Περιοχή αναζήτησης</p>
           <h3>Ναυπακτία, Δωρίδα, Θέρμο, Μεσολόγγι, Πάτρα και σχετικές Π.Ε.</h3>
           <p id="scopeText" class="mutedLine">Προεπιλογή: τοπική περιοχή ενδιαφέροντος από το config.</p>
-          <p class="mutedLine">Η γρήγορη αναζήτηση είναι bounded: έως 100 ενεργές γραμμές ΕΣΗΔΗΣ και 20 σελίδες ΚΗΜΔΗΣ ανά οικογένεια εγγράφων.</p>
-          <p id="discoverySafetyText" class="mutedLine">Δεν υπάρχει ακόμα καταγεγραμμένο discovery watermark σε αυτό το runtime.</p>
+          <p class="mutedLine">Η αναζήτηση ελέγχει τις συνδεδεμένες πηγές και κρατά μόνο έργα με ενεργή προθεσμία.</p>
+          <p id="discoverySafetyText" class="mutedLine">Δεν υπάρχει ακόμη ιστορικό τελευταίας αναζήτησης.</p>
         </div>
         <div class="toolbar inlineToolbar">
           <label>Βάθος ΕΣΗΔΗΣ <input id="limitInput" type="number" min="1" max="500" value="100"></label>
@@ -6019,6 +6106,41 @@ body {
   border-radius: 12px;
   background: #0f766e;
   font-size: 18px;
+}
+.textButton {
+  min-height: auto;
+  width: fit-content;
+  padding: 0;
+  background: transparent;
+  color: var(--accent-dark);
+  border: 0;
+  font-weight: 800;
+}
+.textButton:hover {
+  background: transparent;
+  color: var(--accent);
+}
+.legalFooter {
+  width: min(860px, 100%);
+  display: grid;
+  gap: 10px;
+  margin: -44px auto 0;
+  color: var(--muted);
+}
+.legalFooter details {
+  border: 1px solid rgba(217, 221, 229, .85);
+  border-radius: 10px;
+  background: rgba(255,255,255,.78);
+  padding: 12px 14px;
+}
+.legalFooter summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 800;
+}
+.legalFooter p {
+  margin-top: 8px;
+  line-height: 1.55;
 }
 .sidebar {
   background: #1f2933;
@@ -6776,6 +6898,9 @@ h3 {
   .loginCard h2 {
     font-size: 29px;
   }
+  .legalFooter {
+    margin-top: -28px;
+  }
   .workspace {
     display: block;
   }
@@ -6821,7 +6946,7 @@ h3 {
   .tenderTable td,
   .adminTableWrap .adminTable td {
     display: grid;
-    grid-template-columns: minmax(132px, 36%) minmax(0, 1fr);
+    grid-template-columns: minmax(146px, 38%) minmax(0, 1fr);
     gap: 12px;
     padding: 10px 12px;
     border-bottom: 1px solid #eef2f6;
@@ -6836,6 +6961,10 @@ h3 {
     text-transform: uppercase;
     min-width: 0;
     overflow-wrap: anywhere;
+  }
+  .tenderTable td > *,
+  .adminTableWrap .adminTable td > * {
+    min-width: 0;
   }
   .tenderTitle,
   .authorityCell {
@@ -7100,6 +7229,21 @@ async function adminLogin() {
     applySession(payload.session || null);
     $('loginStatus').textContent = 'Συνδέθηκε.';
     await refresh();
+  } catch (error) {
+    $('loginStatus').textContent = String(error.message || error);
+  }
+}
+
+async function requestPasswordReset() {
+  const email = $('loginEmailInput').value.trim();
+  if (!email) {
+    $('loginStatus').textContent = 'Γράψε πρώτα το email σου.';
+    return;
+  }
+  $('loginStatus').textContent = 'Στέλνω link επαναφοράς...';
+  try {
+    await adminApi('/api/auth/request-password-reset', { method: 'POST', body: JSON.stringify({ email }) });
+    $('loginStatus').textContent = 'Αν το email είναι καταχωρημένο, στάλθηκε link ορισμού νέου password.';
   } catch (error) {
     $('loginStatus').textContent = String(error.message || error);
   }
@@ -7444,16 +7588,16 @@ function renderDashboard(payload) {
 
 function renderDiscoverySafety(run) {
   if (!run) {
-    $('discoverySafetyText').textContent = 'Δεν υπάρχει ακόμα καταγεγραμμένο discovery watermark σε αυτό το runtime.';
+    $('discoverySafetyText').textContent = 'Δεν υπάρχει ακόμη ιστορικό τελευταίας αναζήτησης.';
     return;
   }
   const depth = run.depth || {};
   const watermark = run.watermark || {};
   const status = run.success
-    ? 'τελευταίο run πλήρες'
-    : (run.source_success ? 'τελευταίο run χρειάζεται βαθύτερο backfill' : 'τελευταίο run με μερική αποτυχία πηγής');
-  const mode = run.mode === 'backfill' ? 'backfill' : 'bounded';
-  const complete = watermark.complete ? 'το προηγούμενο παράθυρο καλύφθηκε ή εξαντλήθηκε πηγή' : 'χρειάζεται βαθύτερο backfill';
+    ? 'τελευταία αναζήτηση ολοκληρώθηκε'
+    : (run.source_success ? 'τελευταία αναζήτηση με ατελές ιστορικό' : 'τελευταία αναζήτηση με μερική αποτυχία πηγής');
+  const mode = run.mode === 'backfill' ? 'με έλεγχο backfill' : 'γρήγορη';
+  const complete = watermark.complete ? 'καλύφθηκε το αποθηκευμένο ιστορικό' : 'ίσως χρειάζεται βαθύτερος έλεγχος';
   $('discoverySafetyText').textContent = `${status} · ${mode} · ΕΣΗΔΗΣ ${depth.eshidis_limit || '-'} · ΚΗΜΔΗΣ ${depth.kimdis_pages_per_family || '-'} σελίδες · ${complete}`;
 }
 
@@ -7836,6 +7980,7 @@ function deleteRule() {
 }
 
 $('loginBtn').addEventListener('click', () => adminLogin().catch((error) => { $('loginStatus').textContent = String(error); }));
+$('forgotPasswordBtn').addEventListener('click', () => requestPasswordReset().catch((error) => { $('loginStatus').textContent = String(error); }));
 $('loginPasswordInput').addEventListener('keydown', (event) => {
   if (event.key === 'Enter') adminLogin().catch((error) => { $('loginStatus').textContent = String(error); });
 });
