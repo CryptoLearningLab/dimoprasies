@@ -68,7 +68,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.20" in INDEX_HTML
+    assert "v0.1.21" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -1728,6 +1728,38 @@ regions: []
     assert "NO_DEADLINE_EVIDENCE" in by_category
     assert "δεν βρέθηκε parseable καταληκτική ημερομηνία" in by_category["NO_DEADLINE_EVIDENCE"]["reason"]
     assert "10-01-2026 10:00" in by_category["EXPIRED"]["reason"]
+
+
+def test_admin_audit_marks_possible_eshidis_duplicate_for_missing_deadline() -> None:
+    row = {
+        "source_label": "Φορέας",
+        "title": "Ενεργειακή αναβάθμιση και δράσεις Εξοικονόμησης Ενέργειας στις Αθλητικές Εγκαταστάσεις του Κλειστού Γυμναστηρίου της Ιεράς Πόλης Μεσολογγίου",
+        "authority_name": "Δήμος Ιερής Πόλης Μεσολογγίου",
+        "interest_reason": "Δήμος Ιερής Πόλης Μεσολογγίου",
+    }
+    official = {
+        "source_label": "ΕΣΗΔΗΣ",
+        "eshidis_id": "221624",
+        "display_id": "221624",
+        "title": "Ενεργειακή αναβάθμιση ΔΑΚ Μεσολογγίου",
+        "authority_name": "ΔΗΜΟΣ ΙΕΡΑΣ ΠΟΛΗΣ ΜΕΣΟΛΟΓΓΙΟΥ, ΔΙΕΥΘΥΝΣΗ ΤΕΧΝΙΚΩΝ ΥΠΗΡΕΣΙΩΝ",
+        "current_deadline_at": "27-07-2026 12:00:00",
+    }
+
+    match = ui_server.best_possible_eshidis_duplicate(row, [official])
+
+    assert match is not None
+    assert match["eshidis_id"] == "221624"
+    assert "authority_match" in match["signals"]
+    assert "ΕΣΗΔΗΣ 221624" in ui_server.possible_duplicate_reason(row, match, document_count=0)
+
+
+def test_admin_audit_ui_exposes_missing_deadline_and_mobile_labels() -> None:
+    assert "adminMissingDeadlineCount" in INDEX_HTML
+    assert "adminDuplicateCandidateCount" in INDEX_HTML
+    assert "NO_DEADLINE_EVIDENCE: 'Χωρίς deadline'" in APP_JS
+    assert 'data-label="Αιτιολογία"' in APP_JS
+    assert ".adminTableWrap .adminTable td::before" in STYLES_CSS
 
 
 def test_dashboard_exposes_local_kimdis_preview_and_download(tmp_path, monkeypatch) -> None:

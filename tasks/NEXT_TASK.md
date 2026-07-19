@@ -5,8 +5,8 @@ Execute:
 
 ## Current Input
 
-The deadline-evidence dashboard gate is deployed and the admin audit split is
-implemented locally in UI package version `0.1.20`.
+The deadline-evidence dashboard gate is deployed and admin audit re-enrichment
+is implemented locally in UI package version `0.1.21`.
 
 - `dashboard_payload` enriches rows with fetched document evidence before
   active filtering.
@@ -25,20 +25,22 @@ implemented locally in UI package version `0.1.20`.
     `expired_visible []`, `expired_hidden 74`.
 - Admin audit now separates `NO_DEADLINE_EVIDENCE` from real `EXPIRED` rows.
 - Focused admin/UI tests passed: `93 passed`.
+- Admin audit re-enrichment adds `DUPLICATE_CANDIDATE` for strong unverified
+  matches against existing official ESHIDIS rows.
+- The Μεσολόγγι gymnasium authority row now maps as candidate duplicate to
+  ESHIDIS `221624` in local smoke.
+- Admin hidden rows are mobile responsive via `data-label` card layout.
 
 ## Instruction
 
 Complete the next gate:
 
 1. Do not run full discovery.
-2. Add or expose an audit bucket for rows hidden because no parseable future
-   deadline was found.
-3. For each hidden row, show whether documents were fetched/OCRed and which
-   sources/snippets were checked.
-4. Run an incremental/scheduled dry-run only.
-5. Confirm the front page still has zero visible unknown-deadline rows.
-6. Report how many hidden rows need document fetch/OCR versus how many have
-   documents but no deadline evidence.
+2. Run an incremental/scheduled dry-run only.
+3. Confirm the front page still has zero visible unknown-deadline rows.
+4. Review remaining `NO_DEADLINE_EVIDENCE` rows that are not
+   `DUPLICATE_CANDIDATE`.
+5. Report how many need document fetch/OCR versus deeper source/title search.
 
 ## Required Tests
 

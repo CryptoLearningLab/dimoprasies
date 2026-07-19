@@ -3971,8 +3971,10 @@ def admin_audit_payload() -> dict[str, Any]:
         )
         for row in duplicate_rows
     ]
+    official_eshidis_rows = [row for row in canonical_rows if str(row.get("source_label") or "") == "ΕΣΗΔΗΣ"]
     expired_hidden_rows = []
     missing_deadline_rows = []
+    duplicate_candidate_rows = []
     for row in inactive_rows:
         raw_deadline = row.get("current_deadline_at") or row.get("submission_deadline") or (row.get("deadline_evidence") or {}).get("deadline_at")
         if raw_deadline and deadline_date(str(raw_deadline)):
@@ -3986,13 +3988,26 @@ def admin_audit_payload() -> dict[str, Any]:
             )
         else:
             document_count = int(row.get("document_evidence_count") or 0)
+            duplicate_candidate = best_possible_eshidis_duplicate(row, official_eshidis_rows)
+            if duplicate_candidate:
+                duplicate_candidate_rows.append(
+                    admin_hidden_row(
+                        row,
+                        category="DUPLICATE_CANDIDATE",
+                        reason=possible_duplicate_reason(row, duplicate_candidate, document_count=document_count),
+                        restorable=False,
+                        audit_match=duplicate_candidate,
+                    )
+                )
+                continue
             missing_deadline_rows.append(
                 admin_hidden_row(
                     row,
                     category="NO_DEADLINE_EVIDENCE",
                     reason=(
                         f"Κρύφτηκε επειδή δεν βρέθηκε parseable καταληκτική ημερομηνία υποβολής προσφορών. "
-                        f"Fetched/OCR έγγραφα που ελέγχθηκαν: {document_count}."
+                        f"Fetched/OCR έγγραφα που ελέγχθηκαν: {document_count}. "
+                        "Δεν βρέθηκε αρκετά ισχυρή αντιστοίχιση με υπάρχον επίσημο ΕΣΗΔΗΣ row."
                     ),
                     restorable=False,
                 )
@@ -4008,15 +4023,17 @@ def admin_audit_payload() -> dict[str, Any]:
         for row in source_errors
         if row.get("last_error")
     ]
-    hidden_rows = dismissed_rows + triage_hidden_rows + duplicate_hidden_rows + expired_hidden_rows + missing_deadline_rows
+    hidden_rows = dismissed_rows + triage_hidden_rows + duplicate_hidden_rows + duplicate_candidate_rows + expired_hidden_rows + missing_deadline_rows
     return {
         "ok": True,
         "authenticated": True,
         "summary": {
+            "audit_enrichment_version": "2026-07-19-deadline-v2",
             "hidden_total": len(hidden_rows),
             "dismissed": len(dismissed_rows),
             "ai_hidden": len(triage_hidden_rows),
             "duplicates": len(duplicate_hidden_rows),
+            "duplicate_candidates": len(duplicate_candidate_rows),
             "expired": len(expired_hidden_rows),
             "missing_deadline": len(missing_deadline_rows),
             "source_errors": len(errors),
@@ -4027,7 +4044,14 @@ def admin_audit_payload() -> dict[str, Any]:
     }
 
 
-def admin_hidden_row(row: dict[str, Any], *, category: str, reason: str, restorable: bool) -> dict[str, Any]:
+def admin_hidden_row(
+    row: dict[str, Any],
+    *,
+    category: str,
+    reason: str,
+    restorable: bool,
+    audit_match: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     row_key = row_key_for_tender(row) or str(row.get("row_key") or "")
     ai = row.get("ai_triage") if isinstance(row.get("ai_triage"), dict) else {}
     return {
@@ -4043,7 +4067,107 @@ def admin_hidden_row(row: dict[str, Any], *, category: str, reason: str, restora
         "reason": reason,
         "ai_decision": ai.get("decision"),
         "ai_confidence": ai.get("confidence"),
+        "audit_match": audit_match,
     }
+
+
+def best_possible_eshidis_duplicate(row: dict[str, Any], official_rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if str(row.get("source_label") or "") == "ΕΣΗΔΗΣ":
+        return None
+    candidates: list[dict[str, Any]] = []
+    for official in official_rows:
+        score, signals = possible_eshidis_duplicate_score(row, official)
+        if score < 0.72:
+            continue
+        eshidis_id = str(official.get("eshidis_id") or official.get("display_id") or "")
+        candidates.append(
+            {
+                "eshidis_id": eshidis_id,
+                "title": official.get("title") or "",
+                "authority_name": official.get("authority_name") or official.get("authority") or "",
+                "deadline": official.get("current_deadline_at") or official.get("submission_deadline") or "",
+                "official_url": (official.get("official_url") or official_resource_url(eshidis_id)) if eshidis_id else "",
+                "score": round(score, 3),
+                "signals": signals,
+            }
+        )
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: (float(item.get("score") or 0), str(item.get("deadline") or "")), reverse=True)[0]
+
+
+def possible_eshidis_duplicate_score(row: dict[str, Any], official: dict[str, Any]) -> tuple[float, list[str]]:
+    signals: list[str] = []
+    row_title_tokens = title_match_tokens(row.get("title"))
+    official_title_tokens = title_match_tokens(official.get("title"))
+    title_score = token_overlap_score(row_title_tokens, official_title_tokens)
+    if title_score >= 0.45:
+        signals.append(f"title_overlap {title_score:.2f}")
+    row_authority = normalized_duplicate_text(row.get("authority_name") or row.get("authority"))
+    official_authority = normalized_duplicate_text(official.get("authority_name") or official.get("authority"))
+    authority_match = bool(row_authority and official_authority and (row_authority in official_authority or official_authority in row_authority))
+    authority_token_score = token_overlap_score(title_match_tokens(row_authority), title_match_tokens(official_authority))
+    if authority_token_score >= 0.5:
+        authority_match = True
+    if authority_match:
+        signals.append("authority_match")
+    row_interest = normalized_duplicate_text(row.get("interest_reason"))
+    location_match = bool(row_interest and official_authority and any(part and part in official_authority for part in re.split(r"[,/]", row_interest)))
+    if location_match:
+        signals.append("location_match")
+    linked_match = str(official.get("eshidis_id") or official.get("display_id") or "") in set(linked_eshidis_ids_for_row(row))
+    if linked_match:
+        signals.append("explicit_linked_eshidis")
+    score = title_score * 0.62
+    if authority_match:
+        score += 0.28
+    if location_match:
+        score += 0.12
+    if linked_match:
+        score += 0.5
+    return min(score, 1.0), signals
+
+
+def title_match_tokens(value: object) -> set[str]:
+    normalized = normalized_duplicate_text(value)
+    stop_words = {
+        "και",
+        "της",
+        "του",
+        "των",
+        "στη",
+        "στο",
+        "στις",
+        "στον",
+        "για",
+        "εργο",
+        "εργου",
+        "εργων",
+        "δημοσ",
+        "δημου",
+        "διακηρυξη",
+        "ανοιχτου",
+        "ηλεκτρονικου",
+        "διαγωνισμου",
+        "δρασεισ",
+    }
+    return {token for token in re.findall(r"[a-zα-ω0-9]+", normalized) if len(token) >= 4 and token not in stop_words}
+
+
+def token_overlap_score(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / max(1, min(len(left), len(right)))
+
+
+def possible_duplicate_reason(row: dict[str, Any], match: dict[str, Any], *, document_count: int) -> str:
+    return (
+        f"Κρύφτηκε από την αρχική επειδή δεν είχε δική του parseable προθεσμία, "
+        f"αλλά το audit το συσχέτισε ως πιθανό duplicate του επίσημου ΕΣΗΔΗΣ {match.get('eshidis_id')} "
+        f"({match.get('title')}) με λήξη {deadline_display(str(match.get('deadline') or '')) or match.get('deadline') or 'UNKNOWN'}. "
+        f"Σήματα: {', '.join(match.get('signals') or []) or 'UNKNOWN'}. "
+        f"Fetched/OCR έγγραφα που ελέγχθηκαν: {document_count}."
+    )
 
 
 def discovery_history_path() -> Path:
@@ -5340,7 +5464,9 @@ INDEX_HTML = f"""<!doctype html>
           <div><span id="adminAiHiddenCount">0</span><small>AI απόρριψη</small></div>
           <div><span id="adminDismissedCount">0</span><small>Δεν με ενδιαφέρει</small></div>
           <div><span id="adminDuplicateCount">0</span><small>διπλότυπα</small></div>
+          <div><span id="adminDuplicateCandidateCount">0</span><small>πιθανά διπλότυπα</small></div>
           <div><span id="adminExpiredCount">0</span><small>ληγμένα</small></div>
+          <div><span id="adminMissingDeadlineCount">0</span><small>χωρίς deadline</small></div>
           <div><span id="adminSourceErrorCount">0</span><small>source errors</small></div>
         </div>
         <div class="tableWrap adminTableWrap">
@@ -6082,24 +6208,31 @@ h3 {
   .sourceAuditTable {
     min-width: 0;
   }
-  .tenderTable thead {
+  .tenderTable thead,
+  .adminTableWrap .adminTable thead {
     display: none;
   }
   .tenderTable,
   .tenderTable tbody,
   .tenderTable tr,
-  .tenderTable td {
+  .tenderTable td,
+  .adminTableWrap .adminTable,
+  .adminTableWrap .adminTable tbody,
+  .adminTableWrap .adminTable tr,
+  .adminTableWrap .adminTable td {
     display: block;
     width: 100%;
   }
-  .tenderTable tr {
+  .tenderTable tr,
+  .adminTableWrap .adminTable tr {
     margin-bottom: 12px;
     border: 1px solid var(--line);
     border-radius: 10px;
     background: var(--panel);
     overflow: hidden;
   }
-  .tenderTable td {
+  .tenderTable td,
+  .adminTableWrap .adminTable td {
     display: grid;
     grid-template-columns: 96px minmax(0, 1fr);
     gap: 12px;
@@ -6107,7 +6240,8 @@ h3 {
     border-bottom: 1px solid #eef2f6;
     white-space: normal;
   }
-  .tenderTable td::before {
+  .tenderTable td::before,
+  .adminTableWrap .adminTable td::before {
     content: attr(data-label);
     color: var(--muted);
     font-size: 11px;
@@ -6387,7 +6521,9 @@ function renderAdminAudit(payload) {
   $('adminAiHiddenCount').textContent = summary.ai_hidden || 0;
   $('adminDismissedCount').textContent = summary.dismissed || 0;
   $('adminDuplicateCount').textContent = summary.duplicates || 0;
+  $('adminDuplicateCandidateCount').textContent = summary.duplicate_candidates || 0;
   $('adminExpiredCount').textContent = summary.expired || 0;
+  $('adminMissingDeadlineCount').textContent = summary.missing_deadline || 0;
   $('adminSourceErrorCount').textContent = summary.source_errors || 0;
   const tbody = $('adminHiddenRows');
   const rows = payload.hidden_rows || [];
@@ -6404,13 +6540,16 @@ function renderAdminAudit(payload) {
     const restoreButton = row.restorable
       ? `<button class="tinyButton restoreHiddenRow" data-key="${escapeHtml(row.row_key)}">Επαναφορά</button>`
       : '<span class="noteText">Audit only</span>';
+    const auditMatch = row.audit_match
+      ? `<span class="pill">match ${escapeHtml(row.audit_match.eshidis_id || '')} · ${escapeHtml(row.audit_match.score || '')}</span>`
+      : '';
     tr.innerHTML = `
-      <td><span class="statusChip ${adminCategoryClass(row.category)}">${escapeHtml(adminCategoryLabel(row.category))}</span></td>
-      <td><strong>${escapeHtml(row.display_id || '')}</strong><br><span class="noteText">${escapeHtml(row.source_label || '')}</span></td>
-      <td class="tenderTitle">${escapeHtml(row.title || '')}${row.ai_decision ? `<span class="pill">${escapeHtml(row.ai_decision)}</span>` : ''}</td>
-      <td class="authorityCell">${escapeHtml(row.authority_name || '')}</td>
-      <td>${escapeHtml(row.reason || '')}${row.ai_confidence ? `<br><span class="noteText">confidence ${escapeHtml(row.ai_confidence)}</span>` : ''}</td>
-      <td><div class="actionStack">${sourceLink}${restoreButton}</div></td>
+      <td data-label="Κατηγορία"><span class="statusChip ${adminCategoryClass(row.category)}">${escapeHtml(adminCategoryLabel(row.category))}</span></td>
+      <td data-label="Α/Α"><strong>${escapeHtml(row.display_id || '')}</strong><br><span class="noteText">${escapeHtml(row.source_label || '')}</span></td>
+      <td data-label="Έργο" class="tenderTitle">${escapeHtml(row.title || '')}${row.ai_decision ? `<span class="pill">${escapeHtml(row.ai_decision)}</span>` : ''}${auditMatch}</td>
+      <td data-label="Φορέας" class="authorityCell">${escapeHtml(row.authority_name || '')}</td>
+      <td data-label="Αιτιολογία">${escapeHtml(row.reason || '')}${row.ai_confidence ? `<br><span class="noteText">confidence ${escapeHtml(row.ai_confidence)}</span>` : ''}</td>
+      <td data-label="Ενέργεια"><div class="actionStack">${sourceLink}${restoreButton}</div></td>
     `;
     tbody.appendChild(tr);
   }
@@ -6424,7 +6563,9 @@ function adminCategoryLabel(category) {
     AI_HIDDEN: 'AI',
     DISMISSED: 'Δεν με ενδιαφέρει',
     DUPLICATE: 'Διπλότυπο',
+    DUPLICATE_CANDIDATE: 'Πιθανό διπλότυπο',
     EXPIRED: 'Ληγμένο',
+    NO_DEADLINE_EVIDENCE: 'Χωρίς deadline',
   }[category] || category || 'Άγνωστο';
 }
 
@@ -6432,7 +6573,9 @@ function adminCategoryClass(category) {
   if (category === 'AI_HIDDEN') return 'waiting';
   if (category === 'DISMISSED') return 'error';
   if (category === 'DUPLICATE') return 'unchanged';
+  if (category === 'DUPLICATE_CANDIDATE') return 'unchanged';
   if (category === 'EXPIRED') return 'changed';
+  if (category === 'NO_DEADLINE_EVIDENCE') return 'waiting';
   return 'waiting';
 }
 

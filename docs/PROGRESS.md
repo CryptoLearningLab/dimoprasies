@@ -2769,6 +2769,47 @@ production deploy smoke on commit c06f39f:
   production focus rows hidden by expired parsed deadline and not AI-hidden: 9
 ```
 
+### UI v0.1.21 admin audit re-enrichment and mobile cards
+
+- Bumped the application version from `0.1.20` to `0.1.21`.
+- Admin audit now computes a deterministic `audit_enrichment_version`
+  (`2026-07-19-deadline-v2`) without resetting runtime state and without full
+  discovery.
+- Missing-deadline authority rows are compared against existing official
+  ESHIDIS rows using title-token overlap plus authority/location signals. A
+  strong but unverified match is surfaced as `DUPLICATE_CANDIDATE`, not as a
+  verified duplicate.
+- The Μεσολόγγι gymnasium authority row is now explained as a possible
+  duplicate of ESHIDIS `221624` with title overlap and authority match instead
+  of plain `NO_DEADLINE_EVIDENCE`.
+- Admin audit rows now include mobile `data-label` cells and the admin hidden
+  table uses the same card-style responsive layout as the main tender list.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_admin_audit_marks_possible_eshidis_duplicate_for_missing_deadline tests/test_ui_server.py::test_admin_audit_ui_exposes_missing_deadline_and_mobile_labels tests/test_ui_server.py::test_admin_audit_separates_missing_deadline_from_expired -q
+.venv/bin/python -m pytest tests/test_ui_server.py -q
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+.venv/bin/python -m pytest -q
+.venv/bin/python -c "from tender_radar.ui_server import admin_audit_payload; ..."
+```
+
+Results:
+
+```text
+targeted admin audit tests: 3 passed
+UI tests: 95 passed
+py_compile: passed
+full test suite: 198 passed
+local admin audit smoke:
+  duplicate_candidates 1
+  missing_deadline 63
+  Mesologgi authority row -> DUPLICATE_CANDIDATE ESHIDIS 221624
+  score 0.9
+  signals title_overlap 1.00, authority_match
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

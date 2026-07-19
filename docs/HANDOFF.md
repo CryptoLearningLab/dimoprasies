@@ -674,6 +674,12 @@ The system `python` command is not present in the remote environment; use
   `duplicates 9`, `ai_hidden 61`. The focus/actionable comparison found
   6 non-AI-hidden rows removed only because deadline evidence is missing and
   9 non-AI-hidden rows removed because the parsed deadline is expired.
+- The UI now displays version `v0.1.21`. Admin audit has deterministic
+  re-enrichment version `2026-07-19-deadline-v2`: missing-deadline authority
+  rows are compared with existing official ESHIDIS rows and strong unverified
+  matches are shown as `DUPLICATE_CANDIDATE`. The Μεσολόγγι gymnasium row now
+  explains its likely match to ESHIDIS `221624`. Admin hidden rows are
+  mobile-card responsive.
 
 ## Next Work
 
@@ -681,6 +687,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Run the next scheduled/incremental poll without full discovery and use the
-admin audit `NO_DEADLINE_EVIDENCE` bucket to decide which rows need additional
-document fetch/OCR.
+Run the next scheduled/incremental poll without full discovery and then review
+the admin audit `NO_DEADLINE_EVIDENCE` rows that still do not have a duplicate
+candidate, document evidence or parsed deadline.
