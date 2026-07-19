@@ -2937,18 +2937,20 @@ production deploy smoke on commit 9d10d67:
 - Admin hidden/audit rows are now sorted by the most recent audit event first,
   instead of fixed category grouping. Manual `Δεν με ενδιαφέρει` rows use
   `ignored_at`, AI hidden rows use the AI triage report `generated_at`, and
-  deterministic audit rows fall back to row/source/deadline timestamps.
+  deterministic audit rows use a persisted SQLite `admin_hidden_events`
+  `first_seen_at`.
 - The admin panel now shows the audit timestamp under the row source/id so the
   latest rejected/hidden item is visible directly on mobile.
-- Epoch second/millisecond timestamps from source rows are normalized to ISO
-  UTC before sorting/display, and placeholder `9999` values are ignored.
+- Epoch second/millisecond timestamps are normalized to ISO UTC before
+  sorting/display, and placeholder `9999` values are ignored.
 
 Verification:
 
 ```bash
 .venv/bin/python -m pytest tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_admin_audit_hidden_rows_are_recent_first tests/test_ui_server.py::test_admin_audit_ui_exposes_missing_deadline_and_mobile_labels -q
 .venv/bin/python -m pytest tests/test_ui_server.py::test_admin_audit_hidden_rows_are_recent_first tests/test_ui_server.py::test_admin_audit_timestamp_normalizes_epoch_ms_and_ignores_placeholders tests/test_ui_server.py::test_ui_shows_current_version_badge -q
-.venv/bin/python -m py_compile src/tender_radar/ui_server.py tests/test_ui_server.py
+.venv/bin/python -m pytest tests/test_ui_server.py::test_admin_audit_hidden_rows_are_recent_first tests/test_ui_server.py::test_admin_audit_timestamp_normalizes_epoch_ms_and_ignores_placeholders tests/test_ui_server.py::test_admin_audit_deterministic_rows_keep_first_hidden_time -q
+.venv/bin/python -m py_compile src/tender_radar/db.py src/tender_radar/ui_server.py tests/test_ui_server.py
 .venv/bin/python -m pytest -q
 ```
 
@@ -2957,8 +2959,9 @@ Results:
 ```text
 targeted version/admin audit tests: 3 passed
 targeted timestamp normalization tests: 3 passed
+targeted SQLite first-hidden-time tests: 3 passed
 py_compile: passed
-full test suite: 207 passed
+full test suite: 208 passed
 ```
 
 ## Handoff Discipline

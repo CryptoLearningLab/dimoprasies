@@ -38,7 +38,8 @@ is implemented locally in UI package version `0.1.25`.
 - Mobile tender cards reserve enough label width for `Προϋπολογισμός`.
 - Admin hidden rows are sorted by most recent audit event first and expose the
   audit timestamp in the admin panel, with source epoch timestamps normalized
-  to ISO UTC.
+  to ISO UTC. Deterministic audit rows persist first-hidden timestamps in
+  SQLite `admin_hidden_events`.
 
 ## Instruction
 

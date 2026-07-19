@@ -1026,6 +1026,60 @@ def list_tender_dismissals(db_path: Path) -> list[dict[str, object]]:
     return items
 
 
+def upsert_admin_hidden_event(
+    db_path: Path,
+    *,
+    row_key: str,
+    category: str,
+    first_seen_at: str,
+    last_seen_at: str,
+) -> None:
+    initialize(db_path)
+    if not row_key.strip():
+        raise ValueError("row_key is required")
+    if not category.strip():
+        raise ValueError("category is required")
+    connection = connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO admin_hidden_events (
+                row_key, category, first_seen_at, last_seen_at
+            ) VALUES (?, ?, ?, ?)
+            ON CONFLICT(row_key, category) DO UPDATE SET
+                first_seen_at = admin_hidden_events.first_seen_at,
+                last_seen_at = excluded.last_seen_at
+            """,
+            (row_key, category, first_seen_at, last_seen_at),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def admin_hidden_events_by_key(db_path: Path) -> dict[tuple[str, str], dict[str, object]]:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        rows = connection.execute(
+            """
+            SELECT row_key, category, first_seen_at, last_seen_at
+            FROM admin_hidden_events
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+    return {
+        (str(row[0]), str(row[1])): {
+            "row_key": row[0],
+            "category": row[1],
+            "first_seen_at": row[2],
+            "last_seen_at": row[3],
+        }
+        for row in rows
+    }
+
+
 def remove_tender_dismissal(db_path: Path, *, row_key: str) -> None:
     initialize(db_path)
     connection = connect(db_path)
@@ -1461,6 +1515,17 @@ def _ensure_runtime_state_tables(connection: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             metadata_json TEXT NOT NULL DEFAULT '{}'
         );
+
+        CREATE TABLE IF NOT EXISTS admin_hidden_events (
+            row_key TEXT NOT NULL,
+            category TEXT NOT NULL,
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            PRIMARY KEY(row_key, category)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_admin_hidden_events_first_seen
+        ON admin_hidden_events(first_seen_at);
 
         CREATE TABLE IF NOT EXISTS admin_users (
             email TEXT PRIMARY KEY,

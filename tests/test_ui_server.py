@@ -2830,6 +2830,37 @@ def test_admin_audit_timestamp_normalizes_epoch_ms_and_ignores_placeholders() ->
     assert ui_server.admin_audit_timestamp_text("9999") == ""
 
 
+def test_admin_audit_deterministic_rows_keep_first_hidden_time(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    write_patras_authority_fixture(
+        tmp_path,
+        [
+            {
+                "source": "AUTHORITY",
+                "record_type": "AUTHORITY_WEB",
+                "official_id": "AUTH-no-deadline",
+                "title": "Διακήρυξη έργου οδοποιίας χωρίς parseable deadline",
+                "authority": "Δήμος Πατρέων",
+                "source_url": "https://e-patras.gr/el/no-deadline",
+                "submission_deadline": None,
+                "matched_scopes": ["Δήμος Πατρέων"],
+                "match_notes": [],
+                "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+            }
+        ],
+    )
+
+    monkeypatch.setattr(ui_server, "utc_now_iso", lambda: "2026-07-19T10:00:00+00:00")
+    first = ui_server.admin_audit_payload()
+    monkeypatch.setattr(ui_server, "utc_now_iso", lambda: "2026-07-19T12:00:00+00:00")
+    second = ui_server.admin_audit_payload()
+
+    assert first["hidden_rows"][0]["category"] == "NO_DEADLINE_EVIDENCE"
+    assert first["hidden_rows"][0]["audit_at"] == "2026-07-19T10:00:00+00:00"
+    assert second["hidden_rows"][0]["audit_at"] == "2026-07-19T10:00:00+00:00"
+
+
 def test_admin_restore_dismissed_row_removes_ignore(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "data").mkdir()

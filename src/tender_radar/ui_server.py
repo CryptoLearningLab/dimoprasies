@@ -31,6 +31,7 @@ from urllib.request import Request, urlopen
 from tender_radar import __version__
 from tender_radar.config import load_config
 from tender_radar.db import (
+    admin_hidden_events_by_key,
     count_enabled_admin_users,
     create_admin_invite,
     delete_stale_verified_tender_links,
@@ -53,6 +54,7 @@ from tender_radar.db import (
     record_notification_sent,
     remove_tender_dismissal,
     triage_overrides_by_key as db_triage_overrides_by_key,
+    upsert_admin_hidden_event,
     upsert_admin_user,
     upsert_triage_override,
     upsert_source_document,
@@ -4070,6 +4072,7 @@ def admin_audit_payload() -> dict[str, Any]:
         if row.get("last_error")
     ]
     hidden_rows = dismissed_rows + triage_hidden_rows + duplicate_hidden_rows + duplicate_candidate_rows + expired_hidden_rows + missing_deadline_rows
+    hidden_rows = stamp_admin_hidden_events(hidden_rows)
     hidden_rows = sorted(hidden_rows, key=admin_hidden_row_sort_key, reverse=True)
     return {
         "ok": True,
@@ -4094,19 +4097,11 @@ def admin_audit_payload() -> dict[str, Any]:
 def admin_hidden_event_at(row: dict[str, Any]) -> str:
     ai = row.get("ai_triage") if isinstance(row.get("ai_triage"), dict) else {}
     override = row.get("triage_override") if isinstance(row.get("triage_override"), dict) else {}
-    deadline_evidence = row.get("deadline_evidence") if isinstance(row.get("deadline_evidence"), dict) else {}
     for value in (
         row.get("ignored_at"),
         override.get("created_at"),
         ai.get("triage_generated_at"),
-        row.get("updated_at"),
-        row.get("retrieved_at"),
-        row.get("published_at"),
-        row.get("published_at_iso"),
-        row.get("current_deadline_at"),
-        row.get("submission_deadline"),
-        deadline_evidence.get("deadline_at"),
-        row.get("deadline_sort"),
+        row.get("audit_first_seen_at"),
     ):
         text = admin_audit_timestamp_text(value)
         if text:
@@ -4129,6 +4124,35 @@ def admin_audit_timestamp_text(value: object) -> str:
         except (OSError, OverflowError, ValueError):
             return ""
     return text
+
+
+def stamp_admin_hidden_events(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    now = utc_now_iso()
+    try:
+        existing = admin_hidden_events_by_key(runtime_db_path())
+    except (OSError, sqlite3.Error):
+        existing = {}
+    stamped: list[dict[str, Any]] = []
+    for row in rows:
+        row_key = str(row.get("row_key") or "")
+        category = str(row.get("category") or "")
+        event = existing.get((row_key, category), {})
+        existing_first_seen = admin_audit_timestamp_text(event.get("first_seen_at"))
+        preferred = admin_audit_timestamp_text(row.get("audit_at"))
+        audit_at = preferred or existing_first_seen or now
+        if row_key and category:
+            try:
+                upsert_admin_hidden_event(
+                    runtime_db_path(),
+                    row_key=row_key,
+                    category=category,
+                    first_seen_at=audit_at,
+                    last_seen_at=now,
+                )
+            except (OSError, sqlite3.Error):
+                pass
+        stamped.append({**row, "audit_at": audit_at})
+    return stamped
 
 
 def admin_hidden_row_sort_key(row: dict[str, Any]) -> tuple[bool, str, str, str]:

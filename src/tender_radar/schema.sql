@@ -192,6 +192,17 @@ CREATE TABLE IF NOT EXISTS tender_dismissals (
     metadata_json TEXT NOT NULL DEFAULT '{}'
 );
 
+CREATE TABLE IF NOT EXISTS admin_hidden_events (
+    row_key TEXT NOT NULL,
+    category TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    PRIMARY KEY(row_key, category)
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_hidden_events_first_seen
+ON admin_hidden_events(first_seen_at);
+
 CREATE TABLE IF NOT EXISTS notification_log (
     id INTEGER PRIMARY KEY,
     row_key TEXT NOT NULL,
