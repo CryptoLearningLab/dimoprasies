@@ -65,3 +65,23 @@ def test_ingest_and_search_pricing_rows_from_text_pdf_fixture(tmp_path: Path) ->
     assert search_payload["summary"]["matches"] == 1
     assert search_payload["results"][0]["eshidis_id"] == "221314"
     assert search_payload["results"][0]["canonical_article_code"] == "Β18.6"
+
+
+def test_reingesting_same_budget_document_replaces_previous_rows(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    pdf_text_path = tmp_path / "budget.txt"
+    pdf_text_path.write_text(
+        """
+        23 Β-18.6 Φράκτης απορρόφησης ενεργείας μέχρι 2000 kJ ύψους 5 m
+           30%Ο∆Ο-2312+ 40%Ο∆Ο-2653+ 30%Ο∆Ο-2311 m 100.00 1.680.00 168.000.00
+        """,
+        encoding="utf-8",
+    )
+
+    first = ingest_pricing_budget_pdf(db_path, eshidis_id="221314", pdf_path=pdf_text_path)
+    second = ingest_pricing_budget_pdf(db_path, eshidis_id="221314", pdf_path=pdf_text_path)
+    search_payload = search_pricing_rows(db_path, "Β18.6")
+
+    assert first["rows_upserted"] == 1
+    assert second["rows_upserted"] == 1
+    assert search_payload["summary"]["matches"] == 1

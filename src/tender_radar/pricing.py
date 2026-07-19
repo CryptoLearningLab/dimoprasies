@@ -446,11 +446,18 @@ def upsert_pricing_budget_rows(
     now = datetime.now(timezone.utc).isoformat()
     connection = connect(db_path)
     try:
+        connection.execute(
+            """
+            DELETE FROM pricing_budget_rows
+            WHERE eshidis_id = ? AND source_document = ?
+            """,
+            (eshidis_id, source_document),
+        )
         inserted = 0
         for row in rows:
             connection.execute(
                 """
-                INSERT OR REPLACE INTO pricing_budget_rows (
+                INSERT INTO pricing_budget_rows (
                     eshidis_id, document_id, source_document, row_number, article_code,
                     canonical_article_code, description, revision_codes_json, unit,
                     quantity, unit_price, amount, raw_text, confidence, extracted_at, metadata_json
