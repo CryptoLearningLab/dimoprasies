@@ -72,8 +72,11 @@ override.
   entalmata scan checked `240` decisions across `6` pages, found `5` visible
   matches (`1793`, `1739`, `1720`, `1569`, `1737`), rejected `109`, marked
   `126` outside the 15-day window and completed with `errors 0`.
-- Local `v0.1.31` adds the requested nav order, entalmata PDF actions,
+- Production `v0.1.31` adds the requested nav order, entalmata PDF actions,
   archived count, project-title extraction and CLI-only deep-scan override.
+- Production `tender-radar entalmata scan --max-pages 100` checked `240`
+  decisions across `6` pages, stopped at the 15-day cutoff, kept `5` visible
+  rows, rejected `109`, reported `errors 0` and `archived 0`.
 - Product spec `MODE B — Αντίστροφη αναζήτηση περιεχομένου` defines the
   intended second tab: phrase/word/article/revision/material/unit/quantity/price
   search over extracted tender document content with document and time filters.
@@ -82,14 +85,11 @@ override.
 
 Complete the next gate:
 
-1. Deploy and smoke `v0.1.31`.
-2. Run one explicit production `entalmata scan --max-pages 100` and report
-   visible/archived/error counts without changing the normal UI scan depth.
-3. Read `docs/PRODUCT_SPECIFICATION.md` Mode B and existing search/index
+1. Read `docs/PRODUCT_SPECIFICATION.md` Mode B and existing search/index
    mechanisms.
-4. Scaffold the second tab as `Αντίστροφη αναζήτηση` with a minimal request
+2. Scaffold the second tab as `Αντίστροφη αναζήτηση` with a minimal request
    form and empty-state result surface.
-5. Do not implement expensive full-document search until the UI contract and
+3. Do not implement expensive full-document search until the UI contract and
    backend query path are confirmed.
 
 ## Required Tests

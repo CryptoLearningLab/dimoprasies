@@ -754,6 +754,12 @@ The system `python` command is not present in the remote environment; use
   local retained PDF links and original Διαύγεια links separately; cards can
   show a deterministic `project_title`; the summary exposes archived count; and
   CLI scans accept explicit `--max-pages` for one-off deep checks.
+- Production deploy on commit `048c3a8` passed: package version `0.1.31`,
+  service active. An explicit production `tender-radar entalmata scan
+  --max-pages 100` checked `240` decisions across `6` pages, stopped when the
+  data was outside the 15-day window, kept `5` visible rows, rejected `109`,
+  reported `errors 0` and `archived 0`. Project titles are now extracted without
+  the previous IBAN/table noise.
 
 ## Next Work
 
@@ -761,7 +767,5 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Deploy and smoke `v0.1.31`, run one explicit production
-`tender-radar entalmata scan --max-pages 100` to validate archived counts, then
-scaffold the second tab from `docs/PRODUCT_SPECIFICATION.md`
+Scaffold the second tab from `docs/PRODUCT_SPECIFICATION.md`
 `MODE B — Αντίστροφη αναζήτηση περιεχομένου`.

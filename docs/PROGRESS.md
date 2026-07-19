@@ -3214,6 +3214,32 @@ Verification:
 # 217 passed in 17.53s
 ```
 
+Production deploy smoke on commit `048c3a8` passed:
+
+```text
+package version 0.1.31
+service active
+homepage has v0.1.31: True
+nav contains Αντίστροφη αναζήτηση, Εντάλματα and Admin panel
+explicit deep scan:
+  command: tender-radar entalmata scan --max-pages 100
+  checked_organizations 2
+  pages_checked 6
+  decisions_seen 240
+  outside_window 126
+  without_document 0
+  matched 5
+  rejected 109
+  errors 0
+  archived 0
+visible entalmata titles extracted:
+  1793 ΑΠΟΚΑΤΑΣΤΑΣΗ ΒΛΑΒΩΝ ΤΩΝ ΥΠΟΔΟΜΩΝ ΑΡΜΟΔΙΟΤΗΤΑΣ...
+  1739 ΑΠΟΚΑΤΑΣΤΑΣΗ ΒΛΑΒΩΝ ΤΩΝ ΥΠΟΔΟΜΩΝ ΑΡΜΟΔΙΟΤΗΤΑΣ...
+  1720 ΣΥΜΠΛΗΡΩΜΑΤΙΚΕΣ ΠΑΡΕΜΒΑΣΕΙΣ ΚΑΙ ΕΡΓΑΣΙΕΣ...
+  1569 ΣΥΝΤΗΡΗΣΗ ΟΔΙΚΟΥ ΔΙΚΤΥΟΥ Π.Ε. ΦΘΙΩΤΙΔΑΣ...
+  1737 Ανάπτυξη Δικτύων Διανομής Φυσικού Αερίου...
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:
