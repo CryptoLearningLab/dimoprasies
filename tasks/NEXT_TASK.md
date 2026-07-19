@@ -1,15 +1,14 @@
 # NEXT TASK
 
 Execute:
-`Tune Diavgeia entalmata keyword/audit workflow`
+`Add Diavgeia entalmata document links and audit view`
 
 ## Current Input
 
 The deadline-evidence dashboard gate is deployed and admin audit re-enrichment
 is implemented. Nationwide search is disabled in production version `0.1.26`.
-Production version `0.1.28` adds the Diavgeia entalmata workflow and fixes
-Greek Diavgeia PDF URL encoding. Local version `0.1.30` fixes PDF-body text
-matching parity with the Windows `.exe` and adds paginated Diavgeia scan.
+Production version `0.1.30` fixes PDF-body text matching parity with the
+Windows `.exe` and adds paginated Diavgeia scan.
 
 - `dashboard_payload` enriches rows with fetched document evidence before
   active filtering.
@@ -65,16 +64,22 @@ matching parity with the Windows `.exe` and adds paginated Diavgeia scan.
 - Follow-up pagination checks found protocol `1569` on `14722` page `1` and
   protocol `1739` on `50051` page `4`, so the entalmata config now checks up
   to `8` pages per organization.
+- Production deploy on commit `334b1ef` passed: package version `0.1.30`,
+  homepage `v0.1.30`, `fitz` and `pypdf` installed. A bounded live Diavgeia
+  entalmata scan checked `240` decisions across `6` pages, found `5` visible
+  matches (`1793`, `1739`, `1720`, `1569`, `1737`), rejected `109`, marked
+  `126` outside the 15-day window and completed with `errors 0`.
 
 ## Instruction
 
 Complete the next gate:
 
-1. Deploy `v0.1.30`.
-2. Rerun one bounded `tender-radar entalmata scan` on the droplet.
-3. Confirm PDF-body keyword matches become visible.
-4. Confirm later-page results such as protocol `1569` are included.
-5. Keep the entalmata workflow separate from tender dashboard filtering.
+1. Add direct open/download actions for locally retained entalmata PDFs.
+2. Keep PDF downloads enabled for filtered Diavgeia entalmata scan rows.
+3. Add or expose admin audit rows for rejected entalmata with concrete reasons
+   and source/PDF links.
+4. Keep the entalmata workflow separate from tender dashboard filtering.
+5. Smoke test the `Εντάλματα` tab on mobile-width HTML.
 
 ## Required Tests
 
@@ -85,7 +90,7 @@ Complete the next gate:
 
 ## Required Closeout
 
-1. Update `docs/PROGRESS.md` with audit counts and smoke evidence.
+1. Update `docs/PROGRESS.md` with implementation and smoke evidence.
 2. Update `docs/HANDOFF.md` if production/deployment state changes.
 3. Update this file with the next single executable gate.
 4. Do not run full discovery unless explicitly requested.

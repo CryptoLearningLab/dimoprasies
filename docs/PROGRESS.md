@@ -3154,6 +3154,31 @@ Verification:
 # 216 passed in 20.68s
 ```
 
+Production deploy smoke on commit `334b1ef` passed:
+
+```text
+package version 0.1.30
+homepage has v0.1.30: True
+fitz installed: True
+pypdf installed: True
+bounded paginated entalmata scan:
+  checked_organizations 2
+  pages_checked 6
+  decisions_seen 240
+  outside_window 126
+  without_document 0
+  matched 5
+  rejected 109
+  errors 0
+  archived 0
+visible entalmata:
+  1793 Ρ4ΒΥΚ2Π-ΓΗΙ keywords ΛΙΑΡΟΣ, ΣΑΚΕΛΛΑΡΗΣ
+  1739 6ΤΩΚΚ2Π-ΘΩΒ keywords ΛΑΤΩ
+  1720 9ΨΗΛΚ2Π-ΤΨΙ keywords ΓΚΟΛΙΟΠΟΥΛΟΣ
+  1569 ΨΝΚΡΚ2Π-ΠΥΥ keywords ΛΑΤΩ
+  1737 Ψ7ΝΘΚ2Π-8ΩΧ keywords ΛΑΤΩ
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

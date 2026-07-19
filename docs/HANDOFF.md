@@ -744,10 +744,11 @@ The system `python` command is not present in the remote environment; use
   (`pypdf` plus OCR fallback). `PyMuPDF` is now included in the `docs` optional
   dependencies so the droplet deploy installs the same primary extractor used
   by the desktop script.
-- Local `v0.1.30` adds paginated Diavgeia entalmata scan support. The
-  production config uses `/opendata/search` with `order=recent`, starts from
-  page `0`, and checks up to `8` pages per organization while stopping early
-  when a page is entirely outside the 15-day window.
+- Production deploy on commit `334b1ef` passed: package version `0.1.30`,
+  homepage `v0.1.30`, `fitz` and `pypdf` installed. A bounded live Diavgeia
+  entalmata scan checked `240` decisions across `6` pages, found `5` visible
+  matches (`1793`, `1739`, `1720`, `1569`, `1737`), rejected `109`, marked
+  `126` outside the 15-day window and completed with `errors 0`.
 
 ## Next Work
 
@@ -755,5 +756,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Deploy `v0.1.30`, rerun `tender-radar entalmata scan` on the droplet and
-confirm later-page PDF-body matches such as protocol `1569` become `VISIBLE`.
+Add a clean entalmata document experience: visible rows should expose direct
+open/download actions for the locally retained PDF evidence, and admin audit
+should make rejected entalmata reviewable without mixing them into the tender
+dashboard.
