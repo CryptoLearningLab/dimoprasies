@@ -2358,25 +2358,32 @@ def run_email_alerts(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     payload = email_alerts_payload(scope=scope, sort=sort, recipient=recipient, dry_run=dry_run)
-    if dry_run or not payload["new_rows"]:
+    if dry_run:
         return payload
-    send_email_alert(payload["recipient"], payload["subject"], payload["text_body"], payload["html_body"])
     sent_at = utc_now_iso()
-    for row in payload["new_rows"]:
-        record_notification_sent(
-            runtime_db_path(),
-            row_key=str(row["row_key"]),
-            channel="email",
-            recipient=payload["recipient"],
-            subject=payload["subject"],
-            sent_at=sent_at,
-            metadata={
-                "display_id": row.get("display_id"),
-                "source_label": row.get("source_label"),
-                "official_url": row.get("official_url"),
-            },
-        )
-    payload["sent"] = len(payload["new_rows"])
+    sent_total = 0
+    for item in payload.get("per_recipient") or []:
+        new_rows = item.get("new_rows") or []
+        if not new_rows:
+            continue
+        send_email_alert(str(item["recipient"]), str(item["subject"]), str(item["text_body"]), str(item["html_body"]))
+        item["sent"] = len(new_rows)
+        sent_total += len(new_rows)
+        for row in new_rows:
+            record_notification_sent(
+                runtime_db_path(),
+                row_key=str(row["row_key"]),
+                channel="email",
+                recipient=str(item["recipient"]),
+                subject=str(item["subject"]),
+                sent_at=sent_at,
+                metadata={
+                    "display_id": row.get("display_id"),
+                    "source_label": row.get("source_label"),
+                    "official_url": row.get("official_url"),
+                },
+            )
+    payload["sent"] = sent_total
     payload["sent_at"] = sent_at
     return payload
 
@@ -2432,6 +2439,14 @@ def run_scheduled_poll_and_alert(
     ai_result: dict[str, Any] = {"ok": True, "skipped": False}
     auto_document_fetch: dict[str, Any] = {"ok": True, "skipped": False}
     email_result: dict[str, Any] = {"ok": True, "skipped": False}
+    entalmata_result = run_scheduled_entalmata_scan()
+    if entalmata_result.get("ok") is False:
+        warnings.append(
+            {
+                "stage": "entalmata_scan",
+                "message": str(entalmata_result.get("error") or "entalmata scan failed"),
+            }
+        )
     if discovery.get("ok") is not False:
         discovery_skipped = bool(discovery.get("skipped"))
         ai_result = run_incremental_ai_triage(scope=scope, sort=sort, batch_size=ai_batch_size)
@@ -2487,6 +2502,7 @@ def run_scheduled_poll_and_alert(
         "ai_triage": summarize_scheduled_stage(ai_result),
         "auto_document_fetch": summarize_scheduled_stage(auto_document_fetch),
         "enrichment": summarize_scheduled_stage(auto_document_fetch),
+        "entalmata": summarize_scheduled_stage(entalmata_result),
         "email": summarize_email_result(email_result),
         "errors": errors,
         "warnings": warnings,
@@ -2514,12 +2530,32 @@ def summarize_email_result(result: dict[str, Any]) -> dict[str, Any]:
         "ok": result.get("ok"),
         "dry_run": result.get("dry_run"),
         "recipient": result.get("recipient"),
+        "recipients": result.get("recipients"),
         "candidate_rows": result.get("candidate_rows"),
         "new_count": result.get("new_count"),
         "skipped_already_sent": result.get("skipped_already_sent"),
         "sent": result.get("sent"),
+        "per_recipient": result.get("per_recipient"),
         "error": result.get("error"),
     }
+
+
+def run_scheduled_entalmata_scan() -> dict[str, Any]:
+    config_path = REPO_ROOT / "config/diavgeia_entalmata.yml"
+    if not config_path.exists():
+        return {"ok": True, "skipped": True, "skip_reason": "ENTALMATA_CONFIG_MISSING"}
+    try:
+        report = scan_entalmata(
+            db_path=runtime_db_path(),
+            config_path=config_path,
+            download_dir=REPO_ROOT / "work/download_audit/diavgeia_entalmata",
+        )
+        report_path = REPO_ROOT / "work/reports/diavgeia_entalmata_latest.json"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        return report
+    except Exception as exc:  # pragma: no cover - scheduled network/filesystem boundary
+        return {"ok": False, "error": str(exc)}
 
 
 def scheduled_report_default_path() -> Path:
@@ -2564,12 +2600,19 @@ def render_scheduled_run_markdown(payload: dict[str, Any]) -> str:
         f"- Skipped unchanged: {source_summary.get('unchanged_total')}",
         f"- Errors: {source_summary.get('error_total')}",
         "",
+        "## Entalmata",
+        "",
+        f"- OK: {(payload.get('entalmata') or {}).get('ok')}",
+        f"- Skipped: {(payload.get('entalmata') or {}).get('skipped')}",
+        f"- Summary: {json.dumps((payload.get('entalmata') or {}).get('summary') or {}, ensure_ascii=False)}",
+        "",
         "## Email",
         "",
         f"- Candidate rows: {email.get('candidate_rows')}",
         f"- New rows: {email.get('new_count')}",
         f"- Already sent: {email.get('skipped_already_sent')}",
         f"- Sent: {email.get('sent')}",
+        f"- Recipients: {', '.join(email.get('recipients') or ([email.get('recipient')] if email.get('recipient') else []))}",
         "",
         "## Changed Sources",
         "",
@@ -2598,36 +2641,55 @@ def email_alerts_payload(
     recipient: str | None = None,
     dry_run: bool = True,
 ) -> dict[str, Any]:
-    target = recipient or email_alert_recipient()
-    if not target:
+    targets = email_alert_recipients(recipient)
+    if not targets:
         raise ValueError("Email recipient is not configured. Set ALERT_EMAIL_TO or pass recipient.")
     dashboard = dashboard_payload(scope=scope, sort=sort)
     rows = [email_alert_row(row) for row in dashboard.get("tenders") or []]
     rows = [row for row in rows if row["row_key"]]
-    skipped = [
-        row
-        for row in rows
-        if notification_already_sent(runtime_db_path(), row_key=row["row_key"], channel="email", recipient=target)
-    ]
-    skipped_keys = {row["row_key"] for row in skipped}
-    new_rows = [row for row in rows if row["row_key"] not in skipped_keys]
-    subject = f"Tender Radar: {len(new_rows)} νέα έργα"
-    text_body = render_email_text(new_rows)
-    html_body = render_email_html(new_rows)
+    per_recipient: list[dict[str, Any]] = []
+    all_new_keys: set[str] = set()
+    all_skipped_keys: set[str] = set()
+    for target in targets:
+        skipped = [
+            row
+            for row in rows
+            if notification_already_sent(runtime_db_path(), row_key=row["row_key"], channel="email", recipient=target)
+        ]
+        skipped_keys = {row["row_key"] for row in skipped}
+        new_rows = [row for row in rows if row["row_key"] not in skipped_keys]
+        all_new_keys.update(row["row_key"] for row in new_rows)
+        all_skipped_keys.update(row["row_key"] for row in skipped)
+        per_recipient.append(
+            {
+                "recipient": target,
+                "new_count": len(new_rows),
+                "skipped_already_sent": len(skipped),
+                "new_rows": new_rows,
+                "skipped_rows": skipped,
+                "subject": f"Tender Radar: {len(new_rows)} νέα έργα",
+                "text_body": render_email_text(new_rows),
+                "html_body": render_email_html(new_rows),
+                "sent": 0,
+            }
+        )
+    representative = per_recipient[0]
     return {
         "ok": True,
         "dry_run": dry_run,
-        "recipient": target,
-        "subject": subject,
+        "recipient": targets[0],
+        "recipients": targets,
+        "subject": representative["subject"],
         "dashboard_summary": dashboard.get("summary") or {},
         "candidate_rows": len(rows),
-        "new_count": len(new_rows),
-        "skipped_already_sent": len(skipped),
+        "new_count": len(all_new_keys),
+        "skipped_already_sent": len(all_skipped_keys),
         "sent": 0,
-        "new_rows": new_rows,
-        "skipped_rows": skipped,
-        "text_body": text_body,
-        "html_body": html_body,
+        "new_rows": representative["new_rows"],
+        "skipped_rows": representative["skipped_rows"],
+        "text_body": representative["text_body"],
+        "html_body": representative["html_body"],
+        "per_recipient": per_recipient,
     }
 
 
@@ -2711,15 +2773,32 @@ def escape_html(value: object) -> str:
 
 
 def email_alert_recipient() -> str | None:
+    recipients = email_alert_recipients()
+    return recipients[0] if recipients else None
+
+
+def email_alert_recipients(recipient: str | None = None) -> list[str]:
     env = load_local_env()
-    return (
-        os.environ.get("ALERT_EMAIL_TO")
+    raw = (
+        recipient
+        or os.environ.get("ALERT_EMAIL_TO")
         or os.environ.get("EMAIL_ALERT_TO")
         or os.environ.get("EMAIL_TO")
         or env.get("ALERT_EMAIL_TO")
         or env.get("EMAIL_ALERT_TO")
         or env.get("EMAIL_TO")
     )
+    if not raw:
+        return []
+    recipients: list[str] = []
+    seen: set[str] = set()
+    for part in re.split(r"[,;\n]+", raw):
+        email = part.strip().lower()
+        if not email or email in seen:
+            continue
+        recipients.append(email)
+        seen.add(email)
+    return recipients
 
 
 def smtp_config() -> dict[str, str]:

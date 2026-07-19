@@ -70,5 +70,5 @@ Complete the next gate:
 - Design a separate nationwide ESHIDIS-only search mode with isolated state,
   explicit limits, no automatic KIMDIS/authority fetch, no automatic OCR/AI,
   and separate audit/reporting.
-- Decide whether Diavgeia entalmata need their own email alerts after the first
-  live scan confirms data quality.
+- Add optional entalmata-specific email summaries if users need separate
+  warrant alerts instead of only the scheduled audit/list refresh.

@@ -3319,6 +3319,37 @@ Verification so far:
 # 222 passed in 17.22s
 ```
 
+### Runtime v0.1.34 Scheduled entalmata and multi-recipient alerts
+
+- The runtime/UI version was bumped from `0.1.33` to `0.1.34`; `pyproject.toml`
+  was synchronized with the runtime `__version__`.
+- The existing systemd command `tender-radar runtime scheduled-run` now includes
+  a bounded Diavgeia entalmata scan through `config/diavgeia_entalmata.yml`.
+  It writes `work/reports/diavgeia_entalmata_latest.json` and stores state in
+  SQLite before the scheduled report is rendered.
+- The entalmata scheduled stage is warning-only. A Διαύγεια/PDF failure is
+  recorded under `warnings` and in the scheduled audit, but it does not abort
+  the public-works email flow.
+- Email alerts now accept multiple recipients in `ALERT_EMAIL_TO`,
+  `EMAIL_ALERT_TO` or `EMAIL_TO`, separated by comma, semicolon or newline.
+  Notification de-duplication remains per `row_key` and per recipient, so a
+  row already sent to one mailbox can still be sent to a newly added mailbox.
+- The scheduled Markdown report now includes an `Entalmata` section and exposes
+  alert recipients in the `Email` section.
+
+Verification so far:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py tests/test_ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_email_alerts_payload_skips_rows_already_sent tests/test_ui_server.py::test_email_alerts_payload_supports_multiple_recipients tests/test_ui_server.py::test_scheduled_poll_and_alert_writes_audit_reports
+# 3 passed in 1.20s
+
+.venv/bin/python -m pytest
+# 223 passed in 19.28s
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

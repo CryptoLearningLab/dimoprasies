@@ -779,3 +779,20 @@ existing enabled user and stores only the resulting password hash.
 
 The reset request returns a generic success response for unknown emails to
 avoid exposing whether an address is registered.
+
+## D-068 - Scheduled entalmata run with public works cron
+**Status:** Accepted
+
+The six-hour runtime scheduler is the single production automation entrypoint
+for daily operator checks. It now runs the bounded Diavgeia entalmata scan in
+the same scheduled execution as public-works polling, AI triage, document
+collection and email alerts.
+
+Entalmata failures are warning-only for the combined scheduled run. They must
+be visible in JSON/Markdown audit reports, but they must not block public-works
+alerts. Deeper entalmata backfills remain explicit CLI runs.
+
+Email alerts support multiple runtime recipients from `ALERT_EMAIL_TO`,
+`EMAIL_ALERT_TO` or `EMAIL_TO`. Notification de-duplication remains scoped per
+recipient, so adding a mailbox does not suppress rows that were only sent to
+another mailbox.

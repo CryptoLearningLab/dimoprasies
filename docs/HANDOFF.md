@@ -772,6 +772,12 @@ The system `python` command is not present in the remote environment; use
   the existing setup-link flow, login footer terms/privacy/help, cleaner
   discovery/audit copy and wider mobile card label spacing. Admin restore now
   clears both legacy and per-user dismissals for a row.
+- Local `v0.1.34` adds the bounded Diavgeia entalmata scan to the existing
+  `tender-radar runtime scheduled-run` cron path. The stage writes
+  `work/reports/diavgeia_entalmata_latest.json`, appears in the scheduled audit
+  report, and is warning-only so tender alerts continue if entalmata scanning
+  fails. Email alerts now support multiple comma/semicolon/newline-separated
+  runtime recipients with notification de-duplication per recipient.
 
 ## Next Work
 

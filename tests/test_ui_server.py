@@ -69,7 +69,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.33" in INDEX_HTML
+    assert "v0.1.34" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -212,7 +212,7 @@ def test_tender_table_has_mobile_card_labels() -> None:
 
 def test_admin_email_code_flow(monkeypatch) -> None:
     sent = {}
-    monkeypatch.setattr(ui_server, "email_alert_recipient", lambda: "owner@example.test")
+    monkeypatch.setattr(ui_server, "email_alert_recipients", lambda recipient=None: ["owner@example.test"])
     monkeypatch.setattr(
         ui_server,
         "send_email_alert",
@@ -800,7 +800,7 @@ authority_adapters:
 def test_email_alerts_payload_skips_rows_already_sent(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "data").mkdir()
-    monkeypatch.setattr(ui_server, "email_alert_recipient", lambda: "owner@example.test")
+    monkeypatch.setattr(ui_server, "email_alert_recipients", lambda recipient=None: ["owner@example.test"])
     monkeypatch.setattr(
         ui_server,
         "dashboard_payload",
@@ -846,6 +846,49 @@ def test_email_alerts_payload_skips_rows_already_sent(tmp_path, monkeypatch) -> 
     assert payload["new_rows"][0]["row_key"] == "KIMDIS:26PROC000000001"
     assert payload["skipped_rows"][0]["row_key"] == "ESHIDIS:221744"
     assert "https://example.test/notice" in payload["text_body"]
+
+
+def test_email_alerts_payload_supports_multiple_recipients(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    monkeypatch.setattr(ui_server, "email_alert_recipients", lambda recipient=None: ["one@example.test", "two@example.test"])
+    monkeypatch.setattr(
+        ui_server,
+        "dashboard_payload",
+        lambda scope="focus", sort="deadline_asc": {
+            "summary": {"visible": 1},
+            "tenders": [
+                {
+                    "row_key": "ESHIDIS:221744",
+                    "display_id": "221744",
+                    "source_label": "ΕΣΗΔΗΣ",
+                    "eshidis_id": "221744",
+                    "title": "Συντηρήσεις οδικού δικτύου",
+                    "authority_name": "Δήμος Αμφιλοχίας",
+                    "budget_display": "1.000.000",
+                    "deadline_display": "2026-08-07 10:00",
+                }
+            ],
+        },
+    )
+    ui_server.record_notification_sent(
+        ui_server.runtime_db_path(),
+        row_key="ESHIDIS:221744",
+        channel="email",
+        recipient="one@example.test",
+        subject="old",
+    )
+
+    payload = email_alerts_payload(dry_run=True)
+
+    assert payload["recipients"] == ["one@example.test", "two@example.test"]
+    assert payload["new_count"] == 1
+    assert payload["skipped_already_sent"] == 1
+    by_recipient = {item["recipient"]: item for item in payload["per_recipient"]}
+    assert by_recipient["one@example.test"]["new_count"] == 0
+    assert by_recipient["one@example.test"]["skipped_already_sent"] == 1
+    assert by_recipient["two@example.test"]["new_count"] == 1
+    assert by_recipient["two@example.test"]["skipped_already_sent"] == 0
 
 
 def test_scheduled_poll_and_alert_writes_audit_reports(tmp_path, monkeypatch) -> None:
@@ -903,6 +946,11 @@ def test_scheduled_poll_and_alert_writes_audit_reports(tmp_path, monkeypatch) ->
             ],
         },
     )
+    monkeypatch.setattr(
+        ui_server,
+        "run_scheduled_entalmata_scan",
+        lambda: {"ok": True, "skipped": False, "summary": {"matched": 2, "archived": 1}},
+    )
     report = tmp_path / "work/reports/scheduled.json"
     markdown = tmp_path / "work/reports/scheduled.md"
 
@@ -918,9 +966,11 @@ def test_scheduled_poll_and_alert_writes_audit_reports(tmp_path, monkeypatch) ->
     assert payload["changed_source_ids"] == ["nafpaktos_tenders"]
     assert payload["skipped_sources"] == ["thermo_wp"]
     assert payload["email"]["new_count"] == 1
+    assert payload["entalmata"]["summary"] == {"matched": 2, "archived": 1}
     assert report.exists()
     assert markdown.exists()
     assert "Scheduled Poll and Alert" in markdown.read_text(encoding="utf-8")
+    assert "## Entalmata" in markdown.read_text(encoding="utf-8")
 
 
 def test_scheduled_poll_skips_ai_when_all_rows_already_triaged(tmp_path, monkeypatch) -> None:
