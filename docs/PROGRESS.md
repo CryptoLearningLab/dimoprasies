@@ -3074,6 +3074,24 @@ Verification:
 # 214 passed in 17.25s
 ```
 
+Production deploy smoke on commit `ec5aa13` passed:
+
+```text
+package version 0.1.28
+homepage has v0.1.28: True
+entalmata tab present: True
+bounded entalmata scan:
+  checked_organizations 2
+  decisions_seen 80
+  outside_window 0
+  without_document 0
+  matched 0
+  rejected 80
+  errors 0
+  archived 0
+SQLite status counts: [('REJECTED', 80)]
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

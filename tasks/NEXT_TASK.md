@@ -1,14 +1,14 @@
 # NEXT TASK
 
 Execute:
-`Deploy and smoke Diavgeia entalmata tab`
+`Tune Diavgeia entalmata keyword/audit workflow`
 
 ## Current Input
 
 The deadline-evidence dashboard gate is deployed and admin audit re-enrichment
 is implemented. Nationwide search is disabled in production version `0.1.26`.
-Local version `0.1.28` adds the Diavgeia entalmata workflow and fixes Greek
-Diavgeia PDF URL encoding.
+Production version `0.1.28` adds the Diavgeia entalmata workflow and fixes
+Greek Diavgeia PDF URL encoding.
 
 - `dashboard_payload` enriches rows with fetched document evidence before
   active filtering.
@@ -53,17 +53,21 @@ Diavgeia PDF URL encoding.
   `diavgeia_entalmata`, downloads evidence under
   `work/download_audit/diavgeia_entalmata`, and archives old visible files
   under `work/download_audit/diavgeia_entalmata/old`.
+- Production scan on commit `ec5aa13` checked `80` Diavgeia decisions across
+  the two configured organizations with `errors 0`; none matched the current
+  six keywords, so the UI correctly shows `0` visible entalmata and SQLite has
+  `80` `REJECTED` rows.
 
 ## Instruction
 
 Complete the next gate:
 
-1. Deploy `v0.1.28` to the droplet.
-2. Smoke the authenticated UI and confirm the header shows `v0.1.28`.
-3. Confirm the `Εντάλματα` tab loads with summary metrics.
-4. Run one bounded Diavgeia entalmata scan.
-5. Confirm recent keyword matches are visible and rows outside the 15-day
-   window are archived or hidden.
+1. Inspect a sample of the `REJECTED` entalmata rows.
+2. Decide whether the keyword list should match contractor names only or also
+   project/account wording.
+3. If useful, add an admin-only rejected-entalmata audit view with restore or
+   keyword-tuning notes.
+4. Keep the entalmata workflow separate from tender dashboard filtering.
 
 ## Required Tests
 
