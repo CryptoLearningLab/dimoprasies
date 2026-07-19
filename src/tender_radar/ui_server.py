@@ -3583,6 +3583,7 @@ def ai_triage_by_row_key() -> dict[str, dict[str, Any]]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
+    generated_at = payload.get("generated_at")
     triage: dict[str, dict[str, Any]] = {}
     for row in payload.get("rows") or []:
         if not isinstance(row, dict):
@@ -3590,7 +3591,7 @@ def ai_triage_by_row_key() -> dict[str, dict[str, Any]]:
         row_key = str(row.get("row_key") or "")
         ai = row.get("ai")
         if row_key and isinstance(ai, dict):
-            triage[row_key] = ai
+            triage[row_key] = {**ai, "triage_generated_at": generated_at}
     return triage
 
 
@@ -3627,6 +3628,7 @@ def attach_ai_triage(
             "confidence": ai.get("confidence"),
             "reason": ai.get("reason"),
             "eshidis_id_candidates": ai.get("eshidis_id_candidates") or [],
+            "triage_generated_at": ai.get("triage_generated_at"),
         },
         "ai_triage_hidden": not keep,
         "triage_override": override,
@@ -3980,6 +3982,8 @@ def admin_audit_payload() -> dict[str, Any]:
         if row_key in force_keep_keys:
             continue
         row = row_by_key.get(row_key, {})
+        if row:
+            row = {**row, "ignored_at": item.get("ignored_at")}
         dismissed_rows.append(
             admin_hidden_row(
                 row or item,
@@ -4066,6 +4070,7 @@ def admin_audit_payload() -> dict[str, Any]:
         if row.get("last_error")
     ]
     hidden_rows = dismissed_rows + triage_hidden_rows + duplicate_hidden_rows + duplicate_candidate_rows + expired_hidden_rows + missing_deadline_rows
+    hidden_rows = sorted(hidden_rows, key=admin_hidden_row_sort_key, reverse=True)
     return {
         "ok": True,
         "authenticated": True,
@@ -4086,6 +4091,39 @@ def admin_audit_payload() -> dict[str, Any]:
     }
 
 
+def admin_hidden_event_at(row: dict[str, Any]) -> str:
+    ai = row.get("ai_triage") if isinstance(row.get("ai_triage"), dict) else {}
+    override = row.get("triage_override") if isinstance(row.get("triage_override"), dict) else {}
+    deadline_evidence = row.get("deadline_evidence") if isinstance(row.get("deadline_evidence"), dict) else {}
+    for value in (
+        row.get("ignored_at"),
+        override.get("created_at"),
+        ai.get("triage_generated_at"),
+        row.get("updated_at"),
+        row.get("retrieved_at"),
+        row.get("published_at"),
+        row.get("published_at_iso"),
+        row.get("current_deadline_at"),
+        row.get("submission_deadline"),
+        deadline_evidence.get("deadline_at"),
+        row.get("deadline_sort"),
+    ):
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def admin_hidden_row_sort_key(row: dict[str, Any]) -> tuple[bool, str, str, str]:
+    audit_at = str(row.get("audit_at") or "").strip()
+    return (
+        bool(audit_at),
+        deadline_sort_key(audit_at),
+        str(row.get("display_id") or ""),
+        str(row.get("row_key") or ""),
+    )
+
+
 def admin_hidden_row(
     row: dict[str, Any],
     *,
@@ -4096,10 +4134,12 @@ def admin_hidden_row(
 ) -> dict[str, Any]:
     row_key = row_key_for_tender(row) or str(row.get("row_key") or "")
     ai = row.get("ai_triage") if isinstance(row.get("ai_triage"), dict) else {}
+    audit_at = admin_hidden_event_at(row)
     return {
         "row_key": row_key,
         "category": category,
         "restorable": restorable,
+        "audit_at": audit_at,
         "display_id": row.get("display_id") or row.get("eshidis_id") or row.get("official_id") or "",
         "source_label": row.get("source_label") or "",
         "title": row.get("title") or "",
@@ -6651,7 +6691,7 @@ function renderAdminAudit(payload) {
     ].filter(Boolean).map((label) => `<span class="pill">${label}</span>`).join('');
     tr.innerHTML = `
       <td data-label="Κατηγορία"><span class="statusChip ${adminCategoryClass(row.category)}">${escapeHtml(adminCategoryLabel(row.category))}</span></td>
-      <td data-label="Α/Α"><strong>${escapeHtml(row.display_id || '')}</strong><br><span class="noteText">${escapeHtml(row.source_label || '')}</span></td>
+      <td data-label="Α/Α"><strong>${escapeHtml(row.display_id || '')}</strong><br><span class="noteText">${escapeHtml(row.source_label || '')}</span>${row.audit_at ? `<br><span class="noteText">${escapeHtml(formatDateTime(row.audit_at))}</span>` : ''}</td>
       <td data-label="Έργο" class="tenderTitle">${escapeHtml(row.title || '')}${titlePills ? `<span class="pillStack">${titlePills}</span>` : ''}</td>
       <td data-label="Φορέας" class="authorityCell">${escapeHtml(row.authority_name || '')}</td>
       <td data-label="Αιτιολογία">${escapeHtml(row.reason || '')}${row.ai_confidence ? `<br><span class="noteText">confidence ${escapeHtml(row.ai_confidence)}</span>` : ''}</td>

@@ -2931,6 +2931,32 @@ production deploy smoke on commit 9d10d67:
   runtime STYLES_CSS contains mobile label grid minmax(132px, 36%)
 ```
 
+### UI v0.1.25 chronological admin audit
+
+- Bumped the application version from `0.1.24` to `0.1.25`.
+- Admin hidden/audit rows are now sorted by the most recent audit event first,
+  instead of fixed category grouping. Manual `Δεν με ενδιαφέρει` rows use
+  `ignored_at`, AI hidden rows use the AI triage report `generated_at`, and
+  deterministic audit rows fall back to row/source/deadline timestamps.
+- The admin panel now shows the audit timestamp under the row source/id so the
+  latest rejected/hidden item is visible directly on mobile.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_admin_audit_hidden_rows_are_recent_first tests/test_ui_server.py::test_admin_audit_ui_exposes_missing_deadline_and_mobile_labels -q
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py tests/test_ui_server.py
+.venv/bin/python -m pytest -q
+```
+
+Results:
+
+```text
+targeted version/admin audit tests: 3 passed
+py_compile: passed
+full test suite: 206 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

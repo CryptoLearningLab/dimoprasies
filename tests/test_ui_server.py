@@ -68,7 +68,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.24" in INDEX_HTML
+    assert "v0.1.25" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -2756,6 +2756,73 @@ def test_admin_restore_ai_hidden_row_forces_keep(tmp_path, monkeypatch) -> None:
     payload = dashboard_payload(scope="focus")
     assert payload["summary"]["visible"] == 1
     assert payload["tenders"][0]["triage_override"]["action"] == "FORCE_KEEP"
+
+
+def test_admin_audit_hidden_rows_are_recent_first(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    write_patras_authority_fixture(
+        tmp_path,
+        [
+            {
+                "source": "AUTHORITY",
+                "record_type": "AUTHORITY_WEB",
+                "official_id": "AUTH-ai-old",
+                "title": "Παλαιότερη AI απόρριψη έργου οδοποιίας Πατρών",
+                "authority": "Δήμος Πατρέων",
+                "source_url": "https://e-patras.gr/el/ai-old",
+                "matched_scopes": ["Δήμος Πατρέων"],
+                "match_notes": [],
+                "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+            },
+            {
+                "source": "AUTHORITY",
+                "record_type": "AUTHORITY_WEB",
+                "official_id": "AUTH-manual-new",
+                "title": "Νεότερη χειροκίνητη απόρριψη έργου οδοποιίας Πατρών",
+                "authority": "Δήμος Πατρέων",
+                "source_url": "https://e-patras.gr/el/manual-new",
+                "matched_scopes": ["Δήμος Πατρέων"],
+                "match_notes": [],
+                "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+            },
+        ],
+    )
+    (tmp_path / "work/reports/ai_triage_report.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-07-19T09:00:00+00:00",
+                "rows": [
+                    {
+                        "row_key": "AUTHORITY:AUTH-ai-old",
+                        "ai": {
+                            "decision": "DROP_ADMIN",
+                            "confidence": 0.9,
+                            "reason": "διοικητικό",
+                            "eshidis_id_candidates": [],
+                            "keep_for_daily_review": False,
+                        },
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    ui_server.dismiss_tender_in_db(
+        tmp_path / "data/tender_radar.sqlite",
+        row_key="AUTHORITY:AUTH-manual-new",
+        ignored_at="2026-07-19T12:00:00+00:00",
+    )
+
+    audit = ui_server.admin_audit_payload()
+
+    assert [row["category"] for row in audit["hidden_rows"][:2]] == ["DISMISSED", "AI_HIDDEN"]
+    assert [row["display_id"] for row in audit["hidden_rows"][:2]] == ["AUTH-manual-new", "AUTH-ai-old"]
+    assert [row["audit_at"] for row in audit["hidden_rows"][:2]] == [
+        "2026-07-19T12:00:00+00:00",
+        "2026-07-19T09:00:00+00:00",
+    ]
 
 
 def test_admin_restore_dismissed_row_removes_ignore(tmp_path, monkeypatch) -> None:
