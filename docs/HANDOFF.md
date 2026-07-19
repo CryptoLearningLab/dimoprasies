@@ -720,6 +720,9 @@ The system `python` command is not present in the remote environment; use
   locked to `focus`, CLI scope choices are restricted to `focus`, and search
   templates default to `nationwide: false`. Nationwide support is deferred to a
   future isolated ESHIDIS-only design.
+- Production deploy on commit `f89f811` passed: package version `0.1.26`,
+  homepage `v0.1.26`, no `allGreeceToggle` in HTML/JS, and live
+  `dashboard_payload(scope="all")` normalizes to `focus`.
 
 ## Next Work
 

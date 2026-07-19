@@ -2999,6 +2999,16 @@ Verification:
 # 209 passed in 16.23s
 ```
 
+Production deploy smoke on commit `f89f811` passed:
+
+```text
+package version 0.1.26
+homepage has v0.1.26: True
+allGreeceToggle in INDEX_HTML/APP_JS: False False
+dashboard_payload(scope="all") -> scope focus
+live focus visible/focus_matches: 11 / 14
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:
