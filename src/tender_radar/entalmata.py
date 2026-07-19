@@ -444,6 +444,7 @@ def extract_project_title(text: str) -> str | None:
     if not cleaned:
         return None
     patterns = [
+        r"ΚΩΔΙΚΟΣ\s+ΕΡΓΟΥ\s*:?\s*[A-ZΑ-Ω0-9/.\-]+\s+(?P<title>.+?)(?:\s+ΤΙΤΛΟΣ\s+ΕΡΓΟΥ|\s+ΥΠΟΕΡΓΟ|\s+ΚΩΔΙΚΟΣ\s+ΥΠΟΕΡΓΟΥ|$)",
         r"ΤΙΤΛΟΣ\s+ΕΡΓΟΥ\s*:?\s*(?P<title>.+?)(?:\s+ΥΠΟΕΡΓΟ|\s+ΚΩΔΙΚΟΣ|\s+Π/Υ|\s+ΙΒΑΝ|\s+Επωνυμία\s+δικαιούχου|\s+ΑΠΟΦΑΣΙΖΟΥΜΕ|$)",
         r"για\s+το\s+έργο/α\s*:?\s*(?P<title>.+?)(?:\s+Επωνυμία\s+δικαιούχου|\s+ΑΠΟΦΑΣΗ|\s+Έχοντας\s+υπόψη|$)",
         r"με\s+τίτλο\s+(?P<title>.+?)(?:\s+συνολικού\s+ποσού|\s+προϋπολογισμού|\s+για\s+το\s+έργο/α|$)",
@@ -461,6 +462,9 @@ def extract_project_title(text: str) -> str | None:
 def normalize_project_title(value: str) -> str | None:
     title = re.sub(r"\s+", " ", value or "").strip(" .:-")
     if not title:
+        return None
+    normalized = normalize_greek(title)
+    if "iban" in normalized or re.match(r"^gr\d{10,}", normalized):
         return None
     title = re.sub(r"^\d{4}[A-ZΑ-Ω0-9/.\-]+\s+", "", title)
     if len(title) < 8:
