@@ -100,6 +100,29 @@ class SourceDocument:
     metadata: dict[str, object]
 
 
+@dataclass(frozen=True)
+class AdminUser:
+    email: str
+    role: str
+    password_hash: str | None
+    enabled: bool
+    invited_at: str | None
+    accepted_at: str | None
+    password_set_at: str | None
+    last_login_at: str | None
+
+
+@dataclass(frozen=True)
+class AdminInvite:
+    token_hash: str
+    email: str
+    role: str
+    created_by: str | None
+    created_at: str
+    expires_at: str
+    used_at: str | None
+
+
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(db_path)
@@ -418,6 +441,171 @@ def upsert_document_analysis(
         document_type=document_type,
         extraction_status=extraction_status,
     )
+
+
+def upsert_admin_user(
+    db_path: Path,
+    *,
+    email: str,
+    role: str,
+    password_hash: str | None = None,
+    enabled: bool = True,
+    mark_accepted: bool = False,
+) -> AdminUser:
+    initialize(db_path)
+    now = datetime.now(timezone.utc).isoformat()
+    normalized_email = email.strip().lower()
+    connection = connect(db_path)
+    try:
+        row = connection.execute("SELECT email FROM admin_users WHERE email = ?", (normalized_email,)).fetchone()
+        if row:
+            connection.execute(
+                """
+                UPDATE admin_users
+                SET role = ?, password_hash = COALESCE(?, password_hash),
+                    enabled = ?, accepted_at = CASE WHEN ? THEN COALESCE(accepted_at, ?) ELSE accepted_at END,
+                    password_set_at = CASE WHEN ? IS NOT NULL THEN ? ELSE password_set_at END
+                WHERE email = ?
+                """,
+                (
+                    role,
+                    password_hash,
+                    1 if enabled else 0,
+                    1 if mark_accepted else 0,
+                    now,
+                    password_hash,
+                    now,
+                    normalized_email,
+                ),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO admin_users (
+                    email, role, password_hash, enabled, invited_at, accepted_at,
+                    password_set_at, last_login_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                """,
+                (
+                    normalized_email,
+                    role,
+                    password_hash,
+                    1 if enabled else 0,
+                    now,
+                    now if mark_accepted else None,
+                    now if password_hash else None,
+                ),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+    user = get_admin_user(db_path, normalized_email)
+    if not user:
+        raise RuntimeError("Admin user was not persisted.")
+    return user
+
+
+def get_admin_user(db_path: Path, email: str) -> AdminUser | None:
+    initialize(db_path)
+    normalized_email = email.strip().lower()
+    connection = connect(db_path)
+    try:
+        row = connection.execute(
+            """
+            SELECT email, role, password_hash, enabled, invited_at, accepted_at,
+                   password_set_at, last_login_at
+            FROM admin_users
+            WHERE email = ?
+            """,
+            (normalized_email,),
+        ).fetchone()
+    finally:
+        connection.close()
+    return _admin_user_from_row(row) if row else None
+
+
+def list_admin_users(db_path: Path) -> list[AdminUser]:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        rows = connection.execute(
+            """
+            SELECT email, role, password_hash, enabled, invited_at, accepted_at,
+                   password_set_at, last_login_at
+            FROM admin_users
+            ORDER BY role, email
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+    return [_admin_user_from_row(row) for row in rows]
+
+
+def create_admin_invite(
+    db_path: Path,
+    *,
+    token_hash: str,
+    email: str,
+    role: str,
+    expires_at: str,
+    created_by: str | None = None,
+) -> AdminInvite:
+    initialize(db_path)
+    now = datetime.now(timezone.utc).isoformat()
+    normalized_email = email.strip().lower()
+    connection = connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO admin_invites (
+                token_hash, email, role, created_by, created_at, expires_at, used_at
+            ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+            """,
+            (token_hash, normalized_email, role, created_by, now, expires_at),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    return AdminInvite(token_hash, normalized_email, role, created_by, now, expires_at, None)
+
+
+def get_admin_invite(db_path: Path, token_hash: str) -> AdminInvite | None:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        row = connection.execute(
+            """
+            SELECT token_hash, email, role, created_by, created_at, expires_at, used_at
+            FROM admin_invites
+            WHERE token_hash = ?
+            """,
+            (token_hash,),
+        ).fetchone()
+    finally:
+        connection.close()
+    return _admin_invite_from_row(row) if row else None
+
+
+def mark_admin_invite_used(db_path: Path, token_hash: str) -> None:
+    initialize(db_path)
+    now = datetime.now(timezone.utc).isoformat()
+    connection = connect(db_path)
+    try:
+        connection.execute("UPDATE admin_invites SET used_at = ? WHERE token_hash = ?", (now, token_hash))
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def record_admin_user_login(db_path: Path, email: str) -> None:
+    initialize(db_path)
+    now = datetime.now(timezone.utc).isoformat()
+    connection = connect(db_path)
+    try:
+        connection.execute("UPDATE admin_users SET last_login_at = ? WHERE email = ?", (now, email.strip().lower()))
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def list_searchable_documents(
@@ -1103,6 +1291,27 @@ def _ensure_runtime_state_tables(connection: sqlite3.Connection) -> None:
             metadata_json TEXT NOT NULL DEFAULT '{}'
         );
 
+        CREATE TABLE IF NOT EXISTS admin_users (
+            email TEXT PRIMARY KEY,
+            role TEXT NOT NULL,
+            password_hash TEXT,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            invited_at TEXT,
+            accepted_at TEXT,
+            password_set_at TEXT,
+            last_login_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS admin_invites (
+            token_hash TEXT PRIMARY KEY,
+            email TEXT NOT NULL,
+            role TEXT NOT NULL,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            used_at TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS source_documents (
             id INTEGER PRIMARY KEY,
             row_key TEXT NOT NULL,
@@ -1162,6 +1371,31 @@ def _source_document_from_row(row: sqlite3.Row | tuple[object, ...]) -> SourceDo
         fetch_error=str(row[7]) if row[7] is not None else None,
         source_signature=str(row[8]) if row[8] is not None else None,
         metadata=metadata,
+    )
+
+
+def _admin_user_from_row(row: sqlite3.Row | tuple[object, ...]) -> AdminUser:
+    return AdminUser(
+        email=str(row[0]),
+        role=str(row[1]),
+        password_hash=str(row[2]) if row[2] is not None else None,
+        enabled=bool(row[3]),
+        invited_at=str(row[4]) if row[4] is not None else None,
+        accepted_at=str(row[5]) if row[5] is not None else None,
+        password_set_at=str(row[6]) if row[6] is not None else None,
+        last_login_at=str(row[7]) if row[7] is not None else None,
+    )
+
+
+def _admin_invite_from_row(row: sqlite3.Row | tuple[object, ...]) -> AdminInvite:
+    return AdminInvite(
+        token_hash=str(row[0]),
+        email=str(row[1]),
+        role=str(row[2]),
+        created_by=str(row[3]) if row[3] is not None else None,
+        created_at=str(row[4]),
+        expires_at=str(row[5]),
+        used_at=str(row[6]) if row[6] is not None else None,
     )
 
 

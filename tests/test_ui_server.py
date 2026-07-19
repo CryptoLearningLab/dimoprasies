@@ -59,7 +59,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.11" in INDEX_HTML
+    assert "v0.1.12" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -80,8 +80,14 @@ def test_ui_exposes_admin_panel() -> None:
     assert 'data-view="adminPanel"' in INDEX_HTML
     assert 'id="adminLoginBox"' in INDEX_HTML
     assert 'id="adminHiddenRows"' in INDEX_HTML
+    assert 'id="passwordSetupBox"' in INDEX_HTML
+    assert 'id="inviteUserBtn"' in INDEX_HTML
     assert "/api/admin/request-code" in APP_JS
     assert "/api/admin/verify-code" in APP_JS
+    assert "/api/admin/request-password-setup" in APP_JS
+    assert "/api/admin/set-password" in APP_JS
+    assert "/api/admin/invite-user" in APP_JS
+    assert "/api/admin/users" in APP_JS
     assert "/api/admin/audit" in APP_JS
     assert "/api/admin/restore" in APP_JS
 
@@ -106,6 +112,60 @@ def test_admin_email_code_flow(monkeypatch) -> None:
     assert ui_server.verify_admin_login_code(email="owner@example.test", code="000000") is False
     assert ui_server.verify_admin_login_code(email="owner@example.test", code=code) is True
     assert "owner@example.test" not in ui_server.ADMIN_LOGIN_CODES
+
+
+def test_admin_password_setup_hashes_password(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    sent: list[dict[str, str]] = []
+
+    monkeypatch.setattr(ui_server, "runtime_db_path", lambda: db_path)
+    monkeypatch.setattr(ui_server, "admin_login_email", lambda: "owner@example.test")
+    monkeypatch.setattr(
+        ui_server,
+        "send_email_alert",
+        lambda recipient, subject, text_body, html_body: sent.append(
+            {"recipient": recipient, "subject": subject, "text": text_body, "html": html_body}
+        ),
+    )
+    monkeypatch.setattr(ui_server.secrets, "token_urlsafe", lambda size=32: "setup-token")
+
+    result = ui_server.request_admin_password_setup({"email": "owner@example.test"}, base_url="https://example.test")
+    completed = ui_server.complete_admin_password_setup(token="setup-token", password="long-secure-password")
+
+    user = ui_server.get_admin_user(db_path, "owner@example.test")
+    assert result["sent"] is True
+    assert sent[0]["recipient"] == "owner@example.test"
+    assert "https://example.test/password-setup?token=setup-token" in sent[0]["text"]
+    assert completed == {"email": "owner@example.test", "role": "admin"}
+    assert user is not None
+    assert user.role == "admin"
+    assert user.password_hash is not None
+    assert "long-secure-password" not in user.password_hash
+    assert ui_server.verify_password("long-secure-password", user.password_hash) is True
+
+
+def test_admin_invite_user_creates_user_role(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    sent: list[str] = []
+
+    monkeypatch.setattr(ui_server, "runtime_db_path", lambda: db_path)
+    monkeypatch.setattr(ui_server, "send_email_alert", lambda recipient, subject, text_body, html_body: sent.append(text_body))
+    monkeypatch.setattr(ui_server.secrets, "token_urlsafe", lambda size=32: "invite-token")
+
+    result = ui_server.invite_admin_user(
+        {"email": "worker@example.test", "role": "user"},
+        inviter="owner@example.test",
+        base_url="https://example.test",
+    )
+    completed = ui_server.complete_admin_password_setup(token="invite-token", password="long-secure-password")
+    user = ui_server.get_admin_user(db_path, "worker@example.test")
+
+    assert result["role"] == "user"
+    assert "https://example.test/password-setup?token=invite-token" in sent[0]
+    assert completed == {"email": "worker@example.test", "role": "user"}
+    assert user is not None
+    assert user.role == "user"
+    assert ui_server.verify_admin_user_password(email="worker@example.test", password="long-secure-password") is False
 
 
 def test_report_json_content_type_includes_utf8_charset() -> None:

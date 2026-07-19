@@ -555,3 +555,16 @@ The runtime uses available system tools (`pdftoppm` and `tesseract`) and records
 `OCR_TEXT_EXTRACTED` in document analysis provenance. Missing OCR tooling is
 non-fatal. The first OCR gate is bounded to the first 3 pages so cron runs do
 not become unbounded full-document OCR jobs.
+
+## D-053 - Admin/user passwords are invite-set and hashed
+**Status:** Accepted
+
+Tender Radar can create local UI users in SQLite, but it must not store
+plaintext passwords. Passwords are set only through email setup/invitation
+links. The invite token is stored as a SHA-256 hash and expires after 24 hours;
+the password is stored as PBKDF2-SHA256 with a random salt.
+
+The configured owner email becomes `admin`. Admins may invite additional
+`user` or `admin` accounts from the Admin panel. `user` accounts do not gain
+admin audit/restore/invite permissions. The previous email one-time code login
+and runtime env password remain as owner/emergency fallback paths.

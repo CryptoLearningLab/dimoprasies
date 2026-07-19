@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
 import hashlib
 import io
@@ -30,17 +31,24 @@ from urllib.request import Request, urlopen
 from tender_radar import __version__
 from tender_radar.config import load_config
 from tender_radar.db import (
+    create_admin_invite,
     dismiss_tender as dismiss_tender_in_db,
+    get_admin_invite,
+    get_admin_user,
     get_source_document,
     get_source_state,
     ignored_tender_keys as ignored_tender_keys_from_db,
+    list_admin_users,
     list_tender_dismissals,
     list_source_states,
+    mark_admin_invite_used,
     notification_already_sent,
+    record_admin_user_login,
     record_source_run,
     record_notification_sent,
     remove_tender_dismissal,
     triage_overrides_by_key as db_triage_overrides_by_key,
+    upsert_admin_user,
     upsert_triage_override,
     upsert_source_document,
     upsert_source_state,
@@ -72,7 +80,7 @@ ENRICHMENT_LOCK = threading.Lock()
 JOBS_LOCK = threading.Lock()
 JOBS: dict[str, dict[str, Any]] = {}
 ADMIN_SESSIONS_LOCK = threading.Lock()
-ADMIN_SESSIONS: set[str] = set()
+ADMIN_SESSIONS: dict[str, dict[str, str]] = {}
 ADMIN_LOGIN_CODES_LOCK = threading.Lock()
 ADMIN_LOGIN_CODES: dict[str, dict[str, Any]] = {}
 
@@ -107,7 +115,7 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
-        if parsed.path == "/":
+        if parsed.path in {"/", "/password-setup"}:
             self._send_html(INDEX_HTML)
             return
         if parsed.path == "/styles.css":
@@ -144,6 +152,13 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "authenticated": False, **admin_status_payload()}, status=401)
                 return
             self._send_json(admin_audit_payload())
+            return
+        if parsed.path == "/api/admin/users":
+            session = self._admin_session()
+            if not session or session.get("role") != "admin":
+                self._send_json({"ok": False, "error": "Admin login required."}, status=401)
+                return
+            self._send_json(admin_users_payload())
             return
         if parsed.path == "/api/document-preview":
             query = parse_qs(parsed.query)
@@ -285,6 +300,19 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/admin/verify-code":
                 self._admin_verify_code(payload)
                 return
+            if parsed.path == "/api/admin/request-password-setup":
+                self._send_json(request_admin_password_setup(payload, base_url=self._public_base_url()))
+                return
+            if parsed.path == "/api/admin/set-password":
+                self._admin_set_password(payload)
+                return
+            if parsed.path == "/api/admin/invite-user":
+                session = self._admin_session()
+                if not session or session.get("role") != "admin":
+                    self._send_json({"ok": False, "error": "Admin login required."}, status=401)
+                    return
+                self._send_json(invite_admin_user(payload, inviter=session.get("email"), base_url=self._public_base_url()))
+                return
             if parsed.path == "/api/admin/logout":
                 self._admin_logout()
                 return
@@ -401,18 +429,21 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _admin_login(self, payload: dict[str, Any]) -> dict[str, Any]:
+        email = str(payload.get("email") or admin_login_email() or "").strip().lower()
+        submitted = str(payload.get("password") or "")
+        if email and verify_admin_user_password(email=email, password=submitted):
+            user = get_admin_user(runtime_db_path(), email)
+            if not user:
+                raise ValueError("Invalid admin user.")
+            record_admin_user_login(runtime_db_path(), email)
+            self._send_admin_session(email=email, role=user.role)
+            return {}
         password = admin_password()
         if not password:
             raise ValueError("Admin password is not configured.")
-        submitted = str(payload.get("password") or "")
         if not secrets.compare_digest(submitted, password):
             raise ValueError("Invalid admin password.")
-        token = secrets.token_urlsafe(32)
-        with ADMIN_SESSIONS_LOCK:
-            ADMIN_SESSIONS.add(token)
-        body = {"ok": True, "authenticated": True, "admin": admin_status_payload()}
-        cookie = f"tr_admin_session={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=43200"
-        self._send_json(body, extra_headers={"Set-Cookie": cookie})
+        self._send_admin_session(email=email or "env-admin", role="admin")
         return {}
 
     def _admin_verify_code(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -420,22 +451,43 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
         code = str(payload.get("code") or "").strip()
         if not verify_admin_login_code(email=email, code=code):
             raise ValueError("Invalid or expired admin code.")
+        ensure_owner_admin_user(email)
+        record_admin_user_login(runtime_db_path(), email)
+        self._send_admin_session(email=email, role="admin")
+        return {}
+
+    def _admin_set_password(self, payload: dict[str, Any]) -> dict[str, Any]:
+        token = str(payload.get("token") or "").strip()
+        password = str(payload.get("password") or "")
+        user = complete_admin_password_setup(token=token, password=password)
+        record_admin_user_login(runtime_db_path(), user["email"])
+        self._send_admin_session(email=str(user["email"]), role=str(user["role"]))
+        return {}
+
+    def _send_admin_session(self, *, email: str, role: str) -> None:
         token = secrets.token_urlsafe(32)
         with ADMIN_SESSIONS_LOCK:
-            ADMIN_SESSIONS.add(token)
-        body = {"ok": True, "authenticated": True, "admin": admin_status_payload()}
+            ADMIN_SESSIONS[token] = {"email": email, "role": role}
+        body = {"ok": True, "authenticated": True, "admin": admin_status_payload(), "session": {"email": email, "role": role}}
         cookie = f"tr_admin_session={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=43200"
         self._send_json(body, extra_headers={"Set-Cookie": cookie})
-        return {}
 
     def _admin_logout(self) -> dict[str, Any]:
         token = self._admin_session_token()
         if token:
             with ADMIN_SESSIONS_LOCK:
-                ADMIN_SESSIONS.discard(token)
+                ADMIN_SESSIONS.pop(token, None)
         body = {"ok": True, "authenticated": False}
         self._send_json(body, extra_headers={"Set-Cookie": "tr_admin_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"})
         return {}
+
+    def _public_base_url(self) -> str:
+        configured = public_base_url()
+        if configured:
+            return configured
+        host = self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or f"{DEFAULT_HOST}:{DEFAULT_PORT}"
+        proto = self.headers.get("X-Forwarded-Proto") or ("https" if str(host).endswith(".sslip.io") else "http")
+        return f"{proto}://{host}".rstrip("/")
 
     def _admin_session_token(self) -> str | None:
         cookie = self.headers.get("Cookie") or ""
@@ -448,11 +500,15 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
         return None
 
     def _admin_authenticated(self) -> bool:
+        session = self._admin_session()
+        return bool(session and session.get("role") == "admin")
+
+    def _admin_session(self) -> dict[str, str] | None:
         token = self._admin_session_token()
         if not token:
-            return False
+            return None
         with ADMIN_SESSIONS_LOCK:
-            return token in ADMIN_SESSIONS
+            return ADMIN_SESSIONS.get(token)
 
     def _send_html(self, html: str) -> None:
         self._send_text(html, "text/html; charset=utf-8")
@@ -2922,7 +2978,12 @@ def admin_login_email() -> str | None:
 
 
 def admin_status_payload() -> dict[str, Any]:
-    return {"admin_enabled": bool(admin_password() or admin_login_email()), "email_login_enabled": bool(admin_login_email())}
+    users = list_admin_users(runtime_db_path())
+    return {
+        "admin_enabled": bool(admin_password() or admin_login_email() or users),
+        "email_login_enabled": bool(admin_login_email()),
+        "password_users": len([user for user in users if user.password_hash and user.enabled]),
+    }
 
 
 def request_admin_login_code(payload: dict[str, Any]) -> dict[str, Any]:
@@ -2958,6 +3019,163 @@ def verify_admin_login_code(*, email: str, code: str) -> bool:
             return False
         ADMIN_LOGIN_CODES.pop(email, None)
     return True
+
+
+def public_base_url() -> str | None:
+    env = load_local_env()
+    value = os.environ.get("TENDER_RADAR_PUBLIC_URL") or env.get("TENDER_RADAR_PUBLIC_URL")
+    return value.rstrip("/") if value else None
+
+
+def ensure_owner_admin_user(email: str) -> None:
+    if not email:
+        return
+    existing = get_admin_user(runtime_db_path(), email)
+    if not existing:
+        upsert_admin_user(runtime_db_path(), email=email, role="admin", enabled=True)
+
+
+def request_admin_password_setup(payload: dict[str, Any], *, base_url: str) -> dict[str, Any]:
+    requested_email = str(payload.get("email") or "").strip().lower()
+    allowed_email = admin_login_email()
+    if not allowed_email:
+        raise ValueError("Admin email is not configured.")
+    if requested_email != allowed_email:
+        raise ValueError("This email is not allowed for owner password setup.")
+    ensure_owner_admin_user(requested_email)
+    token, link = create_password_setup_invite(email=requested_email, role="admin", created_by="owner-bootstrap", base_url=base_url)
+    send_password_setup_email(requested_email, link, role="admin")
+    return {"ok": True, "sent": True, "email": requested_email, "role": "admin", "token_preview": token[:6]}
+
+
+def invite_admin_user(payload: dict[str, Any], *, inviter: str | None, base_url: str) -> dict[str, Any]:
+    email = str(payload.get("email") or "").strip().lower()
+    role = str(payload.get("role") or "user").strip().lower()
+    if role not in {"user", "admin"}:
+        raise ValueError("Role must be user or admin.")
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise ValueError("Valid email is required.")
+    token, link = create_password_setup_invite(email=email, role=role, created_by=inviter, base_url=base_url)
+    send_password_setup_email(email, link, role=role)
+    return {"ok": True, "sent": True, "email": email, "role": role, "token_preview": token[:6], "users": admin_users_payload()["users"]}
+
+
+def create_password_setup_invite(*, email: str, role: str, created_by: str | None, base_url: str) -> tuple[str, str]:
+    token = secrets.token_urlsafe(32)
+    token_hash = hash_reset_token(token)
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+    upsert_admin_user(runtime_db_path(), email=email, role=role, enabled=True)
+    create_admin_invite(
+        runtime_db_path(),
+        token_hash=token_hash,
+        email=email,
+        role=role,
+        created_by=created_by,
+        expires_at=expires_at,
+    )
+    return token, f"{base_url}/password-setup?token={quote(token)}"
+
+
+def send_password_setup_email(email: str, link: str, *, role: str) -> None:
+    role_label = "διαχειριστής" if role == "admin" else "χρήστης"
+    text_body = (
+        "Έχεις πρόσκληση στο Tender Radar.\n\n"
+        f"Ρόλος: {role_label}\n"
+        f"Όρισε password από εδώ: {link}\n\n"
+        "Το link ισχύει για 24 ώρες."
+    )
+    html_body = (
+        "<p>Έχεις πρόσκληση στο <strong>Tender Radar</strong>.</p>"
+        f"<p>Ρόλος: <strong>{role_label}</strong></p>"
+        f"<p><a href=\"{link}\">Ορισμός password</a></p>"
+        "<p>Το link ισχύει για 24 ώρες.</p>"
+    )
+    send_email_alert(email, "Tender Radar πρόσκληση σύνδεσης", text_body, html_body)
+
+
+def complete_admin_password_setup(*, token: str, password: str) -> dict[str, str]:
+    if len(password) < 10:
+        raise ValueError("Password must be at least 10 characters.")
+    invite = get_admin_invite(runtime_db_path(), hash_reset_token(token))
+    if not invite:
+        raise ValueError("Invalid password setup link.")
+    if invite.used_at:
+        raise ValueError("Password setup link has already been used.")
+    expires_at = datetime.fromisoformat(invite.expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > expires_at:
+        raise ValueError("Password setup link has expired.")
+    password_hash = hash_password(password)
+    user = upsert_admin_user(
+        runtime_db_path(),
+        email=invite.email,
+        role=invite.role,
+        password_hash=password_hash,
+        enabled=True,
+        mark_accepted=True,
+    )
+    mark_admin_invite_used(runtime_db_path(), invite.token_hash)
+    return {"email": user.email, "role": user.role}
+
+
+def hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def hash_password(password: str, *, iterations: int = 260000) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return "$".join(
+        [
+            "pbkdf2_sha256",
+            str(iterations),
+            base64.urlsafe_b64encode(salt).decode("ascii"),
+            base64.urlsafe_b64encode(digest).decode("ascii"),
+        ]
+    )
+
+
+def verify_password(password: str, password_hash: str | None) -> bool:
+    if not password_hash:
+        return False
+    try:
+        algorithm, iterations_text, salt_text, digest_text = password_hash.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        salt = base64.urlsafe_b64decode(salt_text.encode("ascii"))
+        expected = base64.urlsafe_b64decode(digest_text.encode("ascii"))
+        actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, int(iterations_text))
+        return secrets.compare_digest(actual, expected)
+    except (ValueError, TypeError):
+        return False
+
+
+def verify_admin_user_password(*, email: str, password: str) -> bool:
+    user = get_admin_user(runtime_db_path(), email)
+    if not user or not user.enabled:
+        return False
+    if user.role != "admin":
+        return False
+    return verify_password(password, user.password_hash)
+
+
+def admin_users_payload() -> dict[str, Any]:
+    users = []
+    for user in list_admin_users(runtime_db_path()):
+        users.append(
+            {
+                "email": user.email,
+                "role": user.role,
+                "enabled": user.enabled,
+                "invited_at": user.invited_at,
+                "accepted_at": user.accepted_at,
+                "password_set": bool(user.password_hash),
+                "password_set_at": user.password_set_at,
+                "last_login_at": user.last_login_at,
+            }
+        )
+    return {"ok": True, "users": users}
 
 
 def admin_audit_payload() -> dict[str, Any]:
@@ -4267,13 +4485,47 @@ INDEX_HTML = f"""<!doctype html>
         <button id="adminVerifyCodeBtn">Σύνδεση με κωδικό</button>
         <label>Admin password <input id="adminPasswordInput" type="password" autocomplete="current-password" placeholder="Password"></label>
         <button id="adminLoginBtn" class="secondary">Σύνδεση με password</button>
+        <button id="adminPasswordSetupBtn" class="secondary">Στείλε link δημιουργίας password</button>
         <span id="adminLoginStatus" class="noteText">Απαιτείται σύνδεση για audit και επαναφορές.</span>
+      </div>
+      <div class="toolbar passwordSetupBox" id="passwordSetupBox" hidden>
+        <label>Νέο password <input id="setupPasswordInput" type="password" autocomplete="new-password" placeholder="Τουλάχιστον 10 χαρακτήρες"></label>
+        <label>Επανάληψη <input id="setupPasswordConfirmInput" type="password" autocomplete="new-password"></label>
+        <button id="setupPasswordBtn">Ορισμός password</button>
+        <span id="setupPasswordStatus" class="noteText">Το link ισχύει για 24 ώρες.</span>
       </div>
       <div id="adminContent" class="adminContent" hidden>
         <div class="toolbar">
           <button id="adminRefreshBtn">Ανανέωση admin audit</button>
           <button id="adminLogoutBtn" class="secondary">Αποσύνδεση</button>
         </div>
+        <div class="toolbar adminInviteBox">
+          <label>Πρόσκληση email <input id="inviteEmailInput" type="email" placeholder="user@example.com"></label>
+          <label>Ρόλος
+            <select id="inviteRoleInput">
+              <option value="user">user</option>
+              <option value="admin">admin</option>
+            </select>
+          </label>
+          <button id="inviteUserBtn" class="secondary">Αποστολή πρόσκλησης</button>
+          <span id="inviteStatus" class="noteText"></span>
+        </div>
+        <details class="adminUsersBox">
+          <summary>Χρήστες</summary>
+          <div class="tableWrap">
+            <table class="adminTable">
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Ρόλος</th>
+                  <th>Password</th>
+                  <th>Τελευταία σύνδεση</th>
+                </tr>
+              </thead>
+              <tbody id="adminUsersRows"></tbody>
+            </table>
+          </div>
+        </details>
         <div class="metrics adminMetrics">
           <div><span id="adminHiddenCount">0</span><small>κρυμμένα συνολικά</small></div>
           <div><span id="adminAiHiddenCount">0</span><small>AI απόρριψη</small></div>
@@ -4956,6 +5208,15 @@ document.querySelectorAll('.nav').forEach((button) => {
   });
 });
 
+const setupToken = new URLSearchParams(window.location.search).get('token');
+if (window.location.pathname === '/password-setup' && setupToken) {
+  document.querySelectorAll('.nav, .view').forEach((el) => el.classList.remove('active'));
+  document.querySelector('[data-view="adminPanel"]').classList.add('active');
+  $('adminPanel').classList.add('active');
+  $('passwordSetupBox').hidden = false;
+  $('adminLoginBox').hidden = true;
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -5047,15 +5308,82 @@ async function adminApi(path, options = {}) {
 }
 
 async function adminLogin() {
+  const email = $('adminEmailInput').value;
   const password = $('adminPasswordInput').value;
   $('adminLoginStatus').textContent = 'Έλεγχος σύνδεσης...';
   try {
-    await adminApi('/api/admin/login', { method: 'POST', body: JSON.stringify({ password }) });
+    await adminApi('/api/admin/login', { method: 'POST', body: JSON.stringify({ email, password }) });
     $('adminPasswordInput').value = '';
     $('adminLoginStatus').textContent = 'Συνδέθηκε.';
     await loadAdminAudit();
   } catch (error) {
     $('adminLoginStatus').textContent = String(error.message || error);
+  }
+}
+
+async function adminRequestPasswordSetup() {
+  const email = $('adminEmailInput').value;
+  $('adminLoginStatus').textContent = 'Στέλνω link δημιουργίας password...';
+  try {
+    await adminApi('/api/admin/request-password-setup', { method: 'POST', body: JSON.stringify({ email }) });
+    $('adminLoginStatus').textContent = 'Το link δημιουργίας password στάλθηκε στο email.';
+  } catch (error) {
+    $('adminLoginStatus').textContent = String(error.message || error);
+  }
+}
+
+async function setupPassword() {
+  const password = $('setupPasswordInput').value;
+  const confirm = $('setupPasswordConfirmInput').value;
+  if (password !== confirm) {
+    $('setupPasswordStatus').textContent = 'Τα password δεν ταιριάζουν.';
+    return;
+  }
+  $('setupPasswordStatus').textContent = 'Αποθήκευση password...';
+  try {
+    await adminApi('/api/admin/set-password', { method: 'POST', body: JSON.stringify({ token: setupToken, password }) });
+    $('setupPasswordInput').value = '';
+    $('setupPasswordConfirmInput').value = '';
+    $('setupPasswordStatus').textContent = 'Το password ορίστηκε.';
+    window.history.replaceState({}, document.title, '/');
+    await loadAdminAudit();
+  } catch (error) {
+    $('setupPasswordStatus').textContent = String(error.message || error);
+  }
+}
+
+async function inviteUser() {
+  const email = $('inviteEmailInput').value;
+  const role = $('inviteRoleInput').value;
+  $('inviteStatus').textContent = 'Στέλνω πρόσκληση...';
+  try {
+    await adminApi('/api/admin/invite-user', { method: 'POST', body: JSON.stringify({ email, role }) });
+    $('inviteEmailInput').value = '';
+    $('inviteStatus').textContent = 'Η πρόσκληση στάλθηκε.';
+    await loadAdminUsers();
+  } catch (error) {
+    $('inviteStatus').textContent = String(error.message || error);
+  }
+}
+
+async function loadAdminUsers() {
+  const payload = await adminApi('/api/admin/users');
+  const tbody = $('adminUsersRows');
+  tbody.innerHTML = '';
+  const users = payload.users || [];
+  if (!users.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="emptyState">Δεν υπάρχουν χρήστες.</td></tr>';
+    return;
+  }
+  for (const user of users) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escapeHtml(user.email || '')}</td>
+      <td><span class="statusChip unchanged">${escapeHtml(user.role || '')}</span></td>
+      <td>${user.password_set ? 'Ορισμένο' : 'Σε πρόσκληση'}</td>
+      <td>${escapeHtml(user.last_login_at || '')}</td>
+    `;
+    tbody.appendChild(tr);
   }
 }
 
@@ -5099,6 +5427,7 @@ async function loadAdminAudit() {
     $('adminLoginBox').hidden = true;
     $('adminContent').hidden = false;
     renderAdminAudit(payload);
+    await loadAdminUsers();
   } catch (error) {
     $('adminContent').hidden = true;
     $('adminLoginBox').hidden = false;
@@ -5735,6 +6064,9 @@ $('deleteRuleBtn').addEventListener('click', deleteRule);
 $('adminCodeBtn').addEventListener('click', () => adminRequestCode().catch((error) => { $('adminLoginStatus').textContent = String(error); }));
 $('adminVerifyCodeBtn').addEventListener('click', () => adminVerifyCode().catch((error) => { $('adminLoginStatus').textContent = String(error); }));
 $('adminLoginBtn').addEventListener('click', () => adminLogin().catch((error) => { $('adminLoginStatus').textContent = String(error); }));
+$('adminPasswordSetupBtn').addEventListener('click', () => adminRequestPasswordSetup().catch((error) => { $('adminLoginStatus').textContent = String(error); }));
+$('setupPasswordBtn').addEventListener('click', () => setupPassword().catch((error) => { $('setupPasswordStatus').textContent = String(error); }));
+$('inviteUserBtn').addEventListener('click', () => inviteUser().catch((error) => { $('inviteStatus').textContent = String(error); }));
 $('adminPasswordInput').addEventListener('keydown', (event) => {
   if (event.key === 'Enter') adminLogin().catch((error) => { $('adminLoginStatus').textContent = String(error); });
 });

@@ -2274,6 +2274,45 @@ existing PDF smoke:
   11.1 41.4 ΕΓΚΡΙΤΙΚΗ ΑΠΟΦΑΣΗ ΜΕΛΕΤΗΣ...pdf -> TEXT_EXTRACTED, NOT_NEEDED, 5927 chars
 ```
 
+### UI v0.1.12 admin password setup and user invitations
+
+Implemented behavior:
+
+- Bumped the application version from `0.1.11` to `0.1.12`.
+- Added SQLite admin/user identity tables:
+  - `admin_users`
+  - `admin_invites`
+- Added password setup links:
+  - owner/admin can request a password setup link for the configured admin
+    email;
+  - admin can send invitation links to additional `user` or `admin` accounts;
+  - invite/reset tokens are stored only as SHA-256 hashes and expire after
+    24 hours;
+  - user passwords are stored as PBKDF2-SHA256 hashes with random salts, never
+    as plaintext.
+- Added `/password-setup?token=...` UI route and setup form.
+- Added Admin panel invite controls and a users audit table.
+- Existing one-time email code login remains available for the owner/admin.
+- Runtime env password remains only as fallback/emergency admin auth.
+- Non-admin `user` accounts can be created but cannot access admin audit,
+  restore or invite actions.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_exposes_admin_panel tests/test_ui_server.py::test_admin_email_code_flow tests/test_ui_server.py::test_admin_password_setup_hashes_password tests/test_ui_server.py::test_admin_invite_user_creates_user_role
+.venv/bin/python -m py_compile src/tender_radar/db.py src/tender_radar/ui_server.py src/tender_radar/__init__.py
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted admin auth tests: 4 passed
+py_compile: passed
+full test suite: 170 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

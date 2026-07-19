@@ -581,6 +581,12 @@ The system `python` command is not present in the remote environment; use
   and `ocr_error`. The DigitalOcean droplet has `poppler-utils`,
   `tesseract-ocr` and `tesseract-ocr-ell` installed; production smoke extracted
   OCR text from existing downloaded PDFs.
+- The UI now displays version `v0.1.12`. Admin identity has moved beyond
+  one-time codes: SQLite stores `admin_users` and `admin_invites`; password
+  setup/invite links are emailed, tokens are stored hashed, and passwords are
+  stored as PBKDF2-SHA256 hashes. The configured owner email is admin; invited
+  users can be `user` or `admin`, but only admin sessions can access audit,
+  restore and invitation endpoints.
 
 ## Next Work
 

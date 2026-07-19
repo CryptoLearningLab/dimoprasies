@@ -77,6 +77,27 @@ CREATE TABLE IF NOT EXISTS source_documents (
 CREATE INDEX IF NOT EXISTS idx_source_documents_row_key
 ON source_documents(row_key);
 
+CREATE TABLE IF NOT EXISTS admin_users (
+    email TEXT PRIMARY KEY,
+    role TEXT NOT NULL,
+    password_hash TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    invited_at TEXT,
+    accepted_at TEXT,
+    password_set_at TEXT,
+    last_login_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS admin_invites (
+    token_hash TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL,
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS search_runs (
     id INTEGER PRIMARY KEY,
     profile_id TEXT,
