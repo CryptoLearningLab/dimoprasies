@@ -701,6 +701,8 @@ The system `python` command is not present in the remote environment; use
   audit order was checked: admin hidden rows are grouped by category, not
   chronological order. Live focus counts before deploy were `visible 11` from
   `14` focus candidates, with `3` focus rows hidden by AI.
+- Production deploy on commit `9d10d67` passed: package version `0.1.24`,
+  homepage `v0.1.24`, runtime CSS contains the widened mobile label grid.
 
 ## Next Work
 
