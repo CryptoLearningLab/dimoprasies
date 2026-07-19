@@ -229,3 +229,89 @@ def test_ingest_eshidis_project_downloads_and_indexes_budget_rows(tmp_path: Path
     assert payload["project"]["authority_name"] == "ΔΗΜΟΣ ΝΑΥΠΑΚΤΙΑΣ"
     assert search_payload["summary"]["matches"] == 1
     assert search_payload["results"][0]["eshidis_id"] == "221566"
+
+
+def test_ingest_eshidis_project_skips_existing_download_and_index(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    work_dir = tmp_path / "pricing"
+    download_calls = {"count": 0}
+
+    def fake_fetch_resource_audit(eshidis_id, out_path, *, allow_insecure_tls=False):
+        return {
+            "target_url": f"https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/{eshidis_id}",
+            "snapshot": {
+                "bodyTextSample": (
+                    f"ΑΑ Συστήματος: {eshidis_id} "
+                    "Αναθέτουσα Αρχή: ΔΗΜΟΣ ΝΑΥΠΑΚΤΙΑΣ "
+                    "Τίτλος Έργου/Μελέτη: ΛΙΜΕΝΙΚΗ ΕΓΚΑΤΑΣΤΑΣΗ "
+                    "Καταληκτική Ημ/νία Υποβολής Προσφορών : 21-07-2026 10:00:00 "
+                    "Ποσό Κατακύρωσης:"
+                )
+            },
+            "response_bodies": [
+                {
+                    "body_sample": (
+                        '<partial-response><changes><update id="t1"><![CDATA['
+                        '<table _rowCount="1">'
+                        '<span id="t1:0:it2::content">2_-προυπολογισμός.pdf</span>'
+                        "</table>"
+                        "t1:0:cb1"
+                        "]]></update></changes></partial-response>"
+                    )
+                }
+            ],
+        }
+
+    def fake_download_attachment_audit(
+        eshidis_id,
+        row_index,
+        out_path,
+        download_dir,
+        *,
+        allow_insecure_tls=False,
+        headful=False,
+    ):
+        download_calls["count"] += 1
+        download_dir.mkdir(parents=True, exist_ok=True)
+        path = download_dir / "budget.txt"
+        path.write_text(
+            """
+            23 Β-18.6 Φράκτης απορρόφησης ενεργείας μέχρι 2000 kJ ύψους 5 m
+               30%Ο∆Ο-2312+ 40%Ο∆Ο-2653+ 30%Ο∆Ο-2311 m 100.00 1.680.00 168.000.00
+            """,
+            encoding="utf-8",
+        )
+        return {
+            "eshidis_id": eshidis_id,
+            "row_index": row_index,
+            "download_error": None,
+            "downloaded_file": {
+                "name": "2_-προυπολογισμός.pdf",
+                "path": str(path),
+                "size_bytes": path.stat().st_size,
+                "sha256": "fixture",
+            },
+        }
+
+    monkeypatch.setattr("tender_radar.pricing.fetch_resource_audit", fake_fetch_resource_audit)
+    monkeypatch.setattr("tender_radar.pricing.download_attachment_audit", fake_download_attachment_audit)
+
+    first = ingest_pricing_eshidis_project(
+        db_path,
+        eshidis_id="221566",
+        work_dir=work_dir,
+        allow_insecure_tls=True,
+    )
+    second = ingest_pricing_eshidis_project(
+        db_path,
+        eshidis_id="221566",
+        work_dir=work_dir,
+        allow_insecure_tls=True,
+    )
+
+    assert first["summary"]["downloaded"] == 1
+    assert second["summary"]["downloaded"] == 0
+    assert second["summary"]["skipped_download"] == 1
+    assert second["summary"]["skipped_indexed"] == 1
+    assert second["summary"]["merged_budget_rows"] == 1
+    assert download_calls["count"] == 1

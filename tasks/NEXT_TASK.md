@@ -25,7 +25,14 @@ Local version `0.1.36` starts the independent reverse-pricing foundation:
   missing row numbers and amount total `2.466.374,00`.
 - Pricing search prefers the merged project budget source when present so
   duplicate rows from source documents are not shown as separate matches.
-- Full local suite passed: `233 passed`.
+- `tender-radar pricing ingest-eshidis` is skip-aware: repeated runs reuse
+  existing downloads and indexed documents unless `--force` is passed.
+- Non-pricing ESHIDIS attachments are stored as provenance with
+  `SKIPPED_NON_PRICING_DOCUMENT` and skipped on subsequent pricing runs.
+- Live smoke for ESHIDIS `221473` fetched `10` attachments, extracted `6`
+  budget rows, then repeated in `7s` with `downloaded 0`,
+  `skipped_download 10`, `skipped_indexed 10`.
+- Full local suite passed: `234 passed`.
 
 The reverse-pricing workflow is intentionally separate from the local
 `ΔΗΜΟΣΙΑ ΕΡΓΑ` dashboard and is not attached to the six-hour cron yet.
@@ -34,30 +41,27 @@ The reverse-pricing workflow is intentionally separate from the local
 
 Complete the next gate:
 
-1. Add skip-aware download/reprocess behavior to `pricing ingest-eshidis` so
-   repeated runs reuse already fetched files and already extracted archives
-   unless `--force` is explicitly requested.
-2. Add a manual, bounded nationwide ESHIDIS-only fetcher for active public
+1. Add a manual, bounded nationwide ESHIDIS-only fetcher for active public
    works whose submission deadline is after the current fetch date/time.
-3. Store discovered projects in the pricing tables without touching the local
+2. Store discovered projects in the pricing tables without touching the local
    public-works dashboard state.
-4. For each fetched project, download only the files needed for extraction
+3. For each fetched project, download only the files needed for extraction
    into a pricing-specific temporary work directory.
-5. Extract text and run the budget parser on likely budget/timologio PDFs,
+4. Extract text and run the budget parser on likely budget/timologio PDFs,
    using cross-document merge to fill row gaps before expensive OCR.
-6. Persist metadata, extracted text references, raw document rows and merged
+5. Persist metadata, extracted text references, raw document rows and merged
    project budget rows.
-7. Delete heavy PDF/ZIP payloads the same day after successful extraction,
+6. Delete heavy PDF/ZIP payloads the same day after successful extraction,
    while keeping structured rows, text and provenance.
-8. Keep this manual; do not attach it to the six-hour cron yet.
+7. Keep this manual; do not attach it to the six-hour cron yet.
 
 ## Required Tests
 
 - Focused tests for pricing fetch run state and same-day cleanup behavior.
-- Focused tests for skip-existing behavior on repeated `pricing ingest-eshidis`
-  runs.
 - Focused tests that the fetcher refuses to run against KIMDIS/authority
   sources in this first gate.
+- Regression test for skip-existing behavior on repeated
+  `pricing ingest-eshidis` runs.
 - Regression test that the budget fixture still extracts `Β18.6`.
 - Regression test that project-level merged rows are preferred by pricing
   search.

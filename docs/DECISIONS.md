@@ -850,3 +850,16 @@ using source priority and extraction confidence. Official budget documents are
 preferred over technical reports for overlapping rows, while technical reports
 may fill row ranges missing from the budget PDF text layer. This preserves
 traceability without showing duplicate article hits to users.
+
+## D-073 - Reverse pricing indexes only pricing-candidate documents by default
+**Status:** Accepted
+
+`pricing ingest-eshidis` stores every official ESHIDIS attachment as document
+provenance, but it only extracts/OCRs files whose names indicate a likely
+pricing source such as budget, price list, technical report or financial offer.
+
+Non-pricing files are marked `SKIPPED_NON_PRICING_DOCUMENT` and are treated as
+already processed on repeated runs. Operators can still use `--force` for a
+debug reprocess, but normal runs must not spend time OCRing drawings,
+decisions, declarations or unrelated PDFs before the pricing gate proves a need
+for them.

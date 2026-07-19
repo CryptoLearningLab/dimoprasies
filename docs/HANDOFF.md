@@ -802,6 +802,13 @@ The system `python` command is not present in the remote environment; use
   uploaded budget fixture parses `Β-18.6` correctly with description,
   revision split `30/40/30`, unit, quantity, unit price and amount. Full local
   suite passed with `230 passed`. The new workflow is not attached to cron.
+- Local reverse-pricing ingest now has skip-aware reprocessing for a single
+  ESHIDIS id. Repeated `pricing ingest-eshidis` runs reuse downloaded files,
+  skip already indexed budget/text artifacts and treat
+  `SKIPPED_NON_PRICING_DOCUMENT` rows as processed provenance. Live smoke:
+  `221473` first run downloaded `10` attachments and extracted `6` merged
+  budget rows; repeat run finished in `7s` with `downloaded 0`,
+  `skipped_download 10`, `skipped_indexed 10`, `failed 0`.
 - Production deploy on commit `0c203f6` passed through GitHub Actions run
   `29700913414`. The droplet reports `tender-radar 0.1.36`,
   `tender-radar-ui.service` is active, and the local droplet homepage contains
@@ -813,7 +820,8 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Implement a manual, bounded, nationwide ESHIDIS-only pricing fetcher that
-stores active projects and extracted budget rows in the pricing tables, deletes
-heavy PDF/ZIP payloads after extraction, and remains disconnected from cron
-until a manual smoke passes.
+Implement the manual, bounded, nationwide ESHIDIS-only pricing fetcher on top
+of the skip-aware single-project ingest. It should store active projects and
+extracted budget rows in the pricing tables, delete heavy PDF/ZIP payloads
+after extraction, and remain disconnected from cron until a manual smoke
+passes.

@@ -24,6 +24,20 @@
 - The pricing parser avoids expensive OCR fallback when a layout text layer
   already contains many budget rows; missing sections should be resolved by
   cross-document merge before OCR-heavy fallback.
+- `tender-radar pricing ingest-eshidis` is now skip-aware. Repeated runs reuse
+  existing downloaded files and already indexed documents unless `--force` is
+  passed.
+- Reverse-pricing ingest now stores non-pricing ESHIDIS attachments as
+  provenance with `SKIPPED_NON_PRICING_DOCUMENT` and treats them as processed
+  on later runs, so drawings/declarations/irrelevant PDFs do not trigger OCR in
+  the default pricing path.
+- Live skip smoke for ESHIDIS `221566` reused `25` existing attachments,
+  downloaded `0`, failed `0`, and preserved the merged `36` budget rows with
+  amount total `2.466.374,00`.
+- Live pricing smoke for ESHIDIS `221473` fetched `10` attachments, extracted
+  `6` rows from `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf`, built a merged amount total `21.749,20`,
+  and skipped OCR for non-pricing files. A repeat run completed in `7s` with
+  `downloaded 0`, `skipped_download 10`, `skipped_indexed 10`, `failed 0`.
 - UI discovery flow now starts a real OpenAI-backed `sources ai-triage-report`
   job from `/api/ai-triage` after bounded discovery, using the existing
   `OPENAI_API_KEY` in `.env.local` without exposing the secret.
@@ -3496,7 +3510,33 @@ Verification:
 # ok true, rows_extracted 66, B18.6 row parsed correctly
 
 .venv/bin/python -m pytest -q
-# 230 passed in 18.94s
+# 234 passed in 27.06s
+
+.venv/bin/python -m tender_radar pricing ingest-eshidis 221566 \
+  --db /tmp/tender_pricing_221566.sqlite \
+  --work-dir /tmp/tender_pricing_221566_work \
+  --limit 50 \
+  --allow-insecure-tls \
+  --report /tmp/tender_pricing_221566_skip_report.json
+# ok true, downloaded 0, skipped_download 25, failed 0,
+# merged rows 36, amount total 2.466.374,00
+
+.venv/bin/python -m tender_radar pricing ingest-eshidis 221473 \
+  --db /tmp/tender_pricing_221473.sqlite \
+  --work-dir /tmp/tender_pricing_221473_work \
+  --limit 50 \
+  --allow-insecure-tls \
+  --report /tmp/tender_pricing_221473_report.json
+# ok true, downloaded 10, failed 0, rows extracted 6,
+# merged amount total 21.749,20
+
+.venv/bin/python -m tender_radar pricing ingest-eshidis 221473 \
+  --db /tmp/tender_pricing_221473.sqlite \
+  --work-dir /tmp/tender_pricing_221473_work \
+  --limit 50 \
+  --allow-insecure-tls \
+  --report /tmp/tender_pricing_221473_skip_report_2.json
+# ok true, downloaded 0, skipped_download 10, skipped_indexed 10, failed 0
 ```
 
 Cron remains intentionally unchanged for the new reverse-pricing flow until

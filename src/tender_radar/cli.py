@@ -184,6 +184,11 @@ def build_parser() -> argparse.ArgumentParser:
     pricing_ingest_eshidis.add_argument("--report", default=None, help="JSON report output path.")
     pricing_ingest_eshidis.add_argument("--allow-insecure-tls", action="store_true")
     pricing_ingest_eshidis.add_argument(
+        "--force",
+        action="store_true",
+        help="Download and re-index attachments even when pricing artifacts already exist.",
+    )
+    pricing_ingest_eshidis.add_argument(
         "--delete-heavy-files",
         action="store_true",
         help="Delete downloaded PDFs after text extraction and structured row persistence.",
@@ -546,6 +551,7 @@ def _pricing_ingest_eshidis(args: argparse.Namespace) -> int:
         limit=int(args.limit),
         allow_insecure_tls=bool(args.allow_insecure_tls),
         keep_heavy_files=not bool(args.delete_heavy_files),
+        force=bool(args.force),
     )
     if args.report:
         report_path = Path(args.report)

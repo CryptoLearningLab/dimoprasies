@@ -770,6 +770,71 @@ def _budget_row_score(row: PricingBudgetRow, source_document: str) -> tuple[int,
     return source_score, row.confidence, completeness
 
 
+def _pricing_document_snapshot(db_path: Path, *, eshidis_id: str, document_name: str) -> dict[str, Any] | None:
+    ensure_pricing_tables(db_path)
+    connection = connect(db_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        row = connection.execute(
+            """
+            SELECT id, local_path, document_type, sha256, extraction_status, text_path
+            FROM pricing_documents
+            WHERE eshidis_id = ? AND document_name = ?
+            """,
+            (eshidis_id, document_name),
+        ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+    finally:
+        connection.close()
+
+
+def _pricing_document_is_indexed(db_path: Path, *, eshidis_id: str, document_name: str) -> bool:
+    ensure_pricing_tables(db_path)
+    connection = connect(db_path)
+    try:
+        row_count = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM pricing_budget_rows
+            WHERE eshidis_id = ? AND source_document = ?
+            """,
+            (eshidis_id, document_name),
+        ).fetchone()[0]
+        if int(row_count) > 0:
+            return True
+        snapshot = connection.execute(
+            """
+            SELECT document_type, extraction_status, text_path
+            FROM pricing_documents
+            WHERE eshidis_id = ? AND document_name = ?
+            """,
+            (eshidis_id, document_name),
+        ).fetchone()
+        if snapshot is None:
+            return False
+        document_type, extraction_status, text_path = snapshot
+        if extraction_status == "SKIPPED_NON_PRICING_DOCUMENT":
+            return True
+        if text_path and Path(str(text_path)).exists():
+            return True
+        if document_type == "archive" and extraction_status in {"ARCHIVE_EXTRACTED", "ARCHIVE_SKIPPED_EXISTING"}:
+            child_prefix = f"{document_name}/"
+            child_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM pricing_documents
+                WHERE eshidis_id = ? AND document_name >= ? AND document_name < ?
+                """,
+                (eshidis_id, child_prefix, child_prefix + "\U0010ffff"),
+            ).fetchone()[0]
+            return int(child_count) > 0
+        return False
+    finally:
+        connection.close()
+
+
 def ingest_pricing_budget_pdf(
     db_path: Path,
     *,
@@ -814,6 +879,7 @@ def ingest_pricing_eshidis_project(
     limit: int = 50,
     allow_insecure_tls: bool = False,
     keep_heavy_files: bool = True,
+    force: bool = False,
 ) -> dict[str, Any]:
     if not eshidis_id.isdigit():
         raise ValueError("Pricing ESHIDIS ingest accepts only a numeric ESHIDIS id.")
@@ -856,19 +922,34 @@ def ingest_pricing_eshidis_project(
     )
     documents: list[dict[str, Any]] = []
     downloaded = 0
+    skipped_download = 0
+    skipped_indexed = 0
     failed = 0
     rows_total = 0
     cleanup_deleted = 0
     for row_index, filename in enumerate(filenames[:limit]):
         download_audit_path = audit_dir / f"eshidis_download_audit_{eshidis_id}_{row_index}.json"
-        download_payload = download_attachment_audit(
-            eshidis_id,
-            row_index,
-            download_audit_path,
-            download_dir,
-            allow_insecure_tls=allow_insecure_tls,
-        )
-        downloaded_file = download_payload.get("downloaded_file")
+        existing = _pricing_document_snapshot(db_path, eshidis_id=eshidis_id, document_name=filename)
+        download_payload: dict[str, Any] = {}
+        downloaded_file: dict[str, Any] | None = None
+        if not force and existing and existing.get("local_path") and Path(str(existing["local_path"])).exists():
+            skipped_download += 1
+            downloaded_file = {
+                "name": filename,
+                "path": str(existing["local_path"]),
+                "size_bytes": Path(str(existing["local_path"])).stat().st_size,
+                "sha256": existing.get("sha256"),
+            }
+        else:
+            download_payload = download_attachment_audit(
+                eshidis_id,
+                row_index,
+                download_audit_path,
+                download_dir,
+                allow_insecure_tls=allow_insecure_tls,
+            )
+            raw_downloaded_file = download_payload.get("downloaded_file")
+            downloaded_file = raw_downloaded_file if isinstance(raw_downloaded_file, dict) else None
         doc_report: dict[str, Any] = {
             "row_index": row_index,
             "document_name": filename,
@@ -881,23 +962,37 @@ def ingest_pricing_eshidis_project(
             failed += 1
             documents.append(doc_report)
             continue
-        downloaded += 1
+        if download_payload:
+            downloaded += 1
         local_path = Path(str(downloaded_file["path"]))
-        indexed = _index_pricing_document_path(
-            db_path,
-            eshidis_id=eshidis_id,
-            source_url=details.source_url,
-            document_name=filename,
-            local_path=local_path,
-            row_index=row_index,
-            text_dir=text_dir,
-            archive_dir=archive_dir,
-            keep_heavy_files=keep_heavy_files,
-            metadata={"download_audit_path": str(download_audit_path), "size_bytes": downloaded_file.get("size_bytes")},
-        )
+        if not force and _pricing_document_is_indexed(db_path, eshidis_id=eshidis_id, document_name=filename):
+            skipped_indexed += 1
+            indexed = {
+                "document_type": existing.get("document_type") if existing else None,
+                "extraction_status": existing.get("extraction_status") if existing else "SKIPPED_INDEXED",
+                "ocr_status": "SKIPPED_INDEXED",
+                "text_path": existing.get("text_path") if existing else None,
+                "rows_extracted": 0,
+                "rows_upserted": 0,
+                "skipped_reason": "already indexed",
+            }
+        else:
+            indexed = _index_pricing_document_path(
+                db_path,
+                eshidis_id=eshidis_id,
+                source_url=details.source_url,
+                document_name=filename,
+                local_path=local_path,
+                row_index=row_index,
+                text_dir=text_dir,
+                archive_dir=archive_dir,
+                keep_heavy_files=keep_heavy_files,
+                metadata={"download_audit_path": str(download_audit_path), "size_bytes": downloaded_file.get("size_bytes")},
+                force=force,
+            )
         rows_inserted = int(indexed.get("rows_upserted") or 0)
         rows_total += rows_inserted
-        if not keep_heavy_files:
+        if not keep_heavy_files and download_payload:
             try:
                 local_path.unlink()
                 cleanup_deleted += 1
@@ -905,7 +1000,7 @@ def ingest_pricing_eshidis_project(
                 pass
         doc_report.update(
             {
-                "download_status": "downloaded",
+                "download_status": "downloaded" if download_payload else "skipped_existing",
                 "local_path": str(local_path) if keep_heavy_files else None,
                 "size_bytes": downloaded_file.get("size_bytes"),
                 "sha256": downloaded_file.get("sha256"),
@@ -915,6 +1010,7 @@ def ingest_pricing_eshidis_project(
                 "text_path": indexed.get("text_path"),
                 "rows_extracted": indexed.get("rows_extracted", 0),
                 "rows_upserted": rows_inserted,
+                "index_status": "skipped_existing" if indexed.get("skipped_reason") else "indexed",
             }
         )
         if indexed.get("extracted_documents"):
@@ -931,6 +1027,8 @@ def ingest_pricing_eshidis_project(
             "attachments_found": len(filenames),
             "attachments_requested": min(len(filenames), limit),
             "downloaded": downloaded,
+            "skipped_download": skipped_download,
+            "skipped_indexed": skipped_indexed,
             "failed": failed,
             "pricing_budget_rows_upserted": rows_total,
             "merged_budget_rows": merged_budget["rows_merged"],
@@ -975,10 +1073,12 @@ def _index_pricing_document_path(
     archive_dir: Path,
     keep_heavy_files: bool,
     metadata: dict[str, Any] | None = None,
+    force: bool = False,
 ) -> dict[str, Any]:
     suffix = local_path.suffix.lower()
     if suffix in {".zip", ".rar"}:
-        extracted = _extract_pricing_archive(local_path, archive_dir / f"{row_index}_{_safe_path_part(local_path.stem)}")
+        destination = archive_dir / f"{row_index}_{_safe_path_part(local_path.stem)}"
+        extracted = _extract_pricing_archive(local_path, destination, force=force)
         child_reports: list[dict[str, Any]] = []
         rows_total = 0
         for child_path in extracted.get("files", []):
@@ -996,6 +1096,7 @@ def _index_pricing_document_path(
                 archive_dir=archive_dir,
                 keep_heavy_files=True,
                 metadata={**(metadata or {}), "archive_path": str(local_path)},
+                force=force,
             )
             rows_total += int(child_report.get("rows_upserted") or 0)
             child_reports.append(child_report)
@@ -1017,6 +1118,28 @@ def _index_pricing_document_path(
             "rows_extracted": rows_total,
             "rows_upserted": rows_total,
             "extracted_documents": child_reports,
+        }
+
+    if not _is_pricing_candidate_document(document_name, local_path):
+        document_id = upsert_pricing_document(
+            db_path,
+            eshidis_id=eshidis_id,
+            document_name=document_name,
+            local_path=str(local_path),
+            source_url=source_url,
+            document_type=local_path.suffix.lower().lstrip(".") or "unknown",
+            extraction_status="SKIPPED_NON_PRICING_DOCUMENT",
+            metadata=metadata or {},
+        )
+        return {
+            "document_name": document_name,
+            "document_id": document_id,
+            "document_type": local_path.suffix.lower().lstrip(".") or "unknown",
+            "extraction_status": "SKIPPED_NON_PRICING_DOCUMENT",
+            "ocr_status": "NOT_ATTEMPTED",
+            "text_path": None,
+            "rows_extracted": 0,
+            "rows_upserted": 0,
         }
 
     analysis = analyze_document(local_path, original_name=document_name)
@@ -1064,9 +1187,32 @@ def _index_pricing_document_path(
     }
 
 
-def _extract_pricing_archive(path: Path, destination: Path) -> dict[str, Any]:
+def _is_pricing_candidate_document(document_name: str, local_path: Path) -> bool:
+    suffix = local_path.suffix.lower()
+    if suffix in {".txt", ".text"}:
+        return True
+    if suffix != ".pdf":
+        return False
+    normalized = strip_accents(f"{document_name} {local_path.name}").upper()
+    compact = re.sub(r"[^A-ZΑ-Ω0-9]+", "", normalized)
+    candidate_terms = (
+        "ΠΡΟΥΠΟΛΟΓ",
+        "ΤΙΜΟΛΟΓ",
+        "ΟΙΚΟΝΟΜΙΚ",
+        "ΤΕΧΝΙΚΗΕΚΘΕΣΗ",
+        "ΤΕΧΝΙΚΗ_ΕΚΘΕΣΗ",
+    )
+    return any(term in normalized or term in compact for term in candidate_terms)
+
+
+def _extract_pricing_archive(path: Path, destination: Path, *, force: bool = False) -> dict[str, Any]:
     destination.mkdir(parents=True, exist_ok=True)
     suffix = path.suffix.lower()
+    existing_files = [
+        item for item in sorted(destination.rglob("*")) if item.is_file() and item.suffix.lower() in {".pdf", ".xml", ".txt", ".zip", ".rar"}
+    ]
+    if existing_files and not force:
+        return {"status": "ARCHIVE_SKIPPED_EXISTING", "directory": destination, "files": existing_files, "error": None}
     try:
         if suffix == ".zip":
             with zipfile.ZipFile(path) as archive:
