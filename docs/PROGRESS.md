@@ -2883,6 +2883,13 @@ Results:
 targeted admin/UI polish tests: 7 passed
 py_compile: passed
 full test suite: 204 passed
+production deploy smoke on commit 3a61ad0:
+  package version 0.1.23
+  homepage contains v0.1.23
+  homepage contains roleUserIdentifierInput
+  homepage contains updateUserRoleBtn
+  sourceAudit is hidden on the main front page
+  tester role normalization passed
 ```
 
 ## Handoff Discipline
