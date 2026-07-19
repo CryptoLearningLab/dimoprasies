@@ -4108,10 +4108,27 @@ def admin_hidden_event_at(row: dict[str, Any]) -> str:
         deadline_evidence.get("deadline_at"),
         row.get("deadline_sort"),
     ):
-        text = str(value or "").strip()
+        text = admin_audit_timestamp_text(value)
         if text:
             return text
     return ""
+
+
+def admin_audit_timestamp_text(value: object) -> str:
+    text = str(value or "").strip()
+    if not text or text == "9999":
+        return ""
+    if re.fullmatch(r"\d{13}", text):
+        try:
+            return datetime.fromtimestamp(int(text) / 1000, tz=timezone.utc).isoformat()
+        except (OSError, OverflowError, ValueError):
+            return ""
+    if re.fullmatch(r"\d{10}", text):
+        try:
+            return datetime.fromtimestamp(int(text), tz=timezone.utc).isoformat()
+        except (OSError, OverflowError, ValueError):
+            return ""
+    return text
 
 
 def admin_hidden_row_sort_key(row: dict[str, Any]) -> tuple[bool, str, str, str]:

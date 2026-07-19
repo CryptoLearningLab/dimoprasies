@@ -2825,6 +2825,11 @@ def test_admin_audit_hidden_rows_are_recent_first(tmp_path, monkeypatch) -> None
     ]
 
 
+def test_admin_audit_timestamp_normalizes_epoch_ms_and_ignores_placeholders() -> None:
+    assert ui_server.admin_audit_timestamp_text("1784246400000") == "2026-07-17T00:00:00+00:00"
+    assert ui_server.admin_audit_timestamp_text("9999") == ""
+
+
 def test_admin_restore_dismissed_row_removes_ignore(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "data").mkdir()

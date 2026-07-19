@@ -705,7 +705,8 @@ The system `python` command is not present in the remote environment; use
   homepage `v0.1.24`, runtime CSS contains the widened mobile label grid.
 - The UI now displays version `v0.1.25`. Admin hidden rows are no longer
   grouped by rejection category; they are sorted by most recent audit event
-  first. The row timestamp is exposed in the admin panel under the source/id.
+  first. The row timestamp is exposed in the admin panel under the source/id,
+  with epoch source timestamps normalized to ISO UTC.
 
 ## Next Work
 

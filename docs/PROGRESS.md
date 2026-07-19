@@ -2940,11 +2940,14 @@ production deploy smoke on commit 9d10d67:
   deterministic audit rows fall back to row/source/deadline timestamps.
 - The admin panel now shows the audit timestamp under the row source/id so the
   latest rejected/hidden item is visible directly on mobile.
+- Epoch second/millisecond timestamps from source rows are normalized to ISO
+  UTC before sorting/display, and placeholder `9999` values are ignored.
 
 Verification:
 
 ```bash
 .venv/bin/python -m pytest tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_admin_audit_hidden_rows_are_recent_first tests/test_ui_server.py::test_admin_audit_ui_exposes_missing_deadline_and_mobile_labels -q
+.venv/bin/python -m pytest tests/test_ui_server.py::test_admin_audit_hidden_rows_are_recent_first tests/test_ui_server.py::test_admin_audit_timestamp_normalizes_epoch_ms_and_ignores_placeholders tests/test_ui_server.py::test_ui_shows_current_version_badge -q
 .venv/bin/python -m py_compile src/tender_radar/ui_server.py tests/test_ui_server.py
 .venv/bin/python -m pytest -q
 ```
@@ -2953,8 +2956,9 @@ Results:
 
 ```text
 targeted version/admin audit tests: 3 passed
+targeted timestamp normalization tests: 3 passed
 py_compile: passed
-full test suite: 206 passed
+full test suite: 207 passed
 ```
 
 ## Handoff Discipline
