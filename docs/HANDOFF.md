@@ -669,6 +669,11 @@ The system `python` command is not present in the remote environment; use
 - The UI now displays version `v0.1.20`. Admin audit separates
   `NO_DEADLINE_EVIDENCE` from real `EXPIRED` rows and includes the parsed
   expired deadline in the reason.
+- Production deploy on commit `c06f39f` passed: package version `0.1.20`,
+  homepage `v0.1.20`, admin audit `missing_deadline 61`, `expired 13`,
+  `duplicates 9`, `ai_hidden 61`. The focus/actionable comparison found
+  6 non-AI-hidden rows removed only because deadline evidence is missing and
+  9 non-AI-hidden rows removed because the parsed deadline is expired.
 
 ## Next Work
 

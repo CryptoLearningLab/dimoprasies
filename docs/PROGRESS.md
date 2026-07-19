@@ -2755,6 +2755,18 @@ local admin audit smoke:
   duplicates 8
   expired 3
   missing_deadline 64
+production deploy smoke on commit c06f39f:
+  package version 0.1.20
+  homepage contains v0.1.20
+  admin audit summary:
+    hidden_total 144
+    ai_hidden 61
+    duplicates 9
+    expired 13
+    missing_deadline 61
+    source_errors 3
+  production focus rows hidden by missing deadline and not AI-hidden: 6
+  production focus rows hidden by expired parsed deadline and not AI-hidden: 9
 ```
 
 ## Handoff Discipline
