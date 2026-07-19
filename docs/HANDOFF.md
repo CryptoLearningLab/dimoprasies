@@ -802,6 +802,10 @@ The system `python` command is not present in the remote environment; use
   uploaded budget fixture parses `Β-18.6` correctly with description,
   revision split `30/40/30`, unit, quantity, unit price and amount. Full local
   suite passed with `230 passed`. The new workflow is not attached to cron.
+- Production deploy on commit `0c203f6` passed through GitHub Actions run
+  `29700913414`. The droplet reports `tender-radar 0.1.36`,
+  `tender-radar-ui.service` is active, and the local droplet homepage contains
+  `v0.1.36` plus `pricingNavBtn`.
 
 ## Next Work
 

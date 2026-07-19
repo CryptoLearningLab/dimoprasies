@@ -3470,6 +3470,16 @@ Verification:
 Cron remains intentionally unchanged for the new reverse-pricing flow until
 the controlled nationwide ESHIDIS fetcher, same-day cleanup and UI smoke pass.
 
+Production deploy on commit `0c203f6` passed:
+
+```text
+GitHub Actions run: 29700913414, success
+tender-radar --version on droplet: 0.1.36
+tender-radar-ui.service: active
+local droplet homepage contains v0.1.36
+local droplet homepage contains pricingNavBtn
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:
