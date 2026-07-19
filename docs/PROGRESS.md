@@ -2313,6 +2313,43 @@ py_compile: passed
 full test suite: 170 passed
 ```
 
+### UI v0.1.13 private login and mobile dashboard cleanup
+
+Implemented behavior:
+
+- Bumped the application version from `0.1.12` to `0.1.13`.
+- Added a private first screen with email/password login before the app shell
+  is shown.
+- Added `/api/auth/status`, `/api/auth/login` and `/api/auth/logout` for
+  normal UI sessions.
+- Dashboard/action APIs now reject unauthenticated requests with HTTP 401
+  instead of relying only on hidden frontend content.
+- Existing SQLite invite/password users can log into the main app; only
+  `admin` role sessions can see admin audit, restore and invite controls.
+- Removed the old admin login form from the Admin panel. The panel now focuses
+  on invitations, audit/restore and logout.
+- Added mobile card labels for tender rows so the main tender list can be read
+  on phone screens without horizontal table dragging.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_ui_exposes_admin_panel tests/test_ui_server.py::test_front_page_uses_authenticated_app_shell tests/test_ui_server.py::test_tender_table_has_mobile_card_labels tests/test_ui_server.py::test_admin_password_setup_hashes_password tests/test_ui_server.py::test_admin_invite_user_creates_user_role
+.venv/bin/python -m pytest
+.venv/bin/python -c "from http.server import ThreadingHTTPServer; import threading, json, http.client; from tender_radar.ui_server import TenderRadarHandler; server=ThreadingHTTPServer(('127.0.0.1',0), TenderRadarHandler); port=server.server_address[1]; threading.Thread(target=server.serve_forever, daemon=True).start(); conn=http.client.HTTPConnection('127.0.0.1', port, timeout=5); conn.request('GET','/'); html=conn.getresponse().read().decode('utf-8'); conn.request('GET','/api/auth/status'); auth=json.loads(conn.getresponse().read().decode('utf-8')); conn.request('GET','/api/dashboard?scope=focus'); resp=conn.getresponse(); body=resp.read().decode('utf-8'); print({'loginScreen':'id=\"loginScreen\"' in html,'version':'v0.1.13' in html,'auth':auth.get('authenticated'),'dashboard_status':resp.status,'dashboard_body':body[:120]}); server.shutdown()"
+```
+
+Results:
+
+```text
+py_compile: passed
+targeted UI/auth/mobile tests: 6 passed
+full test suite: 172 passed
+in-process UI smoke: loginScreen true, version true, unauthenticated auth false,
+  dashboard_status 401, dashboard_body "Login required."
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

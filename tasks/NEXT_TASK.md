@@ -22,6 +22,10 @@ The document fetcher and first OCR fallback gates are complete:
 - the UI has an `Admin panel` tab for auditing hidden rows and restoring AI
   false drops or accidental `Δεν με ενδιαφέρει` dismissals. Restores are stored
   as SQLite `triage_overrides` feedback.
+- the UI is private-by-default as of `v0.1.13`: users must log in with
+  SQLite invite/password credentials before dashboard/action APIs are
+  available, and only `admin` role sessions can access audit/restore/invite
+  controls.
 
 The next product gate is to make the AI classifier consume the fetched/OCR
 document text for candidate triage and ESHIDIS-id resolution, instead of relying

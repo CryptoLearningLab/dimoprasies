@@ -9,6 +9,7 @@ from tender_radar.ui_server import (
     APP_JS,
     DEFAULT_KIMDIS_DISCOVERY_PAGES,
     INDEX_HTML,
+    STYLES_CSS,
     content_type_for_path,
     configured_source_entries,
     dashboard_payload,
@@ -59,7 +60,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.12" in INDEX_HTML
+    assert "v0.1.13" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -78,18 +79,36 @@ def test_ui_exposes_email_alert_button() -> None:
 
 def test_ui_exposes_admin_panel() -> None:
     assert 'data-view="adminPanel"' in INDEX_HTML
-    assert 'id="adminLoginBox"' in INDEX_HTML
+    assert 'id="loginScreen"' in INDEX_HTML
+    assert 'id="appShell"' in INDEX_HTML
+    assert 'id="loginEmailInput"' in INDEX_HTML
+    assert 'id="loginPasswordInput"' in INDEX_HTML
     assert 'id="adminHiddenRows"' in INDEX_HTML
     assert 'id="passwordSetupBox"' in INDEX_HTML
     assert 'id="inviteUserBtn"' in INDEX_HTML
-    assert "/api/admin/request-code" in APP_JS
-    assert "/api/admin/verify-code" in APP_JS
-    assert "/api/admin/request-password-setup" in APP_JS
+    assert "/api/auth/login" in APP_JS
+    assert "/api/auth/status" in APP_JS
+    assert "/api/auth/logout" in APP_JS
     assert "/api/admin/set-password" in APP_JS
     assert "/api/admin/invite-user" in APP_JS
     assert "/api/admin/users" in APP_JS
     assert "/api/admin/audit" in APP_JS
     assert "/api/admin/restore" in APP_JS
+
+
+def test_front_page_uses_authenticated_app_shell() -> None:
+    assert 'id="loginScreen"' in INDEX_HTML
+    assert 'id="appShell" class="appShell" hidden' in INDEX_HTML
+    assert "loadAuthStatus" in APP_JS
+    assert "if (!state.session && window.location.pathname !== '/password-setup') return;" in APP_JS
+
+
+def test_tender_table_has_mobile_card_labels() -> None:
+    assert 'data-label="Α/Α"' in APP_JS
+    assert 'data-label="Πηγή"' in APP_JS
+    assert 'data-label="Έργο"' in APP_JS
+    assert ".tenderTable thead" in STYLES_CSS
+    assert "content: attr(data-label)" in STYLES_CSS
 
 
 def test_admin_email_code_flow(monkeypatch) -> None:

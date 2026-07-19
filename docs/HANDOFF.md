@@ -587,6 +587,11 @@ The system `python` command is not present in the remote environment; use
   stored as PBKDF2-SHA256 hashes. The configured owner email is admin; invited
   users can be `user` or `admin`, but only admin sessions can access audit,
   restore and invitation endpoints.
+- The UI now displays version `v0.1.13`. The app is private-by-default:
+  users first see an email/password login screen, dashboard/action APIs return
+  HTTP 401 without a session, and the Admin panel no longer contains the old
+  login widgets. The tender table switches to mobile card rows with per-cell
+  labels on phone-width screens.
 
 ## Next Work
 

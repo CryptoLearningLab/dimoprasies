@@ -127,6 +127,14 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/status":
             self._send_json(status_payload())
             return
+        if parsed.path == "/api/auth/status":
+            self._send_json(auth_status_payload(self._admin_session()))
+            return
+        if parsed.path.startswith("/api/admin/"):
+            pass
+        elif parsed.path.startswith("/api/") and not self._any_authenticated():
+            self._send_json({"ok": False, "authenticated": False, "error": "Login required."}, status=401)
+            return
         if parsed.path == "/api/candidates":
             self._send_json(candidates_payload())
             return
@@ -235,6 +243,20 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
         try:
             parsed = urlparse(self.path)
             payload = self._read_json()
+            if parsed.path == "/api/auth/login":
+                self._auth_login(payload)
+                return
+            if parsed.path == "/api/auth/logout":
+                self._admin_logout()
+                return
+            if parsed.path == "/api/admin/set-password":
+                self._admin_set_password(payload)
+                return
+            if parsed.path.startswith("/api/admin/"):
+                pass
+            elif parsed.path.startswith("/api/") and not self._any_authenticated():
+                self._send_json({"ok": False, "authenticated": False, "error": "Login required."}, status=401)
+                return
             if parsed.path == "/api/discover":
                 limit = int(payload.get("limit") or DEFAULT_ESHIDIS_DISCOVERY_LIMIT)
                 backfill = bool(payload.get("backfill"))
@@ -302,9 +324,6 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/admin/request-password-setup":
                 self._send_json(request_admin_password_setup(payload, base_url=self._public_base_url()))
-                return
-            if parsed.path == "/api/admin/set-password":
-                self._admin_set_password(payload)
                 return
             if parsed.path == "/api/admin/invite-user":
                 session = self._admin_session()
@@ -446,6 +465,21 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
         self._send_admin_session(email=email or "env-admin", role="admin")
         return {}
 
+    def _auth_login(self, payload: dict[str, Any]) -> dict[str, Any]:
+        email = str(payload.get("email") or "").strip().lower()
+        submitted = str(payload.get("password") or "")
+        user = get_admin_user(runtime_db_path(), email) if email else None
+        if user and user.enabled and verify_password(submitted, user.password_hash):
+            record_admin_user_login(runtime_db_path(), email)
+            self._send_admin_session(email=email, role=user.role)
+            return {}
+        password = admin_password()
+        owner_email = admin_login_email() or "env-admin"
+        if password and secrets.compare_digest(submitted, password) and (not email or email == owner_email):
+            self._send_admin_session(email=email or owner_email, role="admin")
+            return {}
+        raise ValueError("Invalid email or password.")
+
     def _admin_verify_code(self, payload: dict[str, Any]) -> dict[str, Any]:
         email = str(payload.get("email") or "").strip().lower()
         code = str(payload.get("code") or "").strip()
@@ -502,6 +536,9 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
     def _admin_authenticated(self) -> bool:
         session = self._admin_session()
         return bool(session and session.get("role") == "admin")
+
+    def _any_authenticated(self) -> bool:
+        return bool(self._admin_session())
 
     def _admin_session(self) -> dict[str, str] | None:
         token = self._admin_session_token()
@@ -2986,6 +3023,17 @@ def admin_status_payload() -> dict[str, Any]:
     }
 
 
+def auth_status_payload(session: dict[str, str] | None) -> dict[str, Any]:
+    if not session:
+        return {"ok": True, "authenticated": False, "session": None, "admin": admin_status_payload()}
+    return {
+        "ok": True,
+        "authenticated": True,
+        "session": {"email": session.get("email"), "role": session.get("role")},
+        "admin": admin_status_payload(),
+    }
+
+
 def request_admin_login_code(payload: dict[str, Any]) -> dict[str, Any]:
     requested_email = str(payload.get("email") or "").strip().lower()
     allowed_email = admin_login_email()
@@ -4279,6 +4327,28 @@ INDEX_HTML = f"""<!doctype html>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+  <section id="loginScreen" class="loginScreen">
+    <div class="loginTop">
+      <div class="brand loginBrand">
+        <span class="mark">TR</span>
+        <div>
+          <h1>Tender Radar</h1>
+          <p>Δημόσια έργα <span class="versionBadge">v{__version__}</span></p>
+        </div>
+      </div>
+    </div>
+    <div class="loginCard">
+      <p class="eyebrow">Private Access</p>
+      <h2>Σύνδεση Tender Radar</h2>
+      <p class="loginIntro">Συνδέσου με το email και το password σου για να συνεχίσεις.</p>
+      <label>Email <input id="loginEmailInput" type="email" autocomplete="email" placeholder="you@example.com"></label>
+      <label>Password <input id="loginPasswordInput" type="password" autocomplete="current-password" placeholder="Password"></label>
+      <button id="loginBtn" class="loginButton">Σύνδεση <span aria-hidden="true">→</span></button>
+      <p id="loginStatus" class="noteText"></p>
+    </div>
+  </section>
+
+  <div id="appShell" class="appShell" hidden>
   <aside class="sidebar">
     <div class="brand">
       <span class="mark">TR</span>
@@ -4290,7 +4360,7 @@ INDEX_HTML = f"""<!doctype html>
     <nav>
       <button class="nav active" data-view="overview">Αναζήτηση</button>
       <button class="nav" data-view="rules">Κανόνες</button>
-      <button class="nav" data-view="adminPanel">Admin panel</button>
+      <button id="adminNavBtn" class="nav" data-view="adminPanel">Admin panel</button>
       <button class="nav" data-view="reports">Αρχεία</button>
     </nav>
   </aside>
@@ -4301,7 +4371,10 @@ INDEX_HTML = f"""<!doctype html>
         <h2>Διαγωνισμοί που αξίζει να κοιτάξεις πρώτα</h2>
         <p id="statusText">Έτοιμο</p>
       </div>
-      <button id="refreshBtn" class="secondary">Ανανέωση</button>
+      <div class="topbarActions">
+        <button id="refreshBtn" class="secondary">Ανανέωση</button>
+        <button id="appLogoutTopBtn" class="secondary">Αποσύνδεση</button>
+      </div>
     </header>
 
     <section id="overview" class="view active">
@@ -4478,26 +4551,17 @@ INDEX_HTML = f"""<!doctype html>
     </section>
 
     <section id="adminPanel" class="view">
-      <div class="toolbar adminLoginBox" id="adminLoginBox">
-        <label>Email <input id="adminEmailInput" type="email" autocomplete="email" placeholder="xrgeorg@gmail.com"></label>
-        <button id="adminCodeBtn" class="secondary">Αποστολή κωδικού</button>
-        <label>Κωδικός <input id="adminCodeInput" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6 ψηφία"></label>
-        <button id="adminVerifyCodeBtn">Σύνδεση με κωδικό</button>
-        <label>Admin password <input id="adminPasswordInput" type="password" autocomplete="current-password" placeholder="Password"></label>
-        <button id="adminLoginBtn" class="secondary">Σύνδεση με password</button>
-        <button id="adminPasswordSetupBtn" class="secondary">Στείλε link δημιουργίας password</button>
-        <span id="adminLoginStatus" class="noteText">Απαιτείται σύνδεση για audit και επαναφορές.</span>
-      </div>
       <div class="toolbar passwordSetupBox" id="passwordSetupBox" hidden>
         <label>Νέο password <input id="setupPasswordInput" type="password" autocomplete="new-password" placeholder="Τουλάχιστον 10 χαρακτήρες"></label>
         <label>Επανάληψη <input id="setupPasswordConfirmInput" type="password" autocomplete="new-password"></label>
         <button id="setupPasswordBtn">Ορισμός password</button>
         <span id="setupPasswordStatus" class="noteText">Το link ισχύει για 24 ώρες.</span>
       </div>
+      <div id="adminLockedBox" class="note" hidden>Το admin panel είναι διαθέσιμο μόνο σε διαχειριστή.</div>
       <div id="adminContent" class="adminContent" hidden>
         <div class="toolbar">
           <button id="adminRefreshBtn">Ανανέωση admin audit</button>
-          <button id="adminLogoutBtn" class="secondary">Αποσύνδεση</button>
+          <button id="appLogoutBtn" class="secondary">Αποσύνδεση</button>
         </div>
         <div class="toolbar adminInviteBox">
           <label>Πρόσκληση email <input id="inviteEmailInput" type="email" placeholder="user@example.com"></label>
@@ -4560,6 +4624,7 @@ INDEX_HTML = f"""<!doctype html>
       <p class="note">Οι υποψήφιοι μένουν candidate-only μέχρι να γίνει fetch του επίσημου detail resource.</p>
     </section>
   </main>
+  </div>
   <div id="busyOverlay" class="busyOverlay" aria-live="polite" aria-hidden="true">
     <div class="busyPanel">
       <div class="radarPulse"><span></span></div>
@@ -4589,13 +4654,76 @@ STYLES_CSS = """
 * { box-sizing: border-box; }
 body {
   margin: 0;
-  display: grid;
-  grid-template-columns: 248px 1fr;
   min-height: 100vh;
   background: var(--bg);
   color: var(--text);
   font-family: Segoe UI, system-ui, -apple-system, sans-serif;
   font-size: 14px;
+}
+.appShell {
+  display: grid;
+  grid-template-columns: 248px 1fr;
+  min-height: 100vh;
+}
+[hidden] { display: none !important; }
+.loginScreen {
+  min-height: 100vh;
+  display: grid;
+  align-content: start;
+  gap: 76px;
+  padding: 28px;
+  background:
+    linear-gradient(rgba(255,255,255,.72), rgba(255,255,255,.72)),
+    linear-gradient(90deg, rgba(15,23,42,.06) 1px, transparent 1px),
+    linear-gradient(rgba(15,23,42,.06) 1px, transparent 1px);
+  background-size: auto, 28px 28px, 28px 28px;
+}
+.loginTop {
+  width: min(860px, 100%);
+  margin: 0 auto;
+}
+.loginBrand {
+  width: fit-content;
+  padding: 0;
+  color: var(--text);
+}
+.loginBrand .mark {
+  background: #1f2933;
+  color: #f8fafc;
+  border-radius: 999px;
+}
+.loginCard {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 20px;
+  margin: 0 auto;
+  padding: 34px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255,255,255,.92);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, .08);
+}
+.loginCard h2 {
+  font-size: 34px;
+}
+.loginIntro {
+  max-width: 420px;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.6;
+}
+.loginCard input {
+  min-width: 0;
+  width: 100%;
+  min-height: 50px;
+}
+.loginButton {
+  min-height: 66px;
+  justify-content: space-between;
+  padding: 0 26px;
+  border-radius: 12px;
+  background: #0f766e;
+  font-size: 18px;
 }
 .sidebar {
   background: #1f2933;
@@ -4675,6 +4803,12 @@ main { padding: 22px; min-width: 0; }
   gap: 16px;
   align-items: center;
   margin-bottom: 18px;
+}
+.topbarActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: end;
 }
 .view { display: none; }
 .view.active { display: block; }
@@ -5161,7 +5295,7 @@ h3 {
   50% { transform: scale(1.28); opacity: .45; }
 }
 @media (max-width: 820px) {
-  body { grid-template-columns: 1fr; }
+  .appShell { grid-template-columns: 1fr; }
   .sidebar { position: static; }
   nav { grid-template-columns: repeat(4, 1fr); }
   main { padding: 14px; }
@@ -5177,6 +5311,75 @@ h3 {
   }
   .editorGrid .wide {
     grid-column: auto;
+  }
+  .loginScreen {
+    gap: 54px;
+    padding: 22px;
+  }
+  .loginCard {
+    padding: 28px 24px;
+    border-radius: 16px;
+  }
+  .loginCard h2 {
+    font-size: 29px;
+  }
+  .workspace {
+    display: block;
+  }
+  .tableWrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+  table,
+  .tenderTable,
+  .adminTable,
+  .sourceAuditTable {
+    min-width: 0;
+  }
+  .tenderTable thead {
+    display: none;
+  }
+  .tenderTable,
+  .tenderTable tbody,
+  .tenderTable tr,
+  .tenderTable td {
+    display: block;
+    width: 100%;
+  }
+  .tenderTable tr {
+    margin-bottom: 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+    overflow: hidden;
+  }
+  .tenderTable td {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 12px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #eef2f6;
+    white-space: normal;
+  }
+  .tenderTable td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+  .tenderTitle,
+  .authorityCell {
+    max-width: none;
+  }
+  .deadlineCell,
+  .budgetCell {
+    white-space: normal;
+  }
+  .previewPane {
+    position: static;
+    margin-top: 14px;
   }
 }
 """
@@ -5194,6 +5397,7 @@ const state = {
   evaluationConfig: null,
   selectedRuleId: null,
   adminAudit: null,
+  session: null,
 };
 const $ = (id) => document.getElementById(id);
 
@@ -5210,11 +5414,12 @@ document.querySelectorAll('.nav').forEach((button) => {
 
 const setupToken = new URLSearchParams(window.location.search).get('token');
 if (window.location.pathname === '/password-setup' && setupToken) {
+  $('loginScreen').hidden = true;
+  $('appShell').hidden = false;
   document.querySelectorAll('.nav, .view').forEach((el) => el.classList.remove('active'));
   document.querySelector('[data-view="adminPanel"]').classList.add('active');
   $('adminPanel').classList.add('active');
   $('passwordSetupBox').hidden = false;
-  $('adminLoginBox').hidden = true;
 }
 
 async function api(path, options = {}) {
@@ -5256,6 +5461,7 @@ function setBusy(isBusy, text = 'Έτοιμο') {
 }
 
 async function refresh() {
+  if (!state.session && window.location.pathname !== '/password-setup') return;
   const status = await api('/api/status');
   state.profiles = status.profiles || [];
   state.evaluationProfiles = status.evaluation_profiles || [];
@@ -5308,27 +5514,17 @@ async function adminApi(path, options = {}) {
 }
 
 async function adminLogin() {
-  const email = $('adminEmailInput').value;
-  const password = $('adminPasswordInput').value;
-  $('adminLoginStatus').textContent = 'Έλεγχος σύνδεσης...';
+  const email = $('loginEmailInput').value;
+  const password = $('loginPasswordInput').value;
+  $('loginStatus').textContent = 'Έλεγχος σύνδεσης...';
   try {
-    await adminApi('/api/admin/login', { method: 'POST', body: JSON.stringify({ email, password }) });
-    $('adminPasswordInput').value = '';
-    $('adminLoginStatus').textContent = 'Συνδέθηκε.';
-    await loadAdminAudit();
+    const payload = await adminApi('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+    $('loginPasswordInput').value = '';
+    applySession(payload.session || null);
+    $('loginStatus').textContent = 'Συνδέθηκε.';
+    await refresh();
   } catch (error) {
-    $('adminLoginStatus').textContent = String(error.message || error);
-  }
-}
-
-async function adminRequestPasswordSetup() {
-  const email = $('adminEmailInput').value;
-  $('adminLoginStatus').textContent = 'Στέλνω link δημιουργίας password...';
-  try {
-    await adminApi('/api/admin/request-password-setup', { method: 'POST', body: JSON.stringify({ email }) });
-    $('adminLoginStatus').textContent = 'Το link δημιουργίας password στάλθηκε στο email.';
-  } catch (error) {
-    $('adminLoginStatus').textContent = String(error.message || error);
+    $('loginStatus').textContent = String(error.message || error);
   }
 }
 
@@ -5346,7 +5542,9 @@ async function setupPassword() {
     $('setupPasswordConfirmInput').value = '';
     $('setupPasswordStatus').textContent = 'Το password ορίστηκε.';
     window.history.replaceState({}, document.title, '/');
-    await loadAdminAudit();
+    const auth = await api('/api/auth/status');
+    applySession(auth.session || null);
+    await refresh();
   } catch (error) {
     $('setupPasswordStatus').textContent = String(error.message || error);
   }
@@ -5387,51 +5585,54 @@ async function loadAdminUsers() {
   }
 }
 
-async function adminRequestCode() {
-  const email = $('adminEmailInput').value;
-  $('adminLoginStatus').textContent = 'Στέλνω κωδικό σύνδεσης...';
-  try {
-    await adminApi('/api/admin/request-code', { method: 'POST', body: JSON.stringify({ email }) });
-    $('adminLoginStatus').textContent = 'Ο κωδικός στάλθηκε στο email.';
-  } catch (error) {
-    $('adminLoginStatus').textContent = String(error.message || error);
-  }
-}
-
-async function adminVerifyCode() {
-  const email = $('adminEmailInput').value;
-  const code = $('adminCodeInput').value;
-  $('adminLoginStatus').textContent = 'Έλεγχος κωδικού...';
-  try {
-    await adminApi('/api/admin/verify-code', { method: 'POST', body: JSON.stringify({ email, code }) });
-    $('adminCodeInput').value = '';
-    $('adminLoginStatus').textContent = 'Συνδέθηκε.';
-    await loadAdminAudit();
-  } catch (error) {
-    $('adminLoginStatus').textContent = String(error.message || error);
-  }
-}
-
 async function adminLogout() {
-  await adminApi('/api/admin/logout', { method: 'POST', body: JSON.stringify({}) });
+  await adminApi('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) });
   state.adminAudit = null;
+  state.session = null;
+  $('appShell').hidden = true;
+  $('loginScreen').hidden = false;
   $('adminContent').hidden = true;
-  $('adminLoginBox').hidden = false;
-  $('adminLoginStatus').textContent = 'Αποσυνδέθηκε.';
+  $('adminLockedBox').hidden = true;
+  $('loginStatus').textContent = 'Αποσυνδέθηκε.';
 }
 
 async function loadAdminAudit() {
+  if (!state.session || state.session.role !== 'admin') {
+    $('adminContent').hidden = true;
+    $('adminLockedBox').hidden = false;
+    return;
+  }
   try {
     const payload = await adminApi('/api/admin/audit');
     state.adminAudit = payload;
-    $('adminLoginBox').hidden = true;
+    $('adminLockedBox').hidden = true;
     $('adminContent').hidden = false;
     renderAdminAudit(payload);
     await loadAdminUsers();
   } catch (error) {
     $('adminContent').hidden = true;
-    $('adminLoginBox').hidden = false;
-    $('adminLoginStatus').textContent = 'Απαιτείται σύνδεση για audit και επαναφορές.';
+    $('adminLockedBox').hidden = false;
+  }
+}
+
+async function loadAuthStatus() {
+  const auth = await api('/api/auth/status');
+  applySession(auth.session || null);
+  if (state.session) {
+    await refresh();
+  }
+}
+
+function applySession(session) {
+  state.session = session;
+  const isLoggedIn = Boolean(session);
+  $('loginScreen').hidden = isLoggedIn;
+  $('appShell').hidden = !isLoggedIn;
+  $('adminNavBtn').hidden = !session || session.role !== 'admin';
+  if (isLoggedIn && session.role !== 'admin' && $('adminPanel').classList.contains('active')) {
+    document.querySelectorAll('.nav, .view').forEach((el) => el.classList.remove('active'));
+    document.querySelector('[data-view="overview"]').classList.add('active');
+    $('overview').classList.add('active');
   }
 }
 
@@ -5596,13 +5797,13 @@ function renderDashboard(payload) {
     tr.dataset.key = rowKey;
     if (state.selected === rowKey) tr.classList.add('selectedRow');
     tr.innerHTML = `
-      <td><strong>${escapeHtml(tender.display_id || tender.eshidis_id || '')}</strong></td>
-      <td>${escapeHtml(tender.source_label || '')}</td>
-      <td class="tenderTitle">${escapeHtml(tender.title || '')}${tender.interest_reason ? `<span class="pill">${escapeHtml(tender.interest_reason)}</span>` : ''}${officialStatusText}${linkedText}${aiText}</td>
-      <td class="authorityCell">${escapeHtml(tender.authority_name || '')}</td>
-      <td class="budgetCell">${escapeHtml(tender.budget_display || '')}</td>
-      <td class="deadlineCell">${escapeHtml(tender.deadline_display || '')}</td>
-      <td>
+      <td data-label="Α/Α"><strong>${escapeHtml(tender.display_id || tender.eshidis_id || '')}</strong></td>
+      <td data-label="Πηγή">${escapeHtml(tender.source_label || '')}</td>
+      <td data-label="Έργο" class="tenderTitle">${escapeHtml(tender.title || '')}${tender.interest_reason ? `<span class="pill">${escapeHtml(tender.interest_reason)}</span>` : ''}${officialStatusText}${linkedText}${aiText}</td>
+      <td data-label="Φορέας" class="authorityCell">${escapeHtml(tender.authority_name || '')}</td>
+      <td data-label="Προϋπολογισμός" class="budgetCell">${escapeHtml(tender.budget_display || '')}</td>
+      <td data-label="Λήξη" class="deadlineCell">${escapeHtml(tender.deadline_display || '')}</td>
+      <td data-label="Ενέργειες">
         <div class="actionStack">
           <a class="button secondary tinyButton" href="${escapeHtml(officialHref)}" target="_blank" rel="noreferrer">${linkLabel}</a>
           ${(isEshidis || isKimdis || isAuthority || preferredEshidis) ? `<button class="tinyButton fetchTender" data-key="${escapeHtml(rowKey)}" data-id="${escapeHtml(fetchIdentifier)}">Fetch</button>` : ''}
@@ -6031,6 +6232,10 @@ function deleteRule() {
   $('rulesStatus').textContent = 'Rule removed locally. Press Save Rules to write it.';
 }
 
+$('loginBtn').addEventListener('click', () => adminLogin().catch((error) => { $('loginStatus').textContent = String(error); }));
+$('loginPasswordInput').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') adminLogin().catch((error) => { $('loginStatus').textContent = String(error); });
+});
 $('refreshBtn').addEventListener('click', refresh);
 $('allGreeceToggle').addEventListener('change', () => loadDashboard().catch((error) => { $('statusText').textContent = String(error); }));
 $('sortSelect').addEventListener('change', () => loadDashboard().catch((error) => { $('statusText').textContent = String(error); }));
@@ -6061,22 +6266,15 @@ $('applyRuleBtn').addEventListener('click', () => {
 });
 $('newRuleBtn').addEventListener('click', newRule);
 $('deleteRuleBtn').addEventListener('click', deleteRule);
-$('adminCodeBtn').addEventListener('click', () => adminRequestCode().catch((error) => { $('adminLoginStatus').textContent = String(error); }));
-$('adminVerifyCodeBtn').addEventListener('click', () => adminVerifyCode().catch((error) => { $('adminLoginStatus').textContent = String(error); }));
-$('adminLoginBtn').addEventListener('click', () => adminLogin().catch((error) => { $('adminLoginStatus').textContent = String(error); }));
-$('adminPasswordSetupBtn').addEventListener('click', () => adminRequestPasswordSetup().catch((error) => { $('adminLoginStatus').textContent = String(error); }));
 $('setupPasswordBtn').addEventListener('click', () => setupPassword().catch((error) => { $('setupPasswordStatus').textContent = String(error); }));
 $('inviteUserBtn').addEventListener('click', () => inviteUser().catch((error) => { $('inviteStatus').textContent = String(error); }));
-$('adminPasswordInput').addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') adminLogin().catch((error) => { $('adminLoginStatus').textContent = String(error); });
-});
-$('adminCodeInput').addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') adminVerifyCode().catch((error) => { $('adminLoginStatus').textContent = String(error); });
-});
-$('adminRefreshBtn').addEventListener('click', () => loadAdminAudit().catch((error) => { $('adminLoginStatus').textContent = String(error); }));
-$('adminLogoutBtn').addEventListener('click', () => adminLogout().catch((error) => { $('adminLoginStatus').textContent = String(error); }));
+$('adminRefreshBtn').addEventListener('click', () => loadAdminAudit().catch(() => {}));
+$('appLogoutBtn').addEventListener('click', () => adminLogout().catch((error) => { $('loginStatus').textContent = String(error); }));
+$('appLogoutTopBtn').addEventListener('click', () => adminLogout().catch((error) => { $('loginStatus').textContent = String(error); }));
 
-refresh().catch((error) => { $('statusText').textContent = String(error); });
+if (window.location.pathname !== '/password-setup') {
+  loadAuthStatus().catch((error) => { $('loginStatus').textContent = String(error); });
+}
 """
 
 

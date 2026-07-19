@@ -568,3 +568,14 @@ The configured owner email becomes `admin`. Admins may invite additional
 `user` or `admin` accounts from the Admin panel. `user` accounts do not gain
 admin audit/restore/invite permissions. The previous email one-time code login
 and runtime env password remain as owner/emergency fallback paths.
+
+## D-054 - The daily UI is private by default
+**Status:** Accepted
+
+Tender Radar's dashboard and action APIs require an authenticated local UI
+session. The public HTML shell may be served so users can log in, but
+dashboard data, source polling details, document previews, fetch/zip actions,
+dismissals and reports are not available without a session.
+
+SQLite users created through invite/password setup may access the main app.
+Only role `admin` may access audit, restore and user invitation controls.
