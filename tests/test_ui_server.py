@@ -69,7 +69,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.35" in INDEX_HTML
+    assert "v0.1.36" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -367,6 +367,24 @@ def test_admin_invite_accepts_tester_role(tmp_path, monkeypatch) -> None:
     assert user.role == "tester"
 
 
+def test_admin_invite_accepts_pricing_role(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    monkeypatch.setattr(ui_server, "runtime_db_path", lambda: db_path)
+    monkeypatch.setattr(ui_server, "send_email_alert", lambda recipient, subject, text_body, html_body: None)
+    monkeypatch.setattr(ui_server.secrets, "token_urlsafe", lambda size=32: "pricing-token")
+
+    result = ui_server.invite_admin_user(
+        {"email": "pricing@example.test", "role": "pricing"},
+        inviter="owner@example.test",
+        base_url="https://example.test",
+    )
+    user = ui_server.get_admin_user(db_path, "pricing@example.test")
+
+    assert result["role"] == "pricing"
+    assert user is not None
+    assert user.role == "pricing"
+
+
 def test_update_admin_user_role_accepts_email_or_id_and_protects_last_admin(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "runtime.sqlite"
     monkeypatch.setattr(ui_server, "runtime_db_path", lambda: db_path)
@@ -408,6 +426,8 @@ def test_admin_users_ui_has_id_and_mobile_labels() -> None:
     assert "adminUsersTableWrap" in INDEX_HTML
     assert 'id="roleUserIdentifierInput"' in INDEX_HTML
     assert 'id="updateUserRoleBtn"' in INDEX_HTML
+    assert 'id="pricingNavBtn"' in INDEX_HTML
+    assert 'value="pricing"' in INDEX_HTML
     assert 'data-label="ID"' in APP_JS
     assert "userIdBadge" in APP_JS
     assert ".adminUsersTable" in STYLES_CSS

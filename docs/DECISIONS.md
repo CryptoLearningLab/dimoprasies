@@ -816,3 +816,24 @@ Password setup and reset links now expire after 60 minutes. A link is marked
 used only after a successful password set, not merely when the page is opened,
 so mobile refreshes or accidental previews do not burn the token before the
 user completes the form.
+
+## D-071 - Reverse pricing is isolated from local tender monitoring
+**Status:** Accepted
+
+The reverse-pricing / article-intelligence feature is a separate module with
+its own SQLite tables, role gate and future automation path. It must not reuse
+or mutate the local public-works dashboard state except for shared auth and
+explicit read-only compatibility where needed.
+
+The first source of truth for this module is nationwide active ESHIDIS public
+works. KIMDIS and authority pages may later be used as auxiliary discovery
+signals, but only after the ESHIDIS-only path passes smoke tests.
+
+Heavy fetched documents for reverse pricing are temporary extraction inputs.
+After text and structured budget rows are persisted, PDF/ZIP payloads should
+be deleted the same day unless an explicit operator/debug run asks to retain
+them.
+
+The six-hour cron must not run the new reverse-pricing workflow until the
+manual controlled fetcher, budget parser, cleanup and UI smoke gates are all
+passing.

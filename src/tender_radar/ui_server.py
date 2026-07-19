@@ -77,6 +77,7 @@ from tender_radar.documents import analyze_document
 from tender_radar.entalmata import archived_entalmata_count, entalma_file_path, list_entalmata, scan_entalmata
 from tender_radar.evaluation import normalize_evaluation_config, save_evaluation_config
 from tender_radar.ai_triage import AI_TRIAGE_PROMPT_VERSION
+from tender_radar.pricing import search_pricing_rows
 from tender_radar.sources.expanded_report import classify_public_works_candidate_dict
 from tender_radar.sources.kimdis_connected_acts import fetch_kimdis_connected_acts
 from tender_radar.sources.kimdis_fetch import extract_eshidis_ids_from_text
@@ -89,7 +90,7 @@ DEFAULT_ESHIDIS_DISCOVERY_LIMIT = 100
 DEFAULT_KIMDIS_DISCOVERY_PAGES = 20
 DEFAULT_SCHEDULED_AUTO_FETCH_SECONDS = 20
 DEFAULT_AUTHORITY_LIMIT_PER_SOURCE = 10
-ADMIN_USER_ROLES = ("admin", "tester", "user")
+ADMIN_USER_ROLES = ("admin", "pricing", "tester", "user")
 PASSWORD_SETUP_TOKEN_TTL_MINUTES = 60
 MAX_BACKFILL_ESHIDIS_LIMIT = 500
 MAX_BACKFILL_KIMDIS_PAGES = 80
@@ -349,6 +350,13 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/reverse-search":
                 session = self._admin_session() or {}
                 self._send_json(reverse_search_payload(payload, user_email=session.get("email")))
+                return
+            if parsed.path == "/api/pricing/search":
+                session = self._admin_session()
+                if not session or session.get("role") not in {"admin", "pricing"}:
+                    self._send_json({"ok": False, "error": "Pricing access required."}, status=403)
+                    return
+                self._send_json(pricing_search_payload(payload))
                 return
             if parsed.path == "/api/entalmata/scan":
                 self._send_json(start_job("entalmata-scan", run_entalmata_scan), status=202)
@@ -3643,6 +3651,20 @@ def reverse_search_payload(payload: dict[str, Any], *, user_email: str | None = 
     }
 
 
+def pricing_search_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    query = str(payload.get("query") or "").strip()
+    if len(query) < 2:
+        return {
+            "ok": True,
+            "query": query,
+            "summary": {"matches": 0},
+            "results": [],
+            "empty_message": "Γράψε άρθρο, περιγραφή ή κωδικό αναθεώρησης.",
+        }
+    limit = min(max(int(payload.get("limit") or 50), 1), 200)
+    return search_pricing_rows(runtime_db_path(), query, limit=limit)
+
+
 def reverse_search_documents_by_eshidis(rows: list[dict[str, Any]]) -> dict[str, list[Any]]:
     eshidis_ids = {
         str(row.get("eshidis_id") or row.get("display_id") or "").strip()
@@ -4379,7 +4401,7 @@ def create_password_setup_invite(*, email: str, role: str, created_by: str | Non
 
 
 def send_password_setup_email(email: str, link: str, *, role: str) -> None:
-    role_label = {"admin": "διαχειριστής", "tester": "δοκιμαστής"}.get(role, "χρήστης")
+    role_label = {"admin": "διαχειριστής", "pricing": "τιμολόγηση", "tester": "δοκιμαστής"}.get(role, "χρήστης")
     text_body = (
         "Έχεις πρόσκληση στο Tender Radar.\n\n"
         f"Ρόλος: {role_label}\n"
@@ -5904,7 +5926,7 @@ INDEX_HTML = f"""<!doctype html>
     </div>
     <nav>
       <button class="nav active" data-view="overview">Δημόσια<br>έργα</button>
-      <button class="nav" data-view="workflow">Αντίστροφη<br>αναζήτηση</button>
+      <button id="pricingNavBtn" class="nav" data-view="workflow">Αντίστροφη<br>αναζήτηση</button>
       <button class="nav" data-view="entalmata">Εντάλματα</button>
       <button id="adminNavBtn" class="nav" data-view="adminPanel">Admin<br>panel</button>
     </nav>
@@ -6132,6 +6154,7 @@ INDEX_HTML = f"""<!doctype html>
           <label>Ρόλος
             <select id="inviteRoleInput">
               <option value="user">user</option>
+              <option value="pricing">pricing</option>
               <option value="tester">tester</option>
               <option value="admin">admin</option>
             </select>
@@ -6144,6 +6167,7 @@ INDEX_HTML = f"""<!doctype html>
           <label>Νέος ρόλος
             <select id="roleUpdateInput">
               <option value="user">user</option>
+              <option value="pricing">pricing</option>
               <option value="tester">tester</option>
               <option value="admin">admin</option>
             </select>
@@ -7576,7 +7600,13 @@ function applySession(session) {
   $('loginScreen').hidden = isLoggedIn;
   $('appShell').hidden = !isLoggedIn;
   $('adminNavBtn').hidden = !session || session.role !== 'admin';
+  $('pricingNavBtn').hidden = !session || !['admin', 'pricing'].includes(session.role);
   if (isLoggedIn && session.role !== 'admin' && $('adminPanel').classList.contains('active')) {
+    document.querySelectorAll('.nav, .view').forEach((el) => el.classList.remove('active'));
+    document.querySelector('[data-view="overview"]').classList.add('active');
+    $('overview').classList.add('active');
+  }
+  if (isLoggedIn && !['admin', 'pricing'].includes(session.role) && $('workflow').classList.contains('active')) {
     document.querySelectorAll('.nav, .view').forEach((el) => el.classList.remove('active'));
     document.querySelector('[data-view="overview"]').classList.add('active');
     $('overview').classList.add('active');

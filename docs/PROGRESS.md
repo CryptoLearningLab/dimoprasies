@@ -3426,6 +3426,50 @@ email dry-run after entalmata send:
   entalmata_skipped_already_sent 5
 ```
 
+### Local v0.1.36 Reverse pricing foundation
+
+- The runtime/UI version was bumped from `0.1.35` to `0.1.36`.
+- Added the new `pricing` user role. `admin` retains access to everything,
+  `pricing` is intended for the reverse-pricing module, and plain `user`
+  remains scoped to the existing ready workflows.
+- Added an independent reverse-pricing SQLite foundation in
+  `src/tender_radar/pricing.py`: `pricing_projects`, `pricing_documents`,
+  `pricing_budget_rows`, `pricing_article_aliases` and `pricing_runs`.
+- Added deterministic article/revision normalization for variants such as
+  `Β-18.6`, `B18.6`, `Ο∆Ο-2312` and `ΟΔΟ-2312`.
+- Added budget PDF ingestion/parsing via
+  `tender-radar pricing parse-budget --pdf ... --eshidis-id ...`.
+- Added read-only indexed pricing search via
+  `tender-radar pricing search ...` and `/api/pricing/search`.
+- The first parser gate was tested against the uploaded budget PDF fixture.
+  It extracted `66` budget rows. The critical fixture row is parsed as
+  `Β-18.6`, `Φράκτης απορρόφησης ενεργείας μέχρι 2000 kJ ύψους 5 m`,
+  revisions `30%ΟΔΟ-2312`, `40%ΟΔΟ-2653`, `30%ΟΔΟ-2311`, unit `m`,
+  quantity `100`, unit price `1680`, amount `168000`.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/pricing.py src/tender_radar/ui_server.py src/tender_radar/cli.py
+# passed
+
+.venv/bin/python -m pytest tests/test_pricing.py tests/test_ui_server.py -q
+# 120 passed in 13.06s
+
+.venv/bin/python -m tender_radar pricing parse-budget \
+  --pdf /tmp/codex-remote-attachments/.../1-2_-προυπολογισμός-4.pdf.pdf \
+  --eshidis-id 221314 \
+  --db /tmp/tender_pricing_smoke.sqlite \
+  --report /tmp/tender_pricing_smoke.json
+# ok true, rows_extracted 66, B18.6 row parsed correctly
+
+.venv/bin/python -m pytest -q
+# 230 passed in 18.94s
+```
+
+Cron remains intentionally unchanged for the new reverse-pricing flow until
+the controlled nationwide ESHIDIS fetcher, same-day cleanup and UI smoke pass.
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

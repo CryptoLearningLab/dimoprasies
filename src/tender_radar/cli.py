@@ -26,6 +26,7 @@ from tender_radar.documents import analyze_document, render_markdown_report
 from tender_radar.evaluation import evaluate_documents, load_evaluation_profile, render_evaluation_markdown
 from tender_radar.logging_config import configure_logging
 from tender_radar.matching import load_search_profile, match_profile, render_search_markdown
+from tender_radar.pricing import ingest_pricing_budget_pdf, search_pricing_rows
 from tender_radar.sources.eshidis import (
     EshidisAttachmentListing,
     health_check,
@@ -157,6 +158,21 @@ def build_parser() -> argparse.ArgumentParser:
     entalmata_scan.add_argument("--download-dir", default="work/download_audit/diavgeia_entalmata", help="PDF storage path.")
     entalmata_scan.add_argument("--report", default="work/reports/diavgeia_entalmata_latest.json", help="JSON report output path.")
     entalmata_scan.add_argument("--max-pages", type=int, default=None, help="Override configured Diavgeia pages per organization for one run.")
+
+    pricing_parser = subparsers.add_parser("pricing", help="Nationwide reverse-pricing commands.")
+    pricing_sub = pricing_parser.add_subparsers(dest="pricing_command")
+    pricing_parse = pricing_sub.add_parser(
+        "parse-budget",
+        help="Extract structured budget rows from one budget PDF into the pricing tables.",
+    )
+    pricing_parse.add_argument("--pdf", required=True, help="Budget PDF path.")
+    pricing_parse.add_argument("--eshidis-id", required=True, help="ESHIDIS id for the pricing project.")
+    pricing_parse.add_argument("--db", default="data/tender_radar.sqlite", help="SQLite database path.")
+    pricing_parse.add_argument("--report", default=None, help="JSON report output path.")
+    pricing_search = pricing_sub.add_parser("search", help="Search indexed pricing rows.")
+    pricing_search.add_argument("query", help="Article, description or revision code.")
+    pricing_search.add_argument("--db", default="data/tender_radar.sqlite", help="SQLite database path.")
+    pricing_search.add_argument("--limit", type=int, default=50)
 
     sources_parser = subparsers.add_parser("sources", help="Source audit commands.")
     sources_sub = sources_parser.add_subparsers(dest="sources_command")
@@ -427,6 +443,10 @@ def main(argv: list[str] | None = None) -> int:
         return _status_verify(args)
     if args.command == "entalmata" and args.entalmata_command == "scan":
         return _entalmata_scan(args)
+    if args.command == "pricing" and args.pricing_command == "parse-budget":
+        return _pricing_parse_budget(args)
+    if args.command == "pricing" and args.pricing_command == "search":
+        return _pricing_search(args)
     if args.command == "sources" and args.sources_command == "health":
         return _sources_health(args.allow_insecure_tls)
     if args.command == "sources" and args.sources_command == "audit-whitelist":
@@ -478,6 +498,27 @@ def _db_init(db_path: Path) -> int:
     initialize(db_path)
     _emit_json({"db_path": str(db_path), "initialized": True})
     return 0
+
+
+def _pricing_parse_budget(args: argparse.Namespace) -> int:
+    payload = ingest_pricing_budget_pdf(
+        Path(args.db),
+        eshidis_id=str(args.eshidis_id),
+        pdf_path=Path(args.pdf),
+    )
+    if args.report:
+        report_path = Path(args.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = {**payload, "report_path": str(report_path)}
+    _emit_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def _pricing_search(args: argparse.Namespace) -> int:
+    payload = search_pricing_rows(Path(args.db), str(args.query), limit=int(args.limit))
+    _emit_json(payload)
+    return 0 if payload.get("ok") else 1
 
 
 def _runtime_scheduled_run(args: argparse.Namespace) -> int:

@@ -796,6 +796,12 @@ The system `python` command is not present in the remote environment; use
   `v0.1.35`. A real email-alert stage sent the 5 visible entalmata to all four
   configured recipients and recorded 20 `entalmata_email` notifications; a
   follow-up dry-run reports `new_entalmata_count 0`.
+- Local `v0.1.36` starts the independent reverse-pricing foundation. It adds
+  the `pricing` role, pricing-specific SQLite tables, a deterministic budget
+  PDF parser and `tender-radar pricing parse-budget/search` CLI commands. The
+  uploaded budget fixture parses `Β-18.6` correctly with description,
+  revision split `30/40/30`, unit, quantity, unit price and amount. Full local
+  suite passed with `230 passed`. The new workflow is not attached to cron.
 
 ## Next Work
 
@@ -803,6 +809,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Promote the reverse content search from scaffold to persisted SQLite FTS-backed
-search over extracted document text, while preserving the read-only/no-discovery
-behavior.
+Implement a manual, bounded, nationwide ESHIDIS-only pricing fetcher that
+stores active projects and extracted budget rows in the pricing tables, deletes
+heavy PDF/ZIP payloads after extraction, and remains disconnected from cron
+until a manual smoke passes.

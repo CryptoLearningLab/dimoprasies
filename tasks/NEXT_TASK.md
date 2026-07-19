@@ -1,75 +1,63 @@
 # NEXT TASK
 
 Execute:
-`Implement SQLite FTS-backed reverse content search`
+`Implement controlled nationwide ESHIDIS pricing fetcher`
 
 ## Current Input
 
-Local version `0.1.35` keeps the second tab scaffolded and includes the cleanup
-and notification gates before FTS:
+Local version `0.1.36` starts the independent reverse-pricing foundation:
 
-- per-user `Δεν με ενδιαφέρει` dismissals in SQLite,
-- password reset through setup-token links,
-- password setup/reset links tightened to a 60-minute one-time window,
-- login footer terms/privacy/help,
-- cleaner discovery/audit UI copy,
-- mobile label/value spacing improvements.
-- scheduled entalmata scanning and clickable entalmata email alerts with
-  independent per-recipient de-duplication.
+- `admin`, `pricing`, `tester`, `user` roles are accepted.
+- `pricing` is reserved for the reverse-pricing module.
+- New independent SQLite tables exist for pricing projects, documents, budget
+  rows, article aliases and pricing runs.
+- `tender-radar pricing parse-budget` extracts structured rows from a budget
+  PDF into SQLite.
+- The uploaded budget fixture was parsed successfully, including `Β-18.6`:
+  description, revision split `30/40/30`, unit `m`, quantity `100`, unit price
+  `1680`, amount `168000`.
+- Full local suite passed: `230 passed`.
 
-Version `0.1.32` scaffolded the second tab
-`Αντίστροφη αναζήτηση` from `docs/PRODUCT_SPECIFICATION.md`
-`MODE B — Αντίστροφη αναζήτηση περιεχομένου`.
-
-Implemented in the current gate:
-
-- A simple product-facing search form in the second tab.
-- `/api/reverse-search` as a fast read-only backend route.
-- Results are constrained to currently visible active dashboard rows.
-- Matching currently checks dashboard metadata, document evidence snippets and
-  already extracted ESHIDIS document text from SQLite `documents.text_path` /
-  `text_sample`.
-- The route does not trigger discovery, source polling, document fetch, OCR,
-  AI triage or candidate enrichment.
-- Existing one-off technical tools remain collapsed under
-  `Εργαλεία συντήρησης`.
-- Full local suite passed: `219 passed`.
+The reverse-pricing workflow is intentionally separate from the local
+`ΔΗΜΟΣΙΑ ΕΡΓΑ` dashboard and is not attached to the six-hour cron yet.
 
 ## Instruction
 
 Complete the next gate:
 
-1. Design a SQLite FTS/index layer for extracted tender document text.
-2. Populate/update the index only from already fetched/extracted documents.
-3. Keep `/api/reverse-search` read-only and fast; it must not trigger network
-   discovery, fetch, OCR or AI.
-4. Preserve active-dashboard filtering: results must only include active rows
-   that would be visible in the main public-works dashboard.
-5. Return provenance-friendly matches: document name/type, snippet, source URL
-   or local document handle where available.
+1. Add a manual, bounded nationwide ESHIDIS-only fetcher for active public
+   works whose submission deadline is after the current fetch date/time.
+2. Store discovered projects in the pricing tables without touching the local
+   public-works dashboard state.
+3. For each fetched project, download only the files needed for extraction
+   into a pricing-specific temporary work directory.
+4. Extract text and run the budget parser on likely budget/timologio PDFs.
+5. Persist metadata, extracted text references and `pricing_budget_rows`.
+6. Delete heavy PDF/ZIP payloads the same day after successful extraction,
+   while keeping structured rows, text and provenance.
+7. Keep this manual; do not attach it to the six-hour cron yet.
 
 ## Required Tests
 
-- Focused tests for FTS/index creation and query behavior.
-- `tests/test_ui_server.py::test_ui_exposes_reverse_search_tab`.
-- `tests/test_ui_server.py::test_reverse_search_payload_searches_active_dashboard_and_documents`.
+- Focused tests for pricing fetch run state and same-day cleanup behavior.
+- Focused tests that the fetcher refuses to run against KIMDIS/authority
+  sources in this first gate.
+- Regression test that the budget fixture still extracts `Β18.6`.
 - Full test suite before production deploy.
 
 ## Required Closeout
 
 1. Update `docs/PROGRESS.md` with implementation and smoke evidence.
-2. Update `docs/DECISIONS.md` only if the FTS architecture introduces a real
+2. Update `docs/DECISIONS.md` only if the fetch architecture introduces a real
    product/engineering decision.
 3. Update `docs/HANDOFF.md` if production/deployment state changes.
 4. Update this file with the next single executable gate.
-5. Do not run full discovery unless explicitly requested.
+5. Do not enable cron for pricing until explicitly approved after smoke.
 
 ## Future Backlog
 
-- Add query grammar: AND, OR, NOT.
-- Add filters by document type, deadline window and geography.
-- Add article/revision/unit/quantity/price extraction after the text index is
-  stable.
-- Design a separate nationwide ESHIDIS-only search mode with isolated state,
-  explicit limits, no automatic KIMDIS/authority fetch, no automatic OCR/AI,
-  and separate audit/reporting.
+- Build the pricing UI with autocomplete for article codes/descriptions.
+- Add filters by article/revision code, operator, quantity, unit price and
+  amount.
+- Add optional AI extraction only for ambiguous budget/table rows.
+- Add cron only after manual nationwide pricing runs are stable and bounded.
