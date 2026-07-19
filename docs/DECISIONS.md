@@ -742,3 +742,16 @@ archive/backfill smoke, must be explicit operator runs through
 This prevents an ordinary UI click from downloading and parsing excessive PDF
 history, while still allowing controlled evidence checks with the same
 filters, SQLite state and archive behavior.
+
+## D-065 - Reverse content search starts as a read-only active-row query
+**Status:** Accepted
+
+The `Αντίστροφη αναζήτηση` tab starts as a fast read-only search over the
+currently visible active tender dashboard rows and already extracted/evidenced
+document text. A query must not trigger source discovery, full-depth scanning,
+document fetch, OCR or AI classification.
+
+This gives the UI a stable Mode B contract before adding richer search grammar,
+SQLite FTS indexing, document filters, article/revision parsing, quantities or
+price extraction. Future expansion can replace the backend query engine without
+changing the basic UI request/response shape.

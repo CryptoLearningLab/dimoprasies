@@ -3240,6 +3240,34 @@ visible entalmata titles extracted:
   1737 Ανάπτυξη Δικτύων Διανομής Φυσικού Αερίου...
 ```
 
+### UI v0.1.32 Reverse content search scaffold
+
+- The UI version was bumped from `0.1.31` to `0.1.32`.
+- The second tab `Αντίστροφη αναζήτηση` now has a product-facing search
+  surface: one query field, one search button, counters and result cards.
+- Added `/api/reverse-search` as a fast read-only backend route. It searches
+  only currently visible active dashboard rows from `dashboard_payload`, plus
+  already available document evidence and extracted ESHIDIS document text.
+- The route does not start discovery, source polling, fetch, OCR, AI triage or
+  enrichment. It is deliberately scoped as the contract for future Mode B
+  expansion.
+- Existing technical one-off tools remain available under collapsed
+  `Εργαλεία συντήρησης` to avoid breaking maintenance workflows while the
+  daily second-tab experience becomes simple.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py tests/test_ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_exposes_reverse_search_tab tests/test_ui_server.py::test_reverse_search_payload_searches_active_dashboard_and_documents tests/test_ui_server.py::test_ui_exposes_entalmata_tab tests/test_cli.py::CliTests::test_entalmata_scan_parser_has_safe_defaults tests/test_entalmata.py
+# 10 passed in 1.07s
+
+.venv/bin/python -m pytest
+# 219 passed in 16.24s
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import date
 import json
+from types import SimpleNamespace
 import time
 
 import tender_radar.ui_server as ui_server
@@ -68,7 +69,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.31" in INDEX_HTML
+    assert "v0.1.32" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -91,6 +92,66 @@ def test_ui_exposes_entalmata_tab() -> None:
     assert "/api/entalmata-file" in INDEX_HTML + APP_JS
     assert "Τίτλος έργου" in APP_JS
     assert "renderEntalmata" in APP_JS
+
+
+def test_ui_exposes_reverse_search_tab() -> None:
+    assert 'data-view="workflow"' in INDEX_HTML
+    assert "Αντίστροφη<br>αναζήτηση" in INDEX_HTML
+    assert 'id="reverseSearchInput"' in INDEX_HTML
+    assert 'id="reverseSearchBtn"' in INDEX_HTML
+    assert 'id="reverseSearchResults"' in INDEX_HTML
+    assert "/api/reverse-search" in APP_JS
+    assert "runReverseSearch" in APP_JS
+    assert "renderReverseSearch" in APP_JS
+
+
+def test_reverse_search_payload_searches_active_dashboard_and_documents(monkeypatch, tmp_path: Path) -> None:
+    text_path = tmp_path / "declaration.txt"
+    text_path.write_text("Τεχνική περιγραφή για γέφυρα και ασφαλτόστρωση δημοτικής οδού.", encoding="utf-8")
+
+    def fake_dashboard_payload(*args, **kwargs):
+        return {
+            "tenders": [
+                {
+                    "row_key": "221001",
+                    "display_id": "221001",
+                    "eshidis_id": "221001",
+                    "source_label": "ΕΣΗΔΗΣ",
+                    "title": "Συντήρηση υποδομών",
+                    "authority_name": "ΔΗΜΟΣ ΔΟΚΙΜΗΣ",
+                    "region": "EL631",
+                    "budget_display": "10.000,00 EUR",
+                    "deadline_display": "30-07-2026 10:00:00",
+                    "official_url": "https://example.test/221001",
+                    "interest_reason": "Δήμος Δοκιμής",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(ui_server, "dashboard_payload", fake_dashboard_payload)
+    monkeypatch.setattr(
+        ui_server,
+        "list_searchable_documents",
+        lambda db_path: [
+            SimpleNamespace(
+                eshidis_id="221001",
+                document_id=7,
+                document_type="technical_description",
+                original_name="technical.pdf",
+                local_path=None,
+                text_path=str(text_path),
+                text_sample=None,
+            )
+        ],
+    )
+
+    payload = ui_server.reverse_search_payload({"query": "ασφαλτοστρωση"})
+
+    assert payload["ok"] is True
+    assert payload["summary"]["active_rows_searched"] == 1
+    assert payload["summary"]["matches"] == 1
+    assert payload["results"][0]["display_id"] == "221001"
+    assert payload["results"][0]["matches"][0]["label"] == "technical.pdf"
 
 
 def test_nationwide_scope_is_disabled_in_ui_and_api() -> None:

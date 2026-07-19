@@ -760,6 +760,11 @@ The system `python` command is not present in the remote environment; use
   data was outside the 15-day window, kept `5` visible rows, rejected `109`,
   reported `errors 0` and `archived 0`. Project titles are now extracted without
   the previous IBAN/table noise.
+- Local `v0.1.32` scaffolds the `Αντίστροφη αναζήτηση` tab as a fast read-only
+  Mode B contract. `/api/reverse-search` searches currently visible active
+  dashboard rows plus already available document evidence/extracted ESHIDIS
+  text. It does not trigger discovery, fetch, OCR, AI triage or enrichment.
+  Full local suite passed with `219 passed`.
 
 ## Next Work
 
@@ -767,5 +772,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Scaffold the second tab from `docs/PRODUCT_SPECIFICATION.md`
-`MODE B — Αντίστροφη αναζήτηση περιεχομένου`.
+Promote the reverse content search from scaffold to persisted SQLite FTS-backed
+search over extracted document text, while preserving the read-only/no-discovery
+behavior.

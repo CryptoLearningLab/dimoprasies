@@ -43,6 +43,7 @@ from tender_radar.db import (
     get_source_state,
     ignored_tender_keys as ignored_tender_keys_from_db,
     list_admin_users,
+    list_searchable_documents,
     list_source_documents,
     list_tender_dismissals,
     list_source_states,
@@ -87,6 +88,9 @@ DEFAULT_AUTHORITY_LIMIT_PER_SOURCE = 10
 ADMIN_USER_ROLES = ("admin", "tester", "user")
 MAX_BACKFILL_ESHIDIS_LIMIT = 500
 MAX_BACKFILL_KIMDIS_PAGES = 80
+MAX_REVERSE_SEARCH_RESULTS = 80
+MAX_REVERSE_DOCUMENT_MATCHES_PER_ROW = 6
+MAX_REVERSE_TEXT_READ_CHARS = 220_000
 COMMAND_LOCK = threading.Lock()
 ENRICHMENT_LOCK = threading.Lock()
 JOBS_LOCK = threading.Lock()
@@ -332,6 +336,9 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 dry_run = bool(payload.get("dry_run", False))
                 recipient = str(payload.get("recipient") or "").strip() or None
                 self._send_json(start_job("email-alerts", run_email_alerts, scope=scope, sort=sort, recipient=recipient, dry_run=dry_run), status=202)
+                return
+            if parsed.path == "/api/reverse-search":
+                self._send_json(reverse_search_payload(payload))
                 return
             if parsed.path == "/api/entalmata/scan":
                 self._send_json(start_job("entalmata-scan", run_entalmata_scan), status=202)
@@ -3361,6 +3368,186 @@ def dashboard_payload(
     }
 
 
+def reverse_search_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    query = str(payload.get("query") or "").strip()
+    if len(query) < 2:
+        return {
+            "ok": True,
+            "query": query,
+            "summary": {"active_rows_searched": 0, "matches": 0, "document_matches": 0},
+            "results": [],
+            "empty_message": "Γράψε τουλάχιστον 2 χαρακτήρες για αναζήτηση.",
+        }
+    dashboard = dashboard_payload(scope="focus", sort="deadline_asc")
+    rows = [row for row in dashboard.get("tenders") or [] if isinstance(row, dict)]
+    docs_by_eshidis = reverse_search_documents_by_eshidis(rows)
+    results: list[dict[str, Any]] = []
+    document_match_count = 0
+    for row in rows:
+        matches = reverse_search_matches_for_row(row, query=query, docs_by_eshidis=docs_by_eshidis)
+        if not matches:
+            continue
+        document_match_count += sum(1 for match in matches if match.get("kind") == "document")
+        results.append(
+            {
+                "row_key": row_key_for_tender(row),
+                "display_id": row.get("display_id"),
+                "source_label": row.get("source_label"),
+                "title": row.get("title"),
+                "authority_name": row.get("authority_name") or row.get("authority"),
+                "region": row.get("region"),
+                "budget_display": row.get("budget_display"),
+                "deadline_display": row.get("deadline_display"),
+                "official_url": row.get("official_url"),
+                "matches": matches[:MAX_REVERSE_DOCUMENT_MATCHES_PER_ROW],
+            }
+        )
+        if len(results) >= MAX_REVERSE_SEARCH_RESULTS:
+            break
+    return {
+        "ok": True,
+        "query": query,
+        "summary": {
+            "active_rows_searched": len(rows),
+            "matches": len(results),
+            "document_matches": document_match_count,
+            "result_limit": MAX_REVERSE_SEARCH_RESULTS,
+        },
+        "results": results,
+        "empty_message": "Δεν βρέθηκε ενεργό έργο με αυτή τη λέξη ή φράση." if not results else None,
+    }
+
+
+def reverse_search_documents_by_eshidis(rows: list[dict[str, Any]]) -> dict[str, list[Any]]:
+    eshidis_ids = {
+        str(row.get("eshidis_id") or row.get("display_id") or "").strip()
+        for row in rows
+        if str(row.get("source_label") or "") == "ΕΣΗΔΗΣ"
+    }
+    eshidis_ids = {value for value in eshidis_ids if value.isdigit()}
+    if not eshidis_ids:
+        return {}
+    try:
+        documents = list_searchable_documents(runtime_db_path())
+    except (OSError, sqlite3.Error):
+        return {}
+    by_eshidis: dict[str, list[Any]] = {}
+    for document in documents:
+        eshidis_id = str(getattr(document, "eshidis_id", "") or "").strip()
+        if eshidis_id in eshidis_ids:
+            by_eshidis.setdefault(eshidis_id, []).append(document)
+    return by_eshidis
+
+
+def reverse_search_matches_for_row(
+    row: dict[str, Any],
+    *,
+    query: str,
+    docs_by_eshidis: dict[str, list[Any]],
+) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    metadata_text = "\n".join(
+        str(value or "")
+        for value in [
+            row.get("display_id"),
+            row.get("source_label"),
+            row.get("title"),
+            row.get("authority_name") or row.get("authority"),
+            row.get("region"),
+            row.get("interest_reason"),
+            row.get("budget_display"),
+            row.get("deadline_display"),
+            (row.get("ai_triage") or {}).get("reason") if isinstance(row.get("ai_triage"), dict) else None,
+            row.get("row_text"),
+        ]
+    )
+    if reverse_text_contains(metadata_text, query):
+        matches.append(
+            {
+                "kind": "metadata",
+                "label": "Στοιχεία έργου",
+                "document_type": None,
+                "snippet": reverse_search_snippet(metadata_text, query),
+                "source_url": row.get("official_url"),
+            }
+        )
+    for evidence in row.get("document_evidence") or []:
+        if not isinstance(evidence, dict):
+            continue
+        evidence_text = "\n".join(
+            [
+                str(evidence.get("name") or ""),
+                str(evidence.get("document_type") or ""),
+                "\n".join(str(snippet or "") for snippet in evidence.get("snippets") or []),
+            ]
+        )
+        if not reverse_text_contains(evidence_text, query):
+            continue
+        matches.append(
+            {
+                "kind": "document",
+                "label": evidence.get("name") or "source document",
+                "document_type": evidence.get("document_type"),
+                "snippet": reverse_search_snippet(evidence_text, query),
+                "source_url": evidence.get("document_url") or evidence.get("source_url"),
+            }
+        )
+    eshidis_id = str(row.get("eshidis_id") or row.get("display_id") or "").strip()
+    for document in docs_by_eshidis.get(eshidis_id, []):
+        text = reverse_search_document_text(document)
+        haystack = "\n".join(
+            [
+                str(getattr(document, "original_name", "") or ""),
+                str(getattr(document, "document_type", "") or ""),
+                text,
+            ]
+        )
+        if not reverse_text_contains(haystack, query):
+            continue
+        matches.append(
+            {
+                "kind": "document",
+                "label": getattr(document, "original_name", None) or "ESHIDIS document",
+                "document_type": getattr(document, "document_type", None),
+                "snippet": reverse_search_snippet(haystack, query),
+                "source_url": None,
+            }
+        )
+        if len(matches) >= MAX_REVERSE_DOCUMENT_MATCHES_PER_ROW:
+            break
+    return matches
+
+
+def reverse_search_document_text(document: Any) -> str:
+    text_path = str(getattr(document, "text_path", "") or "").strip()
+    path = Path(text_path) if text_path and Path(text_path).is_absolute() else normalize_local_path(text_path)
+    if path and path.exists():
+        try:
+            return path.read_text(encoding="utf-8", errors="replace")[:MAX_REVERSE_TEXT_READ_CHARS]
+        except OSError:
+            pass
+    return str(getattr(document, "text_sample", "") or "")[:MAX_REVERSE_TEXT_READ_CHARS]
+
+
+def reverse_text_contains(text: str, query: str) -> bool:
+    normalized_text = normalize_greek(text)
+    normalized_query = normalize_greek(query)
+    if not normalized_query:
+        return False
+    return normalized_query in normalized_text
+
+
+def reverse_search_snippet(text: str, query: str, *, radius: int = 190) -> str:
+    normalized_text = normalize_greek(text)
+    normalized_query = normalize_greek(query)
+    index = normalized_text.find(normalized_query)
+    if index < 0:
+        return short_text_sample(text, limit=420) or ""
+    start = max(0, index - radius)
+    end = min(len(text), index + len(query) + radius)
+    return compact_document_snippet(text[start:end])[:520]
+
+
 def dashboard_scope(scope: str | None) -> str:
     return "focus"
 
@@ -5530,26 +5717,49 @@ INDEX_HTML = f"""<!doctype html>
     </section>
 
     <section id="workflow" class="view">
-      <div class="toolbar">
-        <label>A/A ΕΣΗΔΗΣ <input id="eshidisInput" type="text" inputmode="numeric" placeholder="π.χ. 221744"></label>
-        <button id="fetchBtn">Fetch official detail</button>
-        <button id="downloadBtn" class="secondary">Download files</button>
-        <button id="analyzeBtn" class="secondary">Analyze docs</button>
+      <div class="searchPanel">
+        <p class="eyebrow">ΑΝΤΙΣΤΡΟΦΗ ΑΝΑΖΗΤΗΣΗ</p>
+        <h2>Βρες ενεργά έργα από λέξη ή φράση</h2>
+        <p class="mutedLine">Ψάχνει μόνο στα ενεργά έργα της λίστας και στα ήδη διαθέσιμα extracted κείμενα/τεκμήρια. Δεν ξεκινά νέα σάρωση πηγών.</p>
+        <div class="reverseSearchForm">
+          <label class="reverseSearchInputLabel">
+            <span>Λέξη ή φράση</span>
+            <input id="reverseSearchInput" type="search" placeholder="π.χ. οδοποιία, ασφαλτόστρωση, άρθρο 2.2">
+          </label>
+          <button id="reverseSearchBtn">Αναζήτηση</button>
+        </div>
+        <p id="reverseSearchStatus" class="mutedLine">Γράψε έναν όρο για να ξεκινήσεις.</p>
       </div>
-      <div class="toolbar compact">
-        <label>ΑΔΑΜ ΚΗΜΔΗΣ <input id="kimdisInput" type="text" inputmode="text" placeholder="π.χ. 26PROC019417347"></label>
-        <button id="kimdisPreviewBtn" class="secondary">Preview KIMDIS</button>
-        <button id="kimdisFetchBtn">Fetch KIMDIS files</button>
+      <div class="metrics">
+        <div><span id="reverseMatchCount">0</span><small>έργα με match</small></div>
+        <div><span id="reverseSearchedCount">0</span><small>ενεργά έργα ελέγχθηκαν</small></div>
       </div>
-      <div class="toolbar compact">
-        <label>Search profile <select id="profileSelect"></select></label>
-        <button id="searchBtn">Run search</button>
+      <div id="reverseSearchResults" class="reverseResults">
+        <div class="emptyState">Τα αποτελέσματα θα εμφανιστούν εδώ.</div>
       </div>
-      <div class="toolbar compact">
-        <label>Evaluation <select id="evaluationProfileSelect"></select></label>
-        <button id="evaluateBtn">Evaluate</button>
-      </div>
-      <pre id="advancedCommandOutput"></pre>
+      <details class="commandLog maintenanceTools">
+        <summary>Εργαλεία συντήρησης</summary>
+        <div class="toolbar">
+          <label>A/A ΕΣΗΔΗΣ <input id="eshidisInput" type="text" inputmode="numeric" placeholder="π.χ. 221744"></label>
+          <button id="fetchBtn">Fetch official detail</button>
+          <button id="downloadBtn" class="secondary">Download files</button>
+          <button id="analyzeBtn" class="secondary">Analyze docs</button>
+        </div>
+        <div class="toolbar compact">
+          <label>ΑΔΑΜ ΚΗΜΔΗΣ <input id="kimdisInput" type="text" inputmode="text" placeholder="π.χ. 26PROC019417347"></label>
+          <button id="kimdisPreviewBtn" class="secondary">Preview KIMDIS</button>
+          <button id="kimdisFetchBtn">Fetch KIMDIS files</button>
+        </div>
+        <div class="toolbar compact">
+          <label>Search profile <select id="profileSelect"></select></label>
+          <button id="searchBtn">Run search</button>
+        </div>
+        <div class="toolbar compact">
+          <label>Evaluation <select id="evaluationProfileSelect"></select></label>
+          <button id="evaluateBtn">Evaluate</button>
+        </div>
+        <pre id="advancedCommandOutput"></pre>
+      </details>
     </section>
 
     <section id="rules" class="view">
@@ -5911,6 +6121,79 @@ main { padding: 22px; min-width: 0; }
 .searchBand h3 {
   font-size: 20px;
   margin-bottom: 6px;
+}
+.searchPanel {
+  display: grid;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  margin-bottom: 14px;
+}
+.searchPanel h2 {
+  font-size: 24px;
+  margin: 0;
+}
+.reverseSearchForm {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+.reverseSearchInputLabel input {
+  width: 100%;
+}
+.reverseResults {
+  display: grid;
+  gap: 12px;
+}
+.reverseResultCard {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.reverseResultHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+.reverseResultHeader h3 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.35;
+}
+.reverseMeta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.reverseMatchList {
+  display: grid;
+  gap: 8px;
+}
+.reverseMatch {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #eef2f6;
+}
+.reverseMatch strong {
+  color: var(--teal-dark);
+  font-size: 13px;
+}
+.reverseMatch p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
 }
 .switchLine {
   display: flex;
@@ -6469,6 +6752,7 @@ h3 {
   nav { grid-template-columns: repeat(4, 1fr); }
   main { padding: 14px; }
   .searchBand,
+  .reverseSearchForm,
   .workspace {
     grid-template-columns: 1fr;
   }
@@ -6582,6 +6866,7 @@ const state = {
   selectedRuleId: null,
   adminAudit: null,
   entalmata: null,
+  reverseSearch: null,
   session: null,
 };
 const $ = (id) => document.getElementById(id);
@@ -6693,6 +6978,59 @@ async function loadEntalmata() {
   const payload = await api('/api/entalmata');
   state.entalmata = payload;
   renderEntalmata(payload);
+}
+
+async function runReverseSearch() {
+  const query = $('reverseSearchInput').value.trim();
+  $('reverseSearchStatus').textContent = query ? 'Αναζήτηση στα ενεργά έργα...' : 'Γράψε τουλάχιστον 2 χαρακτήρες.';
+  const payload = await api('/api/reverse-search', {
+    method: 'POST',
+    body: JSON.stringify({ query }),
+  });
+  state.reverseSearch = payload;
+  renderReverseSearch(payload);
+}
+
+function renderReverseSearch(payload) {
+  const summary = payload.summary || {};
+  $('reverseMatchCount').textContent = summary.matches || 0;
+  $('reverseSearchedCount').textContent = summary.active_rows_searched || 0;
+  $('reverseSearchStatus').textContent = payload.query
+    ? `${summary.matches || 0} έργα βρέθηκαν για “${payload.query}”.`
+    : (payload.empty_message || 'Γράψε έναν όρο για να ξεκινήσεις.');
+  const container = $('reverseSearchResults');
+  container.innerHTML = '';
+  const results = payload.results || [];
+  if (!results.length) {
+    container.innerHTML = `<div class="emptyState">${escapeHtml(payload.empty_message || 'Δεν υπάρχουν αποτελέσματα.')}</div>`;
+    return;
+  }
+  for (const item of results) {
+    const card = document.createElement('article');
+    card.className = 'reverseResultCard';
+    const matches = (item.matches || []).map((match) => `
+      <div class="reverseMatch">
+        <strong>${escapeHtml(match.label || match.kind || 'match')}</strong>
+        <p>${escapeHtml(match.snippet || '')}</p>
+      </div>
+    `).join('');
+    card.innerHTML = `
+      <div class="reverseResultHeader">
+        <div>
+          <p class="eyebrow">${escapeHtml(item.source_label || '')} ${escapeHtml(item.display_id || '')}</p>
+          <h3>${escapeHtml(item.title || '')}</h3>
+        </div>
+        ${item.official_url ? `<a class="button tinyButton secondary" href="${escapeHtml(item.official_url)}" target="_blank" rel="noreferrer">Open</a>` : ''}
+      </div>
+      <div class="reverseMeta">
+        <span>${escapeHtml(item.authority_name || '')}</span>
+        <span>${escapeHtml(item.budget_display || '')}</span>
+        <span>${escapeHtml(item.deadline_display || '')}</span>
+      </div>
+      <div class="reverseMatchList">${matches}</div>
+    `;
+    container.appendChild(card);
+  }
 }
 
 function renderEntalmata(payload) {
@@ -7514,6 +7852,10 @@ $('discoverBtn').addEventListener('click', () => {
 $('emailAlertsBtn').addEventListener('click', () => {
   const sort = $('sortSelect').value || 'deadline_asc';
   runAction('/api/email-alerts', { scope: 'focus', sort, dry_run: false }, 'Αποστολή email για νέα έργα...');
+});
+$('reverseSearchBtn').addEventListener('click', () => runReverseSearch().catch((error) => { $('reverseSearchStatus').textContent = String(error); }));
+$('reverseSearchInput').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') runReverseSearch().catch((error) => { $('reverseSearchStatus').textContent = String(error); });
 });
 $('fetchBtn').addEventListener('click', () => runAction('/api/fetch-resource', { eshidis_id: selectedId() }, 'Fetching official detail...'));
 $('downloadBtn').addEventListener('click', () => runAction('/api/download-all', { eshidis_id: selectedId() }, 'Downloading attachments...'));
