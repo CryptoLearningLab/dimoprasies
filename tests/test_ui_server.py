@@ -60,7 +60,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.17" in INDEX_HTML
+    assert "v0.1.18" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -1765,6 +1765,66 @@ def test_selected_kimdis_fetch_chains_linked_eshidis_download(monkeypatch) -> No
     assert captured["dashboard_scope"] == "focus"
     assert [step["name"] for step in captured["steps"]] == ["fetch_detail_221473", "download_files_221473"]
     assert captured["steps"][0]["args"] == ["sources", "fetch-resource", "221473", "--allow-insecure-tls"]
+
+
+def test_selected_kimdis_fetch_uses_connected_acts_when_document_has_no_link(monkeypatch) -> None:
+    linked_calls = {"count": 0}
+
+    def fake_linked_ids(official_id):
+        linked_calls["count"] += 1
+        return [] if linked_calls["count"] == 1 else ["221566"]
+
+    monkeypatch.setattr(ui_server, "run_kimdis_fetch", lambda official_id: {"ok": True, "official_id": official_id})
+    monkeypatch.setattr(ui_server, "kimdis_linked_eshidis_ids", fake_linked_ids)
+    monkeypatch.setattr(
+        ui_server,
+        "run_kimdis_connected_acts_lookup",
+        lambda official_id: {
+            "ok": True,
+            "official_id": official_id,
+            "linked_eshidis_ids": ["221566"],
+            "chain_status": "FETCHED",
+        },
+    )
+    monkeypatch.setattr(ui_server, "dashboard_payload", lambda scope="focus": {"scope": scope, "summary": {}})
+
+    captured = {}
+
+    def fake_run_cli_steps(steps, *, dashboard_scope=None):
+        captured["steps"] = steps
+        return {"ok": True, "steps": steps, "dashboard": {"scope": dashboard_scope}}
+
+    monkeypatch.setattr(ui_server, "run_cli_steps", fake_run_cli_steps)
+
+    result = run_selected_fetch("26PROC019367864")
+
+    assert result["ok"] is True
+    assert result["kimdis_connected_acts"]["chain_status"] == "FETCHED"
+    assert result["linked_eshidis_ids"] == ["221566"]
+    assert [step["name"] for step in captured["steps"]] == ["fetch_detail_221566", "download_files_221566"]
+
+
+def test_selected_kimdis_fetch_keeps_review_when_connected_acts_has_no_verified_link(monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "run_kimdis_fetch", lambda official_id: {"ok": True, "official_id": official_id})
+    monkeypatch.setattr(ui_server, "kimdis_linked_eshidis_ids", lambda official_id: [])
+    monkeypatch.setattr(
+        ui_server,
+        "run_kimdis_connected_acts_lookup",
+        lambda official_id: {
+            "ok": True,
+            "official_id": official_id,
+            "linked_eshidis_ids": [],
+            "chain_status": "FETCHED",
+        },
+    )
+    monkeypatch.setattr(ui_server, "dashboard_payload", lambda scope="focus": {"scope": scope, "summary": {}})
+
+    result = run_selected_fetch("26PROC019367864")
+
+    assert result["ok"] is True
+    assert result["linked_eshidis_ids"] == []
+    assert result["eshidis_fetch"] is None
+    assert result["kimdis_connected_acts"]["chain_status"] == "FETCHED"
 
 
 def test_candidate_enrichment_targets_only_visible_non_eshidis_rows(tmp_path, monkeypatch) -> None:

@@ -2613,6 +2613,61 @@ local dashboard smoke without full discovery:
   linked_expired_visible []
 ```
 
+### UI v0.1.18 KIMDIS connected-acts forced ESHIDIS lookup
+
+- Bumped the application version from `0.1.17` to `0.1.18`.
+- Added a public read-only KIMDIS connected-acts adapter using the official
+  Open Data endpoint
+  `https://cerpp.eprocurement.gov.gr/khmdhs-opendata/adamChain/{referenceNumber}`.
+- The adapter maps connected KIMDIS acts to public attachment endpoints,
+  downloads only the returned public documents needed for evidence, extracts
+  ESHIDIS ids from raw text and analyzed document text, and records per-file
+  provenance/errors.
+- `run_selected_fetch` for a `26PROC...` KIMDIS row now falls back to this
+  connected-acts lookup when the already fetched KIMDIS document has not
+  exposed a linked ESHIDIS id. If a linked id is found, the normal official
+  ESHIDIS fetch path runs next; if none is found, the KIMDIS row remains a
+  review candidate.
+- Connected-acts findings are merged into
+  `work/derived/kimdis_open_proc_documents.json`; deduplication still requires
+  official ESHIDIS evidence and does not use title-only matching.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/sources/kimdis_connected_acts.py src/tender_radar/ui_server.py
+.venv/bin/python -m pytest tests/test_kimdis_connected_acts.py tests/test_kimdis_fetch.py tests/test_ui_server.py -q
+.venv/bin/python -m pytest -q
+.venv/bin/python -c "from pathlib import Path; from tender_radar.sources.kimdis_connected_acts import fetch_kimdis_connected_acts; ..."
+.venv/bin/python -c "import json; from tender_radar.ui_server import run_selected_fetch; ..."
+.venv/bin/python -c "import json; from tender_radar.ui_server import run_kimdis_connected_acts_lookup, kimdis_linked_eshidis_ids; ..."
+.venv/bin/python -c "from tender_radar.ui_server import dashboard_payload; ..."
+```
+
+Results:
+
+```text
+py_compile: passed
+focused connected/KIMDIS/UI tests: 110 passed
+full test suite: 190 passed
+live KIMDIS Open Data smoke without full discovery:
+  26PROC019367864 -> chain FETCHED, linked ESHIDIS 221566, 3 attachments, 0 errors
+  26PROC019417347 -> chain FETCHED, linked ESHIDIS 221691, 3 attachments, 0 errors
+selected-fetch smoke without full discovery:
+  26PROC019367864 -> linked ESHIDIS 221566, official fetch ok true,
+  fetch_detail_221566 returncode 0, download_files_221566 returncode 0
+connected-acts merge smoke:
+  26PROC019417347 -> linked ESHIDIS 221691, index ids ["221691"]
+local dashboard smoke without full discovery:
+  total_known 95
+  visible 28
+  expired_hidden 3
+  duplicate_hidden 8
+  visible KIMDIS rows 5
+  visible KIMDIS rows with linked ESHIDIS 2
+  non_verified_review 20
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

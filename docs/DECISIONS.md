@@ -649,3 +649,14 @@ official ESHIDIS row that has a known deadline, the dashboard uses the linked
 official ESHIDIS deadline for active/expired filtering. Missing authority
 deadline text must not keep an already-expired linked ESHIDIS project visible
 on the daily dashboard.
+
+## D-058 - KIMDIS connected acts use the public Open Data API
+**Status:** Accepted
+
+Για forced σύνδεση ΚΗΜΔΗΣ `26PROC...` με πιθανό Α/Α ΕΣΗΔΗΣ χρησιμοποιούμε
+το δημόσιο read-only endpoint
+`https://cerpp.eprocurement.gov.gr/khmdhs-opendata/adamChain/{referenceNumber}`
+και τα αντίστοιχα public attachment endpoints. Δεν κάνουμε scraping της
+JSF φόρμας `upgkimdis/unprotected/home.xhtml` όταν υπάρχει σταθερό Open Data
+API. Τα ευρήματα αποθηκεύονται ως candidate evidence και γίνονται verified
+μόνο αφού περάσει official fetch από `pwgopendata`.

@@ -645,6 +645,15 @@ The system `python` command is not present in the remote environment; use
   dashboard uses the official linked deadline for active/expired filtering.
   Local no-discovery smoke hid linked-expired rows for `217922` and `216631`
   (`linked_expired_visible []`).
+- The UI now displays version `v0.1.18`. KIMDIS `26PROC...` rows now have a
+  forced connected-acts fallback through the official public Open Data endpoint
+  `khmdhs-opendata/adamChain/{referenceNumber}`. When the first KIMDIS
+  attachment does not expose an ESHIDIS id, selected fetch/enrichment queries
+  the connected acts, downloads returned public attachments, extracts ESHIDIS
+  ids from raw/analyzed text, merges the evidence into
+  `work/derived/kimdis_open_proc_documents.json`, and then runs the normal
+  official `pwgopendata` fetch for any discovered id. Live no-discovery smoke
+  found `26PROC019367864 -> 221566` and `26PROC019417347 -> 221691`.
 
 ## Next Work
 
@@ -652,8 +661,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Implement the forced KIMDIS connected-acts lookup for rows with `26PROC...`
-ADAM: use the public Promitheus KIMDIS connected acts flow to discover related
-official acts/documents, extract ESHIDIS ids from them, verify each candidate
-through official `pwgopendata` fetch, then persist verified links in
-`verified_tender_links`.
+Run full verification/deploy for `v0.1.18`, then smoke the live droplet without
+full discovery and report how many visible KIMDIS rows gained linked ESHIDIS
+ids through connected acts versus how many remain
+`NO_VERIFIED_ESHIDIS_LINK` review candidates.

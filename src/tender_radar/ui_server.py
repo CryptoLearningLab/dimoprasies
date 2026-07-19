@@ -67,6 +67,7 @@ from tender_radar.documents import analyze_document
 from tender_radar.evaluation import normalize_evaluation_config, save_evaluation_config
 from tender_radar.ai_triage import AI_TRIAGE_PROMPT_VERSION
 from tender_radar.sources.expanded_report import classify_public_works_candidate_dict
+from tender_radar.sources.kimdis_connected_acts import fetch_kimdis_connected_acts
 from tender_radar.sources.kimdis_fetch import extract_eshidis_ids_from_text
 
 
@@ -679,10 +680,15 @@ def run_selected_fetch(identifier: str) -> dict[str, Any]:
     if is_kimdis_identifier(identifier):
         kimdis_result = run_kimdis_fetch(official_id=identifier)
         linked_ids = kimdis_linked_eshidis_ids(identifier)
+        connected_acts_result = None
+        if not linked_ids:
+            connected_acts_result = run_kimdis_connected_acts_lookup(identifier)
+            linked_ids = kimdis_linked_eshidis_ids(identifier)
         if not linked_ids:
             return {
                 "ok": kimdis_result.get("ok") is not False,
                 "kimdis_fetch": kimdis_result,
+                "kimdis_connected_acts": connected_acts_result,
                 "linked_eshidis_ids": [],
                 "eshidis_fetch": None,
                 "dashboard": dashboard_payload(scope="focus"),
@@ -691,6 +697,7 @@ def run_selected_fetch(identifier: str) -> dict[str, Any]:
         return {
             "ok": kimdis_result.get("ok") is not False and eshidis_result.get("ok") is not False,
             "kimdis_fetch": kimdis_result,
+            "kimdis_connected_acts": connected_acts_result,
             "linked_eshidis_ids": linked_ids,
             "eshidis_fetch": eshidis_result,
             "dashboard": eshidis_result.get("dashboard") or dashboard_payload(scope="focus"),
@@ -936,6 +943,79 @@ def run_kimdis_fetch(*, official_id: str | None = None) -> dict[str, Any]:
         official_id = require_kimdis_id({"official_id": official_id})
         args.extend(["--official-id", official_id])
     return run_cli_command(args)
+
+
+def run_kimdis_connected_acts_lookup(official_id: str) -> dict[str, Any]:
+    official_id = require_kimdis_id({"official_id": official_id})
+    result = fetch_kimdis_connected_acts(
+        official_id,
+        download_dir=REPO_ROOT / "work/download_audit/kimdis_connected_acts" / safe_filename(official_id),
+        text_dir=REPO_ROOT / "work/extracted_text/kimdis_connected_acts" / safe_filename(official_id),
+        timeout_seconds=30,
+        allow_insecure_tls=True,
+        max_attachments=12,
+    ).to_dict()
+    report_path = REPO_ROOT / "work/reports" / f"kimdis_connected_acts_{safe_filename(official_id)}.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    merge_kimdis_connected_acts_result(official_id, result)
+    return {
+        "ok": result.get("chain_status") == "FETCHED",
+        "official_id": official_id,
+        "report_path": str(report_path),
+        "summary": {
+            "linked_eshidis_ids": len(result.get("linked_eshidis_ids") or []),
+            "connected_attachments": len(result.get("attachment_results") or []),
+            "errors": len(result.get("errors") or []),
+        },
+        **result,
+    }
+
+
+def merge_kimdis_connected_acts_result(official_id: str, result: dict[str, Any]) -> None:
+    index_path = REPO_ROOT / "work/derived/kimdis_open_proc_documents.json"
+    if index_path.exists():
+        try:
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            index = {}
+    else:
+        index = {}
+    documents = index.get("documents") if isinstance(index.get("documents"), list) else []
+    target = None
+    for document in documents:
+        if isinstance(document, dict) and str(document.get("official_id") or "") == official_id:
+            target = document
+            break
+    if target is None:
+        target = {
+            "source": "KIMDIS",
+            "record_type": "PROC",
+            "official_id": official_id,
+            "candidate_status": "SUBMISSION_OPEN_CANDIDATE",
+            "verification_status": "CONNECTED_ACTS_FETCHED_PENDING_DOCUMENT_REVIEW",
+        }
+        documents.append(target)
+    linked_ids = []
+    for value in [*(target.get("linked_eshidis_ids") or []), *(result.get("linked_eshidis_ids") or [])]:
+        text = str(value or "").strip()
+        if text.isdigit() and text not in linked_ids:
+            linked_ids.append(text)
+    target["linked_eshidis_ids"] = linked_ids
+    target["connected_acts"] = {
+        "checked_at": result.get("checked_at"),
+        "chain_url": result.get("chain_url"),
+        "chain_status": result.get("chain_status"),
+        "chain": result.get("chain") or {},
+        "linked_eshidis_ids": result.get("linked_eshidis_ids") or [],
+        "errors": result.get("errors") or [],
+        "attachment_results": result.get("attachment_results") or [],
+    }
+    index["documents"] = documents
+    index["generated_at"] = index.get("generated_at") or utc_now_iso()
+    index["updated_at"] = utc_now_iso()
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def run_ai_triage(*, scope: str = "focus", sort: str = "deadline_asc", batch_size: int = 20) -> dict[str, Any]:
