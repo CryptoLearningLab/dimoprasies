@@ -60,7 +60,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.15" in INDEX_HTML
+    assert "v0.1.16" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -2693,6 +2693,41 @@ def test_dashboard_keeps_unverified_non_eshidis_rows_visible(tmp_path, monkeypat
     assert hidden == []
     assert [row["source_label"] for row in kept] == ["ΕΣΗΔΗΣ", "Φορέας"]
     assert kept[1]["verified_eshidis_link_status"] == "NO_VERIFIED_ESHIDIS_LINK"
+
+
+def test_dashboard_hides_strong_linked_duplicate_without_persisted_link(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    rows = [
+        {
+            "source": "sqlite",
+            "source_label": "ΕΣΗΔΗΣ",
+            "row_key": "221566",
+            "display_id": "221566",
+            "eshidis_id": "221566",
+            "title": "ΛΙΜΕΝΙΚΗ ΕΓΚΑΤΑΣΤΑΣΗ ΕΞΥΠΗΡΕΤΗΣΗΣ ΣΚΑΦΩΝ ΣΤΗ ΘΕΣΗ ΨΑΝΗ ΝΑΥΠΑΚΤΟΥ",
+            "authority_name": "ΔΗΜΟΣ ΝΑΥΠΑΚΤΙΑΣ, ΔΙΕΥΘΥΝΣΗ ΤΕΧΝΙΚΩΝ ΥΠΗΡΕΣΙΩΝ",
+            "budget_with_vat": 4216000.0,
+            "current_deadline_at": "21-07-2026 10:00:00",
+        },
+        {
+            "source": "kimdis",
+            "source_label": "ΚΗΜΔΗΣ",
+            "row_key": "KIMDIS:26PROC019367864",
+            "display_id": "26PROC019367864",
+            "title": "ΛΙΜΕΝΙΚΗ ΕΓΚΑΤΑΣΤΑΣΗ ΕΞΥΠΗΡΕΤΗΣΗΣ ΣΚΑΦΩΝ ΣΤΗ ΘΕΣΗ ΨΑΝΗ ΝΑΥΠΑΚΤΟΥ",
+            "authority_name": "ΔΗΜΟΣ ΝΑΥΠΑΚΤΙΑΣ",
+            "budget_with_vat": "4.216.000,00 EUR",
+            "current_deadline_at": "21-07-2026 10:00",
+            "linked_eshidis_ids": ["221566"],
+        },
+    ]
+
+    kept, hidden = ui_server.suppress_linked_eshidis_duplicates(rows)
+
+    assert [row["source_label"] for row in kept] == ["ΕΣΗΔΗΣ"]
+    assert hidden[0]["display_id"] == "26PROC019367864"
+    assert hidden[0]["verified_eshidis_link_status"] == "STRONG_LINKED_ESHIDIS_DUPLICATE"
+    assert hidden[0]["duplicate_reason"] == "Strong linked duplicate of ESHIDIS 221566"
 
 
 def test_dashboard_does_not_deduplicate_by_title_only(tmp_path, monkeypatch) -> None:

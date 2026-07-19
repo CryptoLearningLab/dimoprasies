@@ -635,6 +635,11 @@ The system `python` command is not present in the remote environment; use
   returned `401`, and a no-discovery dashboard smoke on the droplet reported
   `total_known 109`, `visible 29`, `verified_links 0`, `duplicate_hidden 0`
   and `non_verified_review 22`.
+- The UI now displays version `v0.1.16`. Strong explicit linked-id duplicate
+  suppression hides non-ESHIDIS rows when they point to an official ESHIDIS id
+  that is present in the dashboard and at least two fields match among title,
+  deadline, budget and authority. Local no-discovery smoke reported
+  `duplicate_hidden 8` and `non_verified_review 21`.
 
 ## Next Work
 

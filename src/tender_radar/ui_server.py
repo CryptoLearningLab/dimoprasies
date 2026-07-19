@@ -2983,6 +2983,12 @@ def dashboard_payload(
 
 def suppress_linked_eshidis_duplicates(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     canonical_eshidis_ids = canonical_eshidis_ids_in_rows(rows)
+    canonical_by_eshidis_id = {
+        str(row.get("eshidis_id") or row.get("display_id") or "").strip(): row
+        for row in rows
+        if str(row.get("source_label") or "") == "ΕΣΗΔΗΣ"
+        and str(row.get("eshidis_id") or row.get("display_id") or "").strip() in canonical_eshidis_ids
+    }
     verified_by_source = verified_eshidis_links_by_source_key()
     verified_by_target = verified_eshidis_links_by_target_id(verified_by_source)
     kept: list[dict[str, Any]] = []
@@ -3008,16 +3014,32 @@ def suppress_linked_eshidis_duplicates(rows: list[dict[str, Any]]) -> tuple[list
                 if str(link.get("target_eshidis_id") or "").isdigit()
             }
         )
-        duplicate_ids = sorted(canonical_eshidis_ids & set(verified_ids))
+        verified_duplicate_ids = sorted(canonical_eshidis_ids & set(verified_ids))
+        strong_duplicate_ids = sorted(
+            eshidis_id
+            for eshidis_id in canonical_eshidis_ids & set(linked_eshidis_ids_for_row(row))
+            if eshidis_id not in verified_duplicate_ids
+            and strong_linked_eshidis_duplicate(row, canonical_by_eshidis_id.get(eshidis_id))
+        )
+        duplicate_ids = [*verified_duplicate_ids, *strong_duplicate_ids]
         if duplicate_ids:
+            is_verified_duplicate = bool(verified_duplicate_ids)
             hidden.append(
                 {
                     **row,
                     "duplicate_hidden": True,
-                    "duplicate_reason": f"Verified duplicate of ESHIDIS {', '.join(duplicate_ids)}",
+                    "duplicate_reason": (
+                        f"Verified duplicate of ESHIDIS {', '.join(verified_duplicate_ids)}"
+                        if is_verified_duplicate
+                        else f"Strong linked duplicate of ESHIDIS {', '.join(strong_duplicate_ids)}"
+                    ),
                     "verified_eshidis_ids": duplicate_ids,
                     "verified_eshidis_links": verified_links,
-                    "verified_eshidis_link_status": "REPLACED_BY_OFFICIAL_ESHIDIS",
+                    "verified_eshidis_link_status": (
+                        "REPLACED_BY_OFFICIAL_ESHIDIS"
+                        if is_verified_duplicate
+                        else "STRONG_LINKED_ESHIDIS_DUPLICATE"
+                    ),
                 }
             )
             continue
@@ -3040,6 +3062,35 @@ def suppress_linked_eshidis_duplicates(rows: list[dict[str, Any]]) -> tuple[list
             }
         )
     return kept, hidden
+
+
+def strong_linked_eshidis_duplicate(row: dict[str, Any], official_row: dict[str, Any] | None) -> bool:
+    if not official_row:
+        return False
+    matches: list[str] = []
+    row_title = normalized_duplicate_text(row.get("title"))
+    official_title = normalized_duplicate_text(official_row.get("title"))
+    if row_title and official_title and row_title == official_title:
+        matches.append("title")
+    row_deadline = deadline_sort_key(str(row.get("current_deadline_at") or row.get("submission_deadline") or ""))
+    official_deadline = deadline_sort_key(str(official_row.get("current_deadline_at") or official_row.get("submission_deadline") or ""))
+    if row_deadline != "9999" and official_deadline != "9999" and row_deadline == official_deadline:
+        matches.append("deadline")
+    row_budget = budget_sort_value(row.get("budget_with_vat") or row.get("budget_without_vat") or row.get("budget"))
+    official_budget = budget_sort_value(
+        official_row.get("budget_with_vat") or official_row.get("budget_without_vat") or official_row.get("budget")
+    )
+    if row_budget is not None and official_budget is not None and abs(row_budget - official_budget) <= 1:
+        matches.append("budget")
+    row_authority = normalized_duplicate_text(row.get("authority_name") or row.get("authority"))
+    official_authority = normalized_duplicate_text(official_row.get("authority_name") or official_row.get("authority"))
+    if row_authority and official_authority and (row_authority in official_authority or official_authority in row_authority):
+        matches.append("authority")
+    return len(matches) >= 2
+
+
+def normalized_duplicate_text(value: object) -> str:
+    return normalize_greek(str(value or "")).replace("ς", "σ")
 
 
 def verified_eshidis_links_by_source_key() -> dict[str, list[dict[str, Any]]]:

@@ -26,6 +26,11 @@ The verified-link persistence gate is implemented locally:
   `verified_links 0`, `duplicate_hidden 0`, `non_verified_review 22`;
 - HTTPS shell is live and private APIs still require login:
   `/` returned `200`, `/api/dashboard` returned `401` without a session.
+- UI package version `0.1.16` adds strong explicit linked-id duplicate
+  suppression: non-ESHIDIS rows with an explicit linked official ESHIDIS id are
+  hidden when at least two fields match the official row among title, deadline,
+  budget and authority. Local no-discovery smoke reported `duplicate_hidden 8`
+  and `non_verified_review 21`.
 
 ## Instruction
 

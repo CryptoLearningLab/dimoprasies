@@ -2542,6 +2542,42 @@ The droplet smoke also avoided full discovery and used only current runtime
 state. The live database had no persisted verified links at deploy time, so no
 rows were replaced and 22 non-ESHIDIS visible review candidates remained.
 
+### UI v0.1.16 strong linked duplicate suppression
+
+- Bumped the application version from `0.1.15` to `0.1.16`.
+- Added a bounded duplicate suppression exception for obvious cross-source
+  duplicates that have an explicit linked ESHIDIS id already present as an
+  official ESHIDIS row and at least two matching fields among title, deadline,
+  budget and authority.
+- Such rows are hidden as `STRONG_LINKED_ESHIDIS_DUPLICATE`. This is not
+  title-only deduplication and it does not persist a verified link unless the
+  official fetch verification gate has run.
+- The example class covered by this gate is a KIMDIS row such as
+  `26PROC019367864` linked to official ESHIDIS `221566` with the same title,
+  deadline and budget.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+.venv/bin/python -m pytest tests/test_ui_server.py -q
+.venv/bin/python -m pytest -q
+.venv/bin/python -c "from tender_radar.ui_server import dashboard_payload; p=dashboard_payload(scope='focus'); print(p['summary']); print('visible', len(p['tenders'])); print('strong_duplicates', p['summary'].get('duplicate_hidden')); print('non_verified_review', sum(1 for r in p['tenders'] if r.get('source_label')!='ΕΣΗΔΗΣ' and r.get('verified_eshidis_link_status')=='NO_VERIFIED_ESHIDIS_LINK'))"
+```
+
+Results:
+
+```text
+py_compile: passed
+focused UI tests: 85 passed
+full test suite: 184 passed
+local dashboard smoke without full discovery:
+  total_known 95
+  visible 29
+  duplicate_hidden 8
+  non_verified_review 21
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

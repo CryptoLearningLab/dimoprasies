@@ -635,3 +635,11 @@ The dashboard prefers the official ESHIDIS row only when such a persisted
 verified link exists and the official ESHIDIS row is present. Non-ESHIDIS rows
 without verified links remain visible as review candidates with
 `NO_VERIFIED_ESHIDIS_LINK`; title-only deduplication remains forbidden.
+
+An exception is allowed for strong explicit linked-id duplicates: when a
+non-ESHIDIS row contains an explicit linked ESHIDIS id that already exists as
+an official ESHIDIS row, and at least two independent fields match the official
+row (title, deadline, budget or authority), the dashboard may hide the
+non-ESHIDIS row as `STRONG_LINKED_ESHIDIS_DUPLICATE`. This still forbids
+title-only deduplication and does not persist a verified link unless the
+official fetch verification gate has run.
