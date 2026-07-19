@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 
 
 DEFAULT_MODEL = "gpt-4.1-mini"
-AI_TRIAGE_PROMPT_VERSION = "2026-07-19-strict-non-works-v1"
+AI_TRIAGE_PROMPT_VERSION = "2026-07-19-strict-non-works-v2"
 RESPONSES_URL = "https://api.openai.com/v1/responses"
 
 KEEP_DECISIONS = {"KEEP_ACTIVE_TENDER", "REVIEW_TENDER_CANDIDATE", "EARLY_SIGNAL"}

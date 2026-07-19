@@ -2408,6 +2408,9 @@ Implemented behavior after live smoke:
 - Dropped AI rows now have their `eshidis_id_candidates` cleared during
   normalization, so a hallucinated or irrelevant ESHIDIS hint on a rejected
   supply/service/admin row cannot feed downstream official linking.
+- The cache/prompt version was advanced to
+  `2026-07-19-strict-non-works-v2` after the dropped-hint guard so production
+  reports are regenerated once with the safer normalization.
 
 Production smoke before prompt tightening:
 
@@ -2457,6 +2460,7 @@ py_compile: passed
 targeted prompt/signature/OCR tests: 10 passed
 targeted dropped-hint/signature/OCR tests: 8 passed
 full test suite after dropped-hint guard: 178 passed
+full test suite after prompt/cache v2 bump: 178 passed
 ```
 
 ## Handoff Discipline
