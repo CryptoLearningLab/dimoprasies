@@ -5,14 +5,17 @@ Execute:
 
 ## Current Input
 
-Local version `0.1.33` has the second tab scaffolded and includes the cleanup
-gate before FTS:
+Local version `0.1.35` keeps the second tab scaffolded and includes the cleanup
+and notification gates before FTS:
 
 - per-user `Δεν με ενδιαφέρει` dismissals in SQLite,
 - password reset through setup-token links,
+- password setup/reset links tightened to a 60-minute one-time window,
 - login footer terms/privacy/help,
 - cleaner discovery/audit UI copy,
 - mobile label/value spacing improvements.
+- scheduled entalmata scanning and clickable entalmata email alerts with
+  independent per-recipient de-duplication.
 
 Version `0.1.32` scaffolded the second tab
 `Αντίστροφη αναζήτηση` from `docs/PRODUCT_SPECIFICATION.md`
@@ -70,5 +73,3 @@ Complete the next gate:
 - Design a separate nationwide ESHIDIS-only search mode with isolated state,
   explicit limits, no automatic KIMDIS/authority fetch, no automatic OCR/AI,
   and separate audit/reporting.
-- Add optional entalmata-specific email summaries if users need separate
-  warrant alerts instead of only the scheduled audit/list refresh.

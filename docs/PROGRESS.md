@@ -3372,6 +3372,36 @@ real email alert stage:
   3 newly added recipients received the current 11-row list
 ```
 
+### Runtime v0.1.35 Entalmata email alerts and password-link tightening
+
+- The runtime/UI version was bumped from `0.1.34` to `0.1.35`; `pyproject.toml`
+  was synchronized with the runtime `__version__`.
+- Email alerts now include a separate `Νέα εντάλματα Tender Radar` section
+  when visible Diavgeia entalmata have not yet been sent to a recipient.
+- Entalmata notification de-duplication is independent from public-works
+  alerts. It uses SQLite `notification_log` channel `entalmata_email` and row
+  keys shaped as `ENTALMA:{ADA}`, so each mailbox receives each warrant once
+  and only future new warrants afterward.
+- Entalmata email rows include clickable official Διαύγεια PDF/document URLs.
+- Password setup/reset links now expire after `60` minutes instead of 24
+  hours. They remain one-time only after successful password setup, not after a
+  simple page open.
+- The password setup UI and invitation email copy now state the 60-minute,
+  one-use rule.
+
+Verification so far:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_password_reset_sends_setup_link_for_existing_user tests/test_ui_server.py::test_password_setup_invite_expires_after_configured_minutes tests/test_ui_server.py::test_email_alerts_payload_includes_clickable_entalmata_once_per_recipient tests/test_ui_server.py::test_email_alerts_payload_supports_multiple_recipients -q
+# 4 passed in 1.84s
+
+.venv/bin/python -m pytest
+# 225 passed in 19.70s
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

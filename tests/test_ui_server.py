@@ -1,5 +1,5 @@
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime, timezone
 import json
 from types import SimpleNamespace
 import time
@@ -69,7 +69,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.34" in INDEX_HTML
+    assert "v0.1.35" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -283,6 +283,32 @@ def test_password_reset_sends_setup_link_for_existing_user(tmp_path, monkeypatch
     assert result["sent"] is True
     assert sent[0]["recipient"] == "owner@example.test"
     assert "https://example.test/password-setup?token=reset-token" in sent[0]["text"]
+    assert "60 λεπτά" in sent[0]["text"]
+
+
+def test_password_setup_invite_expires_after_configured_minutes(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+
+    monkeypatch.setattr(ui_server, "runtime_db_path", lambda: db_path)
+    monkeypatch.setattr(ui_server.secrets, "token_urlsafe", lambda size=32: "ttl-token")
+
+    ui_server.create_password_setup_invite(
+        email="owner@example.test",
+        role="admin",
+        created_by="test",
+        base_url="https://example.test",
+    )
+
+    invite = ui_server.get_admin_invite(db_path, ui_server.hash_reset_token("ttl-token"))
+    assert invite is not None
+    created_at = datetime.fromisoformat(invite.created_at)
+    expires_at = datetime.fromisoformat(invite.expires_at)
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    delta_seconds = (expires_at - created_at).total_seconds()
+    assert ui_server.PASSWORD_SETUP_TOKEN_TTL_MINUTES * 60 - 5 <= delta_seconds <= ui_server.PASSWORD_SETUP_TOKEN_TTL_MINUTES * 60
 
 
 def test_password_reset_does_not_reveal_missing_user(tmp_path, monkeypatch) -> None:
@@ -889,6 +915,50 @@ def test_email_alerts_payload_supports_multiple_recipients(tmp_path, monkeypatch
     assert by_recipient["one@example.test"]["skipped_already_sent"] == 1
     assert by_recipient["two@example.test"]["new_count"] == 1
     assert by_recipient["two@example.test"]["skipped_already_sent"] == 0
+
+
+def test_email_alerts_payload_includes_clickable_entalmata_once_per_recipient(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    monkeypatch.setattr(ui_server, "email_alert_recipients", lambda recipient=None: ["one@example.test", "two@example.test"])
+    monkeypatch.setattr(ui_server, "dashboard_payload", lambda scope="focus", sort="deadline_asc": {"summary": {}, "tenders": []})
+    monkeypatch.setattr(
+        ui_server,
+        "entalmata_email_rows",
+        lambda: [
+            {
+                "row_key": "ENTALMA:6ΤΩΚΚ2Π-Ω2Β",
+                "ada": "6ΤΩΚΚ2Π-Ω2Β",
+                "title": "ΕΝΤΟΛΗ ΠΛΗΡΩΜΗΣ 1739-2026-07-09",
+                "subject": "Εκκαθάριση-εντολή πληρωμής",
+                "org_name": "Περιφέρεια Στερεάς Ελλάδας",
+                "issue_date": "2026-07-09",
+                "protocol_number": "1739",
+                "document_url": "https://diavgeia.gov.gr/doc/6ΤΩΚΚ2Π-Ω2Β",
+                "project_title": "Αποκατάσταση βλαβών",
+                "matched_keywords": ["ΛΑΠΤΩ"],
+            }
+        ],
+    )
+    ui_server.record_notification_sent(
+        ui_server.runtime_db_path(),
+        row_key="ENTALMA:6ΤΩΚΚ2Π-Ω2Β",
+        channel="entalmata_email",
+        recipient="one@example.test",
+        subject="old",
+    )
+
+    payload = email_alerts_payload(dry_run=True)
+
+    assert payload["candidate_rows"] == 0
+    assert payload["entalmata_candidate_rows"] == 1
+    assert payload["new_count"] == 0
+    assert payload["new_entalmata_count"] == 1
+    assert payload["entalmata_skipped_already_sent"] == 1
+    by_recipient = {item["recipient"]: item for item in payload["per_recipient"]}
+    assert by_recipient["one@example.test"]["new_entalmata_count"] == 0
+    assert by_recipient["two@example.test"]["new_entalmata_count"] == 1
+    assert "https://diavgeia.gov.gr/doc/6ΤΩΚΚ2Π-Ω2Β" in by_recipient["two@example.test"]["html_body"]
 
 
 def test_scheduled_poll_and_alert_writes_audit_reports(tmp_path, monkeypatch) -> None:

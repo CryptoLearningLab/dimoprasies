@@ -90,6 +90,7 @@ DEFAULT_KIMDIS_DISCOVERY_PAGES = 20
 DEFAULT_SCHEDULED_AUTO_FETCH_SECONDS = 20
 DEFAULT_AUTHORITY_LIMIT_PER_SOURCE = 10
 ADMIN_USER_ROLES = ("admin", "tester", "user")
+PASSWORD_SETUP_TOKEN_TTL_MINUTES = 60
 MAX_BACKFILL_ESHIDIS_LIMIT = 500
 MAX_BACKFILL_KIMDIS_PAGES = 80
 MAX_REVERSE_SEARCH_RESULTS = 80
@@ -2362,13 +2363,17 @@ def run_email_alerts(
         return payload
     sent_at = utc_now_iso()
     sent_total = 0
+    sent_email_total = 0
     for item in payload.get("per_recipient") or []:
         new_rows = item.get("new_rows") or []
-        if not new_rows:
+        new_entalmata_rows = item.get("new_entalmata_rows") or []
+        if not new_rows and not new_entalmata_rows:
             continue
         send_email_alert(str(item["recipient"]), str(item["subject"]), str(item["text_body"]), str(item["html_body"]))
-        item["sent"] = len(new_rows)
-        sent_total += len(new_rows)
+        item["sent"] = len(new_rows) + len(new_entalmata_rows)
+        item["sent_emails"] = 1
+        sent_email_total += 1
+        sent_total += item["sent"]
         for row in new_rows:
             record_notification_sent(
                 runtime_db_path(),
@@ -2383,7 +2388,22 @@ def run_email_alerts(
                     "official_url": row.get("official_url"),
                 },
             )
+        for row in new_entalmata_rows:
+            record_notification_sent(
+                runtime_db_path(),
+                row_key=str(row["row_key"]),
+                channel="entalmata_email",
+                recipient=str(item["recipient"]),
+                subject=str(item["subject"]),
+                sent_at=sent_at,
+                metadata={
+                    "ada": row.get("ada"),
+                    "document_url": row.get("document_url"),
+                    "project_title": row.get("project_title"),
+                },
+            )
     payload["sent"] = sent_total
+    payload["sent_emails"] = sent_email_total
     payload["sent_at"] = sent_at
     return payload
 
@@ -2532,9 +2552,13 @@ def summarize_email_result(result: dict[str, Any]) -> dict[str, Any]:
         "recipient": result.get("recipient"),
         "recipients": result.get("recipients"),
         "candidate_rows": result.get("candidate_rows"),
+        "entalmata_candidate_rows": result.get("entalmata_candidate_rows"),
         "new_count": result.get("new_count"),
+        "new_entalmata_count": result.get("new_entalmata_count"),
         "skipped_already_sent": result.get("skipped_already_sent"),
+        "entalmata_skipped_already_sent": result.get("entalmata_skipped_already_sent"),
         "sent": result.get("sent"),
+        "sent_emails": result.get("sent_emails"),
         "per_recipient": result.get("per_recipient"),
         "error": result.get("error"),
     }
@@ -2611,7 +2635,11 @@ def render_scheduled_run_markdown(payload: dict[str, Any]) -> str:
         f"- Candidate rows: {email.get('candidate_rows')}",
         f"- New rows: {email.get('new_count')}",
         f"- Already sent: {email.get('skipped_already_sent')}",
+        f"- Entalmata candidate rows: {email.get('entalmata_candidate_rows')}",
+        f"- New entalmata: {email.get('new_entalmata_count')}",
+        f"- Entalmata already sent: {email.get('entalmata_skipped_already_sent')}",
         f"- Sent: {email.get('sent')}",
+        f"- Sent emails: {email.get('sent_emails')}",
         f"- Recipients: {', '.join(email.get('recipients') or ([email.get('recipient')] if email.get('recipient') else []))}",
         "",
         "## Changed Sources",
@@ -2647,9 +2675,12 @@ def email_alerts_payload(
     dashboard = dashboard_payload(scope=scope, sort=sort)
     rows = [email_alert_row(row) for row in dashboard.get("tenders") or []]
     rows = [row for row in rows if row["row_key"]]
+    entalmata_rows = entalmata_email_rows()
     per_recipient: list[dict[str, Any]] = []
     all_new_keys: set[str] = set()
     all_skipped_keys: set[str] = set()
+    all_new_entalmata_keys: set[str] = set()
+    all_skipped_entalmata_keys: set[str] = set()
     for target in targets:
         skipped = [
             row
@@ -2658,19 +2689,38 @@ def email_alerts_payload(
         ]
         skipped_keys = {row["row_key"] for row in skipped}
         new_rows = [row for row in rows if row["row_key"] not in skipped_keys]
+        skipped_entalmata = [
+            row
+            for row in entalmata_rows
+            if notification_already_sent(runtime_db_path(), row_key=row["row_key"], channel="entalmata_email", recipient=target)
+        ]
+        skipped_entalmata_keys = {row["row_key"] for row in skipped_entalmata}
+        new_entalmata_rows = [row for row in entalmata_rows if row["row_key"] not in skipped_entalmata_keys]
         all_new_keys.update(row["row_key"] for row in new_rows)
         all_skipped_keys.update(row["row_key"] for row in skipped)
+        all_new_entalmata_keys.update(row["row_key"] for row in new_entalmata_rows)
+        all_skipped_entalmata_keys.update(row["row_key"] for row in skipped_entalmata)
+        subject_parts = []
+        if new_rows:
+            subject_parts.append(f"{len(new_rows)} νέα έργα")
+        if new_entalmata_rows:
+            subject_parts.append(f"{len(new_entalmata_rows)} νέα εντάλματα")
         per_recipient.append(
             {
                 "recipient": target,
                 "new_count": len(new_rows),
                 "skipped_already_sent": len(skipped),
+                "new_entalmata_count": len(new_entalmata_rows),
+                "entalmata_skipped_already_sent": len(skipped_entalmata),
                 "new_rows": new_rows,
                 "skipped_rows": skipped,
-                "subject": f"Tender Radar: {len(new_rows)} νέα έργα",
-                "text_body": render_email_text(new_rows),
-                "html_body": render_email_html(new_rows),
+                "new_entalmata_rows": new_entalmata_rows,
+                "skipped_entalmata_rows": skipped_entalmata,
+                "subject": f"Tender Radar: {', '.join(subject_parts) if subject_parts else 'καμία νέα ειδοποίηση'}",
+                "text_body": render_email_text(new_rows, entalmata_rows=new_entalmata_rows),
+                "html_body": render_email_html(new_rows, entalmata_rows=new_entalmata_rows),
                 "sent": 0,
+                "sent_emails": 0,
             }
         )
     representative = per_recipient[0]
@@ -2682,11 +2732,17 @@ def email_alerts_payload(
         "subject": representative["subject"],
         "dashboard_summary": dashboard.get("summary") or {},
         "candidate_rows": len(rows),
+        "entalmata_candidate_rows": len(entalmata_rows),
         "new_count": len(all_new_keys),
+        "new_entalmata_count": len(all_new_entalmata_keys),
         "skipped_already_sent": len(all_skipped_keys),
+        "entalmata_skipped_already_sent": len(all_skipped_entalmata_keys),
         "sent": 0,
+        "sent_emails": 0,
         "new_rows": representative["new_rows"],
         "skipped_rows": representative["skipped_rows"],
+        "new_entalmata_rows": representative["new_entalmata_rows"],
+        "skipped_entalmata_rows": representative["skipped_entalmata_rows"],
         "text_body": representative["text_body"],
         "html_body": representative["html_body"],
         "per_recipient": per_recipient,
@@ -2708,6 +2764,43 @@ def email_alert_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def entalmata_email_rows() -> list[dict[str, Any]]:
+    config_path = REPO_ROOT / "config/diavgeia_entalmata.yml"
+    visible_days = 15
+    if config_path.exists():
+        data = load_config(config_path)
+        visible_days = int(data.get("visible_window_days") or visible_days)
+    records = list_entalmata(runtime_db_path(), visible_window_days=visible_days)
+    rows: list[dict[str, Any]] = []
+    for record in records:
+        ada = str(record.ada or "").strip()
+        if not ada:
+            continue
+        rows.append(
+            {
+                "row_key": f"ENTALMA:{ada}",
+                "ada": ada,
+                "title": record.project_title or entalma_display_title(record),
+                "subject": record.subject,
+                "org_name": record.org_name,
+                "issue_date": record.issue_date,
+                "protocol_number": record.protocol_number,
+                "document_url": record.document_url,
+                "project_title": record.project_title,
+                "matched_keywords": record.matched_keywords,
+            }
+        )
+    return rows
+
+
+def entalma_display_title(record: Any) -> str:
+    protocol = str(getattr(record, "protocol_number", "") or "").strip()
+    issue = str(getattr(record, "issue_date", "") or "").strip()
+    if protocol or issue:
+        return f"ΕΝΤΟΛΗ ΠΛΗΡΩΜΗΣ {protocol}{('-' + issue) if issue else ''}".strip()
+    return str(getattr(record, "subject", "") or getattr(record, "ada", "") or "Εντολή πληρωμής")
+
+
 def official_url_for_row(row: dict[str, Any]) -> str | None:
     linked_ids = linked_eshidis_ids_for_row(row)
     eshidis_id = str(row.get("eshidis_id") or (linked_ids[0] if linked_ids else "") or "").strip()
@@ -2720,10 +2813,13 @@ def official_url_for_row(row: dict[str, Any]) -> str | None:
     return None
 
 
-def render_email_text(rows: list[dict[str, Any]]) -> str:
-    if not rows:
-        return "Δεν υπάρχουν νέα έργα για αποστολή."
-    lines = ["Νέα έργα Tender Radar:", ""]
+def render_email_text(rows: list[dict[str, Any]], *, entalmata_rows: list[dict[str, Any]] | None = None) -> str:
+    entalmata_rows = entalmata_rows or []
+    if not rows and not entalmata_rows:
+        return "Δεν υπάρχουν νέες ειδοποιήσεις για αποστολή."
+    lines: list[str] = []
+    if rows:
+        lines.extend(["Νέα έργα Tender Radar:", ""])
     for index, row in enumerate(rows, start=1):
         lines.extend(
             [
@@ -2737,12 +2833,30 @@ def render_email_text(rows: list[dict[str, Any]]) -> str:
                 "",
             ]
         )
+    if entalmata_rows:
+        if lines:
+            lines.append("")
+        lines.extend(["Νέα εντάλματα Tender Radar:", ""])
+        for index, row in enumerate(entalmata_rows, start=1):
+            lines.extend(
+                [
+                    f"{index}. {row.get('title') or ''}",
+                    f"ΑΔΑ: {row.get('ada') or ''}",
+                    f"Φορέας: {row.get('org_name') or ''}",
+                    f"Ημερομηνία: {row.get('issue_date') or ''}",
+                    f"Πρωτόκολλο: {row.get('protocol_number') or ''}",
+                    f"Link PDF: {row.get('document_url') or ''}",
+                    "",
+                ]
+            )
     return "\n".join(lines).strip()
 
 
-def render_email_html(rows: list[dict[str, Any]]) -> str:
-    if not rows:
-        return "<p>Δεν υπάρχουν νέα έργα για αποστολή.</p>"
+def render_email_html(rows: list[dict[str, Any]], *, entalmata_rows: list[dict[str, Any]] | None = None) -> str:
+    entalmata_rows = entalmata_rows or []
+    if not rows and not entalmata_rows:
+        return "<p>Δεν υπάρχουν νέες ειδοποιήσεις για αποστολή.</p>"
+    sections: list[str] = []
     items = []
     for row in rows:
         link = row.get("official_url")
@@ -2758,7 +2872,25 @@ def render_email_html(rows: list[dict[str, Any]]) -> str:
             f"Λήξη: {escape_html(row.get('deadline_display') or '')}"
             "</li>"
         )
-    return "<h2>Νέα έργα Tender Radar</h2><ol>" + "".join(items) + "</ol>"
+    if items:
+        sections.append("<h2>Νέα έργα Tender Radar</h2><ol>" + "".join(items) + "</ol>")
+    entalma_items = []
+    for row in entalmata_rows:
+        link = row.get("document_url")
+        title = escape_html(row.get("title") or "")
+        title_html = f'<a href="{escape_html(link)}">{title}</a>' if link else title
+        entalma_items.append(
+            "<li>"
+            f"<strong>{title_html}</strong><br>"
+            f"ΑΔΑ: {escape_html(row.get('ada') or '')}<br>"
+            f"Φορέας: {escape_html(row.get('org_name') or '')}<br>"
+            f"Ημερομηνία: {escape_html(row.get('issue_date') or '')}<br>"
+            f"Πρωτόκολλο: {escape_html(row.get('protocol_number') or '')}"
+            "</li>"
+        )
+    if entalma_items:
+        sections.append("<h2>Νέα εντάλματα Tender Radar</h2><ol>" + "".join(entalma_items) + "</ol>")
+    return "".join(sections)
 
 
 def escape_html(value: object) -> str:
@@ -4233,7 +4365,7 @@ def update_admin_user_role(payload: dict[str, Any], *, actor_email: str | None) 
 def create_password_setup_invite(*, email: str, role: str, created_by: str | None, base_url: str) -> tuple[str, str]:
     token = secrets.token_urlsafe(32)
     token_hash = hash_reset_token(token)
-    expires_at = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=PASSWORD_SETUP_TOKEN_TTL_MINUTES)).isoformat()
     upsert_admin_user(runtime_db_path(), email=email, role=role, enabled=True)
     create_admin_invite(
         runtime_db_path(),
@@ -4252,13 +4384,13 @@ def send_password_setup_email(email: str, link: str, *, role: str) -> None:
         "Έχεις πρόσκληση στο Tender Radar.\n\n"
         f"Ρόλος: {role_label}\n"
         f"Όρισε password από εδώ: {link}\n\n"
-        "Το link ισχύει για 24 ώρες."
+        f"Το link ισχύει για {PASSWORD_SETUP_TOKEN_TTL_MINUTES} λεπτά και μπορεί να χρησιμοποιηθεί μία φορά."
     )
     html_body = (
         "<p>Έχεις πρόσκληση στο <strong>Tender Radar</strong>.</p>"
         f"<p>Ρόλος: <strong>{role_label}</strong></p>"
         f"<p><a href=\"{link}\">Ορισμός password</a></p>"
-        "<p>Το link ισχύει για 24 ώρες.</p>"
+        f"<p>Το link ισχύει για {PASSWORD_SETUP_TOKEN_TTL_MINUTES} λεπτά και μπορεί να χρησιμοποιηθεί μία φορά.</p>"
     )
     send_email_alert(email, "Tender Radar πρόσκληση σύνδεσης", text_body, html_body)
 
@@ -5987,7 +6119,7 @@ INDEX_HTML = f"""<!doctype html>
         <label>Νέο password <input id="setupPasswordInput" type="password" autocomplete="new-password" placeholder="Τουλάχιστον 10 χαρακτήρες"></label>
         <label>Επανάληψη <input id="setupPasswordConfirmInput" type="password" autocomplete="new-password"></label>
         <button id="setupPasswordBtn">Ορισμός password</button>
-        <span id="setupPasswordStatus" class="noteText">Το link ισχύει για 24 ώρες.</span>
+        <span id="setupPasswordStatus" class="noteText">Το link ισχύει για 60 λεπτά και μπορεί να χρησιμοποιηθεί μία φορά.</span>
       </div>
       <div id="adminLockedBox" class="note" hidden>Το admin panel είναι διαθέσιμο μόνο σε διαχειριστή.</div>
       <div id="adminContent" class="adminContent" hidden>

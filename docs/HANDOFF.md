@@ -786,6 +786,10 @@ The system `python` command is not present in the remote environment; use
   after adding the new mailboxes sent the current 11-row list to the three
   newly added recipients and skipped the original recipient because those rows
   were already recorded as sent.
+- Local `v0.1.35` adds clickable Diavgeia entalmata rows to email alerts with
+  independent `entalmata_email` notification de-duplication per recipient. It
+  also tightens password setup/reset links from 24 hours to a 60-minute
+  one-time window after successful password setup.
 
 ## Next Work
 

@@ -561,8 +561,9 @@ not become unbounded full-document OCR jobs.
 
 Tender Radar can create local UI users in SQLite, but it must not store
 plaintext passwords. Passwords are set only through email setup/invitation
-links. The invite token is stored as a SHA-256 hash and expires after 24 hours;
-the password is stored as PBKDF2-SHA256 with a random salt.
+links. The invite token is stored as a SHA-256 hash, expires after a short
+operator window and is marked used after a successful password set; the
+password is stored as PBKDF2-SHA256 with a random salt.
 
 The configured owner email becomes `admin`. Admins may invite additional
 `user` or `admin` accounts from the Admin panel. `user` accounts do not gain
@@ -796,3 +797,22 @@ Email alerts support multiple runtime recipients from `ALERT_EMAIL_TO`,
 `EMAIL_ALERT_TO` or `EMAIL_TO`. Notification de-duplication remains scoped per
 recipient, so adding a mailbox does not suppress rows that were only sent to
 another mailbox.
+
+## D-069 - Entalmata alerts are independent one-time notifications
+**Status:** Accepted
+
+Diavgeia entalmata alerts use the same email delivery path as public-works
+alerts, but their notification state is stored under a separate
+`entalmata_email` channel keyed by `ENTALMA:{ADA}` and recipient.
+
+This keeps one-time delivery semantics for each mailbox without mixing payment
+warrants with tender rows. Public-works rows remain de-duplicated under the
+existing `email` channel.
+
+## D-070 - Password setup links use a short one-time window
+**Status:** Accepted
+
+Password setup and reset links now expire after 60 minutes. A link is marked
+used only after a successful password set, not merely when the page is opened,
+so mobile refreshes or accidental previews do not burn the token before the
+user completes the form.
