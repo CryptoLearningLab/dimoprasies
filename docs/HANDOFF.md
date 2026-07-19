@@ -655,7 +655,8 @@ The system `python` command is not present in the remote environment; use
   official `pwgopendata` fetch for any discovered id. Live no-discovery smoke
   found `26PROC019367864 -> 221566` and `26PROC019417347 -> 221691`.
   Manual selected fetch also persists `verified_tender_links` after the
-  official ESHIDIS fetch succeeds.
+  official ESHIDIS fetch succeeds and deletes stale target ids for the same
+  source row after successful re-verification.
 
 ## Next Work
 

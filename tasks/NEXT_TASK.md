@@ -24,6 +24,9 @@ The KIMDIS connected-acts gate is implemented locally in UI package version
   `tests/test_kimdis_fetch.py`,
   `tests/test_ui_server.py` -> `111 passed`.
 - Full local test suite passed: `191 passed`.
+- Verified link persistence now removes stale target ESHIDIS ids for the same
+  source row after successful re-verification.
+- Full local test suite after stale-link cleanup passed: `192 passed`.
 - Live source smoke without full discovery found:
   - `26PROC019367864 -> 221566`
   - `26PROC019417347 -> 221691`

@@ -32,6 +32,7 @@ from tender_radar import __version__
 from tender_radar.config import load_config
 from tender_radar.db import (
     create_admin_invite,
+    delete_stale_verified_tender_links,
     dismiss_tender as dismiss_tender_in_db,
     get_admin_invite,
     get_admin_user,
@@ -1423,6 +1424,11 @@ def persist_verified_eshidis_links_for_enrichment(target: dict[str, str], result
     row_key = str(target.get("row_key") or "").strip()
     if not row_key:
         return []
+    delete_stale_verified_tender_links(
+        runtime_db_path(),
+        source_row_key=row_key,
+        keep_target_eshidis_ids=set(linked_ids),
+    )
     verified_at = utc_now_iso()
     verified_ids: list[str] = []
     for eshidis_id in linked_ids:
@@ -1465,6 +1471,12 @@ def persist_verified_links_for_selected_fetch(
 ) -> list[str]:
     if not linked_ids or eshidis_fetch.get("ok") is False:
         return []
+    current_ids = {str(value).strip() for value in linked_ids if str(value).strip().isdigit()}
+    delete_stale_verified_tender_links(
+        runtime_db_path(),
+        source_row_key=source_row_key,
+        keep_target_eshidis_ids=current_ids,
+    )
     verified_at = utc_now_iso()
     verified_ids: list[str] = []
     for eshidis_id in sorted({str(value).strip() for value in linked_ids if str(value).strip().isdigit()}):

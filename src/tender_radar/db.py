@@ -1285,6 +1285,37 @@ def upsert_verified_tender_link(
         connection.close()
 
 
+def delete_stale_verified_tender_links(
+    db_path: Path,
+    *,
+    source_row_key: str,
+    keep_target_eshidis_ids: set[str],
+) -> int:
+    initialize(db_path)
+    keep_ids = {str(value).strip() for value in keep_target_eshidis_ids if str(value).strip().isdigit()}
+    connection = connect(db_path)
+    try:
+        if keep_ids:
+            placeholders = ",".join("?" for _ in keep_ids)
+            cursor = connection.execute(
+                f"""
+                DELETE FROM verified_tender_links
+                WHERE source_row_key = ?
+                  AND target_eshidis_id NOT IN ({placeholders})
+                """,
+                (source_row_key, *sorted(keep_ids)),
+            )
+        else:
+            cursor = connection.execute(
+                "DELETE FROM verified_tender_links WHERE source_row_key = ?",
+                (source_row_key,),
+            )
+        connection.commit()
+        return int(cursor.rowcount or 0)
+    finally:
+        connection.close()
+
+
 def list_verified_tender_links(
     db_path: Path,
     *,

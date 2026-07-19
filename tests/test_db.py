@@ -1,6 +1,7 @@
 import sqlite3
 
 from tender_radar.db import (
+    delete_stale_verified_tender_links,
     dismiss_tender,
     get_source_document,
     get_source_state,
@@ -391,3 +392,28 @@ def test_verified_tender_links_are_persisted(tmp_path) -> None:
     assert links[0].source_label == "ΚΗΜΔΗΣ"
     assert links[0].source_signature == "sig-1"
     assert links[0].evidence["official_fetch_ok"] is True
+
+
+def test_stale_verified_tender_links_are_deleted_for_source(tmp_path) -> None:
+    db_path = tmp_path / "tenders.sqlite"
+    for eshidis_id in ("221473", "221691"):
+        upsert_verified_tender_link(
+            db_path,
+            source_row_key="KIMDIS:26PROC019417347",
+            source_identifier="26PROC019417347",
+            source_label="ΚΗΜΔΗΣ",
+            target_eshidis_id=eshidis_id,
+            verification_status="VERIFIED_ESHIDIS_RESOURCE",
+            verified_at="2026-07-19T10:00:00+00:00",
+            evidence={"official_fetch_ok": True},
+        )
+
+    deleted = delete_stale_verified_tender_links(
+        db_path,
+        source_row_key="KIMDIS:26PROC019417347",
+        keep_target_eshidis_ids={"221691"},
+    )
+    links = list_verified_tender_links(db_path, source_row_key="KIMDIS:26PROC019417347")
+
+    assert deleted == 1
+    assert [link.target_eshidis_id for link in links] == ["221691"]

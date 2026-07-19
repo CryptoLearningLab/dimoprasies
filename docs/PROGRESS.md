@@ -2635,12 +2635,15 @@ local dashboard smoke without full discovery:
   successful official ESHIDIS fetch, so user-triggered verification updates
   dashboard/dedup state immediately instead of waiting for background
   enrichment.
+- Verified link persistence now deletes stale target ESHIDIS ids for the same
+  source row after a successful re-verification, preventing old wrong KIMDIS
+  links from remaining beside the newly proven official id.
 
 Verification:
 
 ```bash
 .venv/bin/python -m py_compile src/tender_radar/sources/kimdis_connected_acts.py src/tender_radar/ui_server.py
-.venv/bin/python -m pytest tests/test_kimdis_connected_acts.py tests/test_kimdis_fetch.py tests/test_ui_server.py -q
+.venv/bin/python -m pytest tests/test_db.py tests/test_kimdis_connected_acts.py tests/test_kimdis_fetch.py tests/test_ui_server.py -q
 .venv/bin/python -m pytest -q
 .venv/bin/python -c "from pathlib import Path; from tender_radar.sources.kimdis_connected_acts import fetch_kimdis_connected_acts; ..."
 .venv/bin/python -c "import json; from tender_radar.ui_server import run_selected_fetch; ..."
@@ -2652,8 +2655,8 @@ Results:
 
 ```text
 py_compile: passed
-focused connected/KIMDIS/UI tests: 111 passed
-full test suite: 191 passed
+focused DB/connected/KIMDIS/UI tests: 125 passed
+full test suite: 192 passed
 live KIMDIS Open Data smoke without full discovery:
   26PROC019367864 -> chain FETCHED, linked ESHIDIS 221566, 3 attachments, 0 errors
   26PROC019417347 -> chain FETCHED, linked ESHIDIS 221691, 3 attachments, 0 errors

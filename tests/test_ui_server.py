@@ -1772,6 +1772,15 @@ def test_selected_kimdis_fetch_persists_verified_link(tmp_path, monkeypatch) -> 
     monkeypatch.setattr(ui_server, "run_kimdis_fetch", lambda official_id: {"ok": True, "official_id": official_id})
     monkeypatch.setattr(ui_server, "kimdis_linked_eshidis_ids", lambda official_id: ["221473"])
     monkeypatch.setattr(ui_server, "dashboard_payload", lambda scope="focus": {"scope": scope, "summary": {}})
+    ui_server.upsert_verified_tender_link(
+        ui_server.runtime_db_path(),
+        source_row_key="KIMDIS:26PROC019417347",
+        source_identifier="26PROC019417347",
+        source_label="ΚΗΜΔΗΣ",
+        target_eshidis_id="221111",
+        verification_status="VERIFIED_ESHIDIS_RESOURCE",
+        evidence={"stale": True},
+    )
 
     def fake_run_cli_steps(steps, *, dashboard_scope=None):
         return {"ok": True, "steps": [{"name": step["name"], "returncode": 0} for step in steps], "dashboard": {}}
@@ -1782,7 +1791,7 @@ def test_selected_kimdis_fetch_persists_verified_link(tmp_path, monkeypatch) -> 
     links = ui_server.list_verified_tender_links(ui_server.runtime_db_path(), source_row_key="KIMDIS:26PROC019417347")
 
     assert result["ok"] is True
-    assert links[0].target_eshidis_id == "221473"
+    assert [link.target_eshidis_id for link in links] == ["221473"]
     assert links[0].evidence["verification"] == "manual_selected_fetch"
 
 
