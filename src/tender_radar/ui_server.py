@@ -2952,7 +2952,12 @@ def dashboard_payload(
     rows = [row for row in rows if str(row.get("row_key") or row.get("eshidis_id") or row.get("display_id") or "") not in ignored]
     rows = [attach_ai_triage(row, triage, overrides=overrides) for row in rows]
     canonical_rows, duplicate_hidden_rows = suppress_linked_eshidis_duplicates(rows)
-    active_rows = [row for row in canonical_rows if dashboard_row_is_active(row, as_of=as_of)]
+    official_deadlines = official_eshidis_deadlines_by_id(canonical_rows)
+    active_rows = [
+        row
+        for row in canonical_rows
+        if dashboard_row_is_active(row, as_of=as_of, official_deadlines=official_deadlines)
+    ]
     triage_hidden = [row for row in active_rows if row.get("ai_triage_hidden")]
     triage_visible_rows = [row for row in active_rows if not row.get("ai_triage_hidden")]
     visible_rows = triage_visible_rows if all_greece else [row for row in triage_visible_rows if row["interest_match"]]
@@ -3655,7 +3660,8 @@ def admin_audit_payload() -> dict[str, Any]:
 
     active_source_rows = [row for row in rows if row_key_for_tender(row) not in ignored_keys]
     canonical_rows, duplicate_rows = suppress_linked_eshidis_duplicates(active_source_rows)
-    expired_rows = [row for row in canonical_rows if not dashboard_row_is_active(row)]
+    official_deadlines = official_eshidis_deadlines_by_id(canonical_rows)
+    expired_rows = [row for row in canonical_rows if not dashboard_row_is_active(row, official_deadlines=official_deadlines)]
     duplicate_hidden_rows = [
         admin_hidden_row(
             row,
@@ -4584,11 +4590,37 @@ def sort_dashboard_rows(rows: list[dict[str, Any]], *, sort: str) -> list[dict[s
     return sorted(rows, key=lambda row: (row.get("deadline_sort") or "9999", row.get("display_id") or ""))
 
 
-def dashboard_row_is_active(row: dict[str, Any], *, as_of: date | None = None) -> bool:
+def dashboard_row_is_active(
+    row: dict[str, Any],
+    *,
+    as_of: date | None = None,
+    official_deadlines: dict[str, str] | None = None,
+) -> bool:
     deadline = deadline_date(str(row.get("current_deadline_at") or row.get("submission_deadline") or ""))
+    if deadline is None and official_deadlines:
+        linked_deadlines = [
+            deadline_date(official_deadlines[eshidis_id])
+            for eshidis_id in linked_eshidis_ids_for_row(row)
+            if eshidis_id in official_deadlines
+        ]
+        linked_deadlines = [value for value in linked_deadlines if value is not None]
+        if linked_deadlines:
+            deadline = max(linked_deadlines)
     if deadline is None:
         return True
     return deadline >= (as_of or date.today())
+
+
+def official_eshidis_deadlines_by_id(rows: list[dict[str, Any]]) -> dict[str, str]:
+    deadlines: dict[str, str] = {}
+    for row in rows:
+        if str(row.get("source_label") or "") != "ΕΣΗΔΗΣ":
+            continue
+        eshidis_id = str(row.get("eshidis_id") or row.get("display_id") or "").strip()
+        deadline = str(row.get("current_deadline_at") or row.get("submission_deadline") or "").strip()
+        if eshidis_id.isdigit() and deadline:
+            deadlines[eshidis_id] = deadline
+    return deadlines
 
 
 def deadline_date(value: str) -> date | None:

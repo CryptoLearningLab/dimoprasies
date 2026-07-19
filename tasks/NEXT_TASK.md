@@ -31,6 +31,10 @@ The verified-link persistence gate is implemented locally:
   hidden when at least two fields match the official row among title, deadline,
   budget and authority. Local no-discovery smoke reported `duplicate_hidden 8`
   and `non_verified_review 21`.
+- UI package version `0.1.17` uses linked official ESHIDIS deadlines for
+  active/expired filtering when a non-ESHIDIS source row has no direct deadline.
+  Local no-discovery smoke confirmed linked-expired rows for `217922` and
+  `216631` are no longer visible.
 
 ## Instruction
 

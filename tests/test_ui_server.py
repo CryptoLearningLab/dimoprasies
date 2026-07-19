@@ -60,7 +60,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.16" in INDEX_HTML
+    assert "v0.1.17" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -2728,6 +2728,27 @@ def test_dashboard_hides_strong_linked_duplicate_without_persisted_link(tmp_path
     assert hidden[0]["display_id"] == "26PROC019367864"
     assert hidden[0]["verified_eshidis_link_status"] == "STRONG_LINKED_ESHIDIS_DUPLICATE"
     assert hidden[0]["duplicate_reason"] == "Strong linked duplicate of ESHIDIS 221566"
+
+
+def test_dashboard_row_uses_linked_official_eshidis_deadline_when_source_deadline_is_missing() -> None:
+    row = {
+        "source_label": "Φορέας",
+        "row_key": "AUTHORITY:AUTH-6e565827798444b6",
+        "display_id": "AUTH-6e565827798444b6",
+        "title": "ΔΗΜΟΤΙΚΗ ΟΔΟΠΟΙΙΑ Δ.ΕΥΠΑΛΙΟΥ",
+        "linked_eshidis_ids": ["217922"],
+    }
+
+    assert not ui_server.dashboard_row_is_active(
+        row,
+        as_of=date(2026, 7, 19),
+        official_deadlines={"217922": "16-02-2026 15:00:00"},
+    )
+    assert ui_server.dashboard_row_is_active(
+        row,
+        as_of=date(2026, 1, 10),
+        official_deadlines={"217922": "16-02-2026 15:00:00"},
+    )
 
 
 def test_dashboard_does_not_deduplicate_by_title_only(tmp_path, monkeypatch) -> None:

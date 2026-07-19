@@ -640,6 +640,11 @@ The system `python` command is not present in the remote environment; use
   that is present in the dashboard and at least two fields match among title,
   deadline, budget and authority. Local no-discovery smoke reported
   `duplicate_hidden 8` and `non_verified_review 21`.
+- The UI now displays version `v0.1.17`. If a non-ESHIDIS row has no direct
+  deadline but links to an official ESHIDIS row with a known deadline, the
+  dashboard uses the official linked deadline for active/expired filtering.
+  Local no-discovery smoke hid linked-expired rows for `217922` and `216631`
+  (`linked_expired_visible []`).
 
 ## Next Work
 

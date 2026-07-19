@@ -643,3 +643,9 @@ row (title, deadline, budget or authority), the dashboard may hide the
 non-ESHIDIS row as `STRONG_LINKED_ESHIDIS_DUPLICATE`. This still forbids
 title-only deduplication and does not persist a verified link unless the
 official fetch verification gate has run.
+
+When a non-ESHIDIS row has no direct submission deadline but links to an
+official ESHIDIS row that has a known deadline, the dashboard uses the linked
+official ESHIDIS deadline for active/expired filtering. Missing authority
+deadline text must not keep an already-expired linked ESHIDIS project visible
+on the daily dashboard.

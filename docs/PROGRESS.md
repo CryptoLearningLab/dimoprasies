@@ -2578,6 +2578,41 @@ local dashboard smoke without full discovery:
   non_verified_review 21
 ```
 
+### UI v0.1.17 linked ESHIDIS deadline filtering
+
+- Bumped the application version from `0.1.16` to `0.1.17`.
+- Fixed expired authority/KIMDIS rows that had no direct `ΛΗΞΗ` value but did
+  have a linked official ESHIDIS id. The dashboard now uses the linked
+  official ESHIDIS deadline for active/expired filtering when the source row
+  lacks its own deadline.
+- This addresses rows such as authority candidates linked to ESHIDIS `217922`
+  and `216631`, whose official deadlines are `16-02-2026 15:00:00` and
+  `19-01-2026 15:00:00` respectively.
+- This was a dashboard active-filter issue, not an AI prompt issue.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+.venv/bin/python -m pytest tests/test_ui_server.py -q
+.venv/bin/python -m pytest -q
+.venv/bin/python -c "from tender_radar.ui_server import dashboard_payload; p=dashboard_payload(scope='focus'); print(p['summary']); print('visible', len(p['tenders'])); print('linked_expired_visible', [r.get('display_id') for r in p['tenders'] if set(r.get('linked_eshidis_ids') or []) & {'217922','216631'}])"
+```
+
+Results:
+
+```text
+py_compile: passed
+focused UI tests: 86 passed
+full test suite: 185 passed
+local dashboard smoke without full discovery:
+  total_known 95
+  visible 28
+  expired_hidden 3
+  duplicate_hidden 8
+  linked_expired_visible []
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:
