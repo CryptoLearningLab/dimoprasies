@@ -2483,6 +2483,65 @@ No full discovery was run during the production smoke. The smoke used
 `run_incremental_ai_triage` and `run_candidate_enrichment` directly against
 the existing dashboard/report state on the droplet.
 
+### UI v0.1.15 verified ESHIDIS link persistence
+
+- Bumped the application version from `0.1.14` to `0.1.15`.
+- Added SQLite table `verified_tender_links` for official cross-source links
+  from KIMDIS/authority rows to verified ESHIDIS ids. Each persisted link keeps
+  source row key, source identifier, source label/url, target ESHIDIS id,
+  source signature, verification timestamp and evidence JSON.
+- Candidate enrichment now stores verified links only after the official
+  ESHIDIS fetch succeeds. Linked ids from AI/OCR/document extraction remain
+  hints until this verification step passes.
+- Dashboard duplicate suppression now uses persisted verified links, not title
+  similarity and not unverified linked-id hints. When an official ESHIDIS row
+  exists for a verified link, the non-ESHIDIS row is hidden as a verified
+  duplicate and the official row retains provenance through
+  `verified_source_links`.
+- Non-ESHIDIS rows without verified links remain visible with
+  `NO_VERIFIED_ESHIDIS_LINK` style status, so review candidates are not lost.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/db.py src/tender_radar/ui_server.py
+.venv/bin/python -m pytest tests/test_db.py tests/test_ui_server.py -q
+.venv/bin/python -m pytest -q
+.venv/bin/python -c "from tender_radar.ui_server import dashboard_payload; p=dashboard_payload(scope='focus'); print(p['summary']); print('visible', len(p['tenders'])); print('non_verified_review', sum(1 for r in p['tenders'] if r.get('source_label')!='ΕΣΗΔΗΣ' and r.get('verified_eshidis_link_status')=='NO_VERIFIED_ESHIDIS_LINK'))"
+```
+
+Results:
+
+```text
+py_compile: passed
+focused DB/UI tests: 97 passed
+full test suite: 183 passed
+local dashboard smoke without full discovery:
+  total_known 95
+  visible 37
+  duplicate_hidden 0
+  non_verified_review 29
+droplet smoke after deploy:
+  deployed v0.1.15
+  package version 0.1.15
+  HTTPS / 200 text/html; charset=utf-8
+  HTTPS /api/dashboard without login 401 application/json; charset=utf-8
+  total_known 109
+  visible 29
+  verified_links 0
+  duplicate_hidden 0
+  non_verified_review 22
+```
+
+The local smoke did not run discovery or enrichment. It used the existing
+runtime reports/database; because no verified links had been persisted in that
+local DB yet, no rows were replaced and 29 non-ESHIDIS review candidates
+remained visible.
+
+The droplet smoke also avoided full discovery and used only current runtime
+state. The live database had no persisted verified links at deploy time, so no
+rows were replaced and 22 non-ESHIDIS visible review candidates remained.
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

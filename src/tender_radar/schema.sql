@@ -77,6 +77,27 @@ CREATE TABLE IF NOT EXISTS source_documents (
 CREATE INDEX IF NOT EXISTS idx_source_documents_row_key
 ON source_documents(row_key);
 
+CREATE TABLE IF NOT EXISTS verified_tender_links (
+    id INTEGER PRIMARY KEY,
+    source_row_key TEXT NOT NULL,
+    source_identifier TEXT,
+    source_label TEXT,
+    source_url TEXT,
+    target_eshidis_id TEXT NOT NULL,
+    target_tender_id INTEGER REFERENCES tenders(id),
+    verification_status TEXT NOT NULL,
+    verified_at TEXT NOT NULL,
+    source_signature TEXT,
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(source_row_key, target_eshidis_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_verified_tender_links_source
+ON verified_tender_links(source_row_key);
+
+CREATE INDEX IF NOT EXISTS idx_verified_tender_links_target
+ON verified_tender_links(target_eshidis_id);
+
 CREATE TABLE IF NOT EXISTS admin_users (
     email TEXT PRIMARY KEY,
     role TEXT NOT NULL,

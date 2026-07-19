@@ -101,6 +101,20 @@ class SourceDocument:
 
 
 @dataclass(frozen=True)
+class VerifiedTenderLink:
+    source_row_key: str
+    source_identifier: str | None
+    source_label: str | None
+    source_url: str | None
+    target_eshidis_id: str
+    target_tender_id: int | None
+    verification_status: str
+    verified_at: str
+    source_signature: str | None
+    evidence: dict[str, object]
+
+
+@dataclass(frozen=True)
 class AdminUser:
     email: str
     role: str
@@ -1214,6 +1228,97 @@ def list_source_documents(db_path: Path, *, row_key: str | None = None) -> list[
     return [_source_document_from_row(row) for row in rows]
 
 
+def upsert_verified_tender_link(
+    db_path: Path,
+    *,
+    source_row_key: str,
+    target_eshidis_id: str,
+    source_identifier: str | None = None,
+    source_label: str | None = None,
+    source_url: str | None = None,
+    target_tender_id: int | None = None,
+    verification_status: str = "VERIFIED_ESHIDIS_RESOURCE",
+    verified_at: str | None = None,
+    source_signature: str | None = None,
+    evidence: dict[str, object] | None = None,
+) -> None:
+    initialize(db_path)
+    if not source_row_key.strip():
+        raise ValueError("source_row_key is required")
+    if not str(target_eshidis_id).strip().isdigit():
+        raise ValueError("target_eshidis_id must be numeric")
+    verified_at = verified_at or datetime.now(timezone.utc).isoformat()
+    connection = connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO verified_tender_links (
+                source_row_key, source_identifier, source_label, source_url,
+                target_eshidis_id, target_tender_id, verification_status,
+                verified_at, source_signature, evidence_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source_row_key, target_eshidis_id) DO UPDATE SET
+                source_identifier = excluded.source_identifier,
+                source_label = excluded.source_label,
+                source_url = excluded.source_url,
+                target_tender_id = COALESCE(excluded.target_tender_id, verified_tender_links.target_tender_id),
+                verification_status = excluded.verification_status,
+                verified_at = excluded.verified_at,
+                source_signature = excluded.source_signature,
+                evidence_json = excluded.evidence_json
+            """,
+            (
+                source_row_key,
+                source_identifier,
+                source_label,
+                source_url,
+                str(target_eshidis_id),
+                target_tender_id,
+                verification_status,
+                verified_at,
+                source_signature,
+                json.dumps(evidence or {}, ensure_ascii=False),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def list_verified_tender_links(
+    db_path: Path,
+    *,
+    source_row_key: str | None = None,
+    target_eshidis_id: str | None = None,
+) -> list[VerifiedTenderLink]:
+    initialize(db_path)
+    where_parts: list[str] = []
+    params: list[str] = []
+    if source_row_key:
+        where_parts.append("source_row_key = ?")
+        params.append(source_row_key)
+    if target_eshidis_id:
+        where_parts.append("target_eshidis_id = ?")
+        params.append(str(target_eshidis_id))
+    where = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+    connection = connect(db_path)
+    try:
+        rows = connection.execute(
+            f"""
+            SELECT source_row_key, source_identifier, source_label, source_url,
+                   target_eshidis_id, target_tender_id, verification_status,
+                   verified_at, source_signature, evidence_json
+            FROM verified_tender_links
+            {where}
+            ORDER BY source_row_key, target_eshidis_id
+            """,
+            tuple(params),
+        ).fetchall()
+    finally:
+        connection.close()
+    return [_verified_tender_link_from_row(row) for row in rows]
+
+
 def _ensure_document_columns(connection: sqlite3.Connection) -> None:
     columns = {row[1] for row in connection.execute("PRAGMA table_info(documents)").fetchall()}
     additions = {
@@ -1329,6 +1434,27 @@ def _ensure_runtime_state_tables(connection: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_source_documents_row_key
         ON source_documents(row_key);
+
+        CREATE TABLE IF NOT EXISTS verified_tender_links (
+            id INTEGER PRIMARY KEY,
+            source_row_key TEXT NOT NULL,
+            source_identifier TEXT,
+            source_label TEXT,
+            source_url TEXT,
+            target_eshidis_id TEXT NOT NULL,
+            target_tender_id INTEGER REFERENCES tenders(id),
+            verification_status TEXT NOT NULL,
+            verified_at TEXT NOT NULL,
+            source_signature TEXT,
+            evidence_json TEXT NOT NULL DEFAULT '{}',
+            UNIQUE(source_row_key, target_eshidis_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_verified_tender_links_source
+        ON verified_tender_links(source_row_key);
+
+        CREATE INDEX IF NOT EXISTS idx_verified_tender_links_target
+        ON verified_tender_links(target_eshidis_id);
         """
     )
 
@@ -1371,6 +1497,28 @@ def _source_document_from_row(row: sqlite3.Row | tuple[object, ...]) -> SourceDo
         fetch_error=str(row[7]) if row[7] is not None else None,
         source_signature=str(row[8]) if row[8] is not None else None,
         metadata=metadata,
+    )
+
+
+def _verified_tender_link_from_row(row: sqlite3.Row | tuple[object, ...]) -> VerifiedTenderLink:
+    evidence: dict[str, object] = {}
+    try:
+        loaded = json.loads(str(row[9] or "{}"))
+        if isinstance(loaded, dict):
+            evidence = loaded
+    except (TypeError, json.JSONDecodeError):
+        evidence = {}
+    return VerifiedTenderLink(
+        source_row_key=str(row[0]),
+        source_identifier=str(row[1]) if row[1] is not None else None,
+        source_label=str(row[2]) if row[2] is not None else None,
+        source_url=str(row[3]) if row[3] is not None else None,
+        target_eshidis_id=str(row[4]),
+        target_tender_id=int(row[5]) if row[5] is not None else None,
+        verification_status=str(row[6]),
+        verified_at=str(row[7]),
+        source_signature=str(row[8]) if row[8] is not None else None,
+        evidence=evidence,
     )
 
 

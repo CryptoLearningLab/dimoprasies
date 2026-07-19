@@ -617,3 +617,21 @@ tender with a future submission deadline.
 If the normalized AI decision is a drop decision, any model-returned
 `eshidis_id_candidates` are discarded. Downstream ESHIDIS verification is fed
 only by rows still kept for daily review.
+
+## D-057 - Cross-source ESHIDIS links must be verified before dedup
+**Status:** Accepted
+
+KIMDIS, municipal, regional and other authority rows may expose candidate
+ESHIDIS ids through fetched/OCR documents or AI triage, but those hints do not
+hide or replace source rows by themselves.
+
+A cross-source relation becomes dedup evidence only after an official ESHIDIS
+fetch succeeds through `pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/{id}`.
+Verified relations are stored in SQLite `verified_tender_links` with source
+row key, source identifier, target ESHIDIS id, source signature, verification
+time and evidence JSON.
+
+The dashboard prefers the official ESHIDIS row only when such a persisted
+verified link exists and the official ESHIDIS row is present. Non-ESHIDIS rows
+without verified links remain visible as review candidates with
+`NO_VERIFIED_ESHIDIS_LINK`; title-only deduplication remains forbidden.

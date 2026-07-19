@@ -42,6 +42,7 @@ from tender_radar.db import (
     list_source_documents,
     list_tender_dismissals,
     list_source_states,
+    list_verified_tender_links,
     mark_admin_invite_used,
     notification_already_sent,
     record_admin_user_login,
@@ -53,6 +54,7 @@ from tender_radar.db import (
     upsert_triage_override,
     upsert_source_document,
     upsert_source_state,
+    upsert_verified_tender_link,
 )
 from tender_radar.discovery_watermark import (
     append_discovery_run,
@@ -1272,6 +1274,7 @@ def run_candidate_enrichment(*, scope: str = "focus", limit: int = 50, max_secon
             identifier = str(target["identifier"])
             result = run_selected_fetch(identifier)
             linked_ids = [str(value) for value in result.get("linked_eshidis_ids") or [] if str(value).strip()]
+            verified_link_ids = persist_verified_eshidis_links_for_enrichment(target, result)
             record = {
                 "row_key": target["row_key"],
                 "identifier": identifier,
@@ -1280,6 +1283,7 @@ def run_candidate_enrichment(*, scope: str = "focus", limit: int = 50, max_secon
                 "attempted_at": utc_now_iso(),
                 "ok": result.get("ok") is not False,
                 "linked_eshidis_ids": linked_ids,
+                "verified_eshidis_ids": verified_link_ids,
                 "official_fetch_ok": (result.get("eshidis_fetch") or {}).get("ok"),
             }
             attempt_records.append(record)
@@ -1294,6 +1298,7 @@ def run_candidate_enrichment(*, scope: str = "focus", limit: int = 50, max_secon
         if attempt_records:
             write_candidate_enrichment_attempts(attempt_records)
         enriched = [item for item in results if item.get("linked_eshidis_ids")]
+        verified = [item for item in results if item.get("verified_eshidis_ids")]
         failed = [item for item in results if item.get("ok") is False]
         return {
             "ok": not failed,
@@ -1301,6 +1306,7 @@ def run_candidate_enrichment(*, scope: str = "focus", limit: int = 50, max_secon
                 "targets": len(targets),
                 "attempted": len(results),
                 "enriched_with_eshidis": len(enriched),
+                "verified_eshidis_links": sum(len(item.get("verified_eshidis_ids") or []) for item in verified),
                 "failed": len(failed),
                 "skipped_previously_attempted": skipped,
                 "stopped_by_time_budget": stopped_by_time_budget,
@@ -1311,6 +1317,55 @@ def run_candidate_enrichment(*, scope: str = "focus", limit: int = 50, max_secon
         }
     finally:
         ENRICHMENT_LOCK.release()
+
+
+def persist_verified_eshidis_links_for_enrichment(target: dict[str, str], result: dict[str, Any]) -> list[str]:
+    if result.get("ok") is False:
+        return []
+    identifier = str(target.get("identifier") or "").strip()
+    linked_ids = [str(value) for value in result.get("linked_eshidis_ids") or [] if str(value).strip().isdigit()]
+    if identifier.isdigit():
+        linked_ids.append(identifier)
+    linked_ids = sorted(set(linked_ids))
+    if not linked_ids:
+        return []
+    eshidis_fetch = result.get("eshidis_fetch")
+    official_fetch_ok = bool(eshidis_fetch.get("ok")) if isinstance(eshidis_fetch, dict) else identifier.isdigit()
+    if not official_fetch_ok:
+        return []
+    row_key = str(target.get("row_key") or "").strip()
+    if not row_key:
+        return []
+    verified_at = utc_now_iso()
+    verified_ids: list[str] = []
+    for eshidis_id in linked_ids:
+        upsert_verified_tender_link(
+            runtime_db_path(),
+            source_row_key=row_key,
+            source_identifier=identifier,
+            source_label=str(target.get("kind") or ""),
+            source_url=str(target.get("source_url") or "") or None,
+            target_eshidis_id=eshidis_id,
+            verification_status="VERIFIED_ESHIDIS_RESOURCE",
+            verified_at=verified_at,
+            source_signature=str(target.get("source_signature") or "") or None,
+            evidence={
+                "verification": "official_eshidis_fetch",
+                "identifier_used": identifier,
+                "linked_eshidis_ids": linked_ids,
+                "official_fetch_ok": official_fetch_ok,
+                "steps": [
+                    {"name": step.get("name"), "returncode": step.get("returncode")}
+                    for step in (
+                        eshidis_fetch.get("steps") if isinstance(eshidis_fetch, dict) else result.get("steps")
+                    )
+                    or []
+                    if isinstance(step, dict)
+                ],
+            },
+        )
+        verified_ids.append(eshidis_id)
+    return verified_ids
 
 
 def run_auto_document_fetch(
@@ -1358,6 +1413,7 @@ def candidate_enrichment_targets(*, scope: str = "focus", limit: int = 50) -> tu
                 "row_key": row_key,
                 "identifier": identifier,
                 "kind": str(row.get("source_label") or ""),
+                "source_url": str(row.get("official_url") or row.get("source_url") or ""),
                 "source_signature": signature,
             }
         )
@@ -2927,28 +2983,99 @@ def dashboard_payload(
 
 def suppress_linked_eshidis_duplicates(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     canonical_eshidis_ids = canonical_eshidis_ids_in_rows(rows)
-    if not canonical_eshidis_ids:
-        return rows, []
+    verified_by_source = verified_eshidis_links_by_source_key()
+    verified_by_target = verified_eshidis_links_by_target_id(verified_by_source)
     kept: list[dict[str, Any]] = []
     hidden: list[dict[str, Any]] = []
     for row in rows:
         source_label = str(row.get("source_label") or "")
+        row_key = row_key_for_tender(row)
         if source_label == "ΕΣΗΔΗΣ":
-            kept.append(row)
+            eshidis_id = str(row.get("eshidis_id") or row.get("display_id") or "").strip()
+            kept.append(
+                {
+                    **row,
+                    "verified_source_links": verified_by_target.get(eshidis_id, []),
+                    "verified_eshidis_link_status": "OFFICIAL_ESHIDIS_ROW",
+                }
+            )
             continue
-        linked_ids = linked_eshidis_ids_for_row(row)
-        duplicate_ids = sorted(canonical_eshidis_ids & set(linked_ids))
+        verified_links = verified_by_source.get(row_key, [])
+        verified_ids = sorted(
+            {
+                str(link.get("target_eshidis_id") or "")
+                for link in verified_links
+                if str(link.get("target_eshidis_id") or "").isdigit()
+            }
+        )
+        duplicate_ids = sorted(canonical_eshidis_ids & set(verified_ids))
         if duplicate_ids:
             hidden.append(
                 {
                     **row,
                     "duplicate_hidden": True,
-                    "duplicate_reason": f"Duplicate of ESHIDIS {', '.join(duplicate_ids)}",
+                    "duplicate_reason": f"Verified duplicate of ESHIDIS {', '.join(duplicate_ids)}",
+                    "verified_eshidis_ids": duplicate_ids,
+                    "verified_eshidis_links": verified_links,
+                    "verified_eshidis_link_status": "REPLACED_BY_OFFICIAL_ESHIDIS",
                 }
             )
             continue
-        kept.append(row)
+        if verified_ids:
+            kept.append(
+                {
+                    **row,
+                    "verified_eshidis_ids": verified_ids,
+                    "verified_eshidis_links": verified_links,
+                    "verified_eshidis_link_status": "VERIFIED_ESHIDIS_LINK_PENDING_OFFICIAL_ROW",
+                }
+            )
+            continue
+        kept.append(
+            {
+                **row,
+                "verified_eshidis_ids": [],
+                "verified_eshidis_links": [],
+                "verified_eshidis_link_status": "NO_VERIFIED_ESHIDIS_LINK",
+            }
+        )
     return kept, hidden
+
+
+def verified_eshidis_links_by_source_key() -> dict[str, list[dict[str, Any]]]:
+    try:
+        links = list_verified_tender_links(runtime_db_path())
+    except (OSError, sqlite3.Error):
+        return {}
+    by_source: dict[str, list[dict[str, Any]]] = {}
+    for link in links:
+        payload = {
+            "source_row_key": link.source_row_key,
+            "source_identifier": link.source_identifier,
+            "source_label": link.source_label,
+            "source_url": link.source_url,
+            "target_eshidis_id": link.target_eshidis_id,
+            "target_tender_id": link.target_tender_id,
+            "verification_status": link.verification_status,
+            "verified_at": link.verified_at,
+            "source_signature": link.source_signature,
+            "evidence": link.evidence,
+        }
+        by_source.setdefault(link.source_row_key, []).append(payload)
+    return by_source
+
+
+def verified_eshidis_links_by_target_id(
+    by_source: dict[str, list[dict[str, Any]]] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    by_source = by_source if by_source is not None else verified_eshidis_links_by_source_key()
+    by_target: dict[str, list[dict[str, Any]]] = {}
+    for links in by_source.values():
+        for link in links:
+            target = str(link.get("target_eshidis_id") or "")
+            if target:
+                by_target.setdefault(target, []).append(link)
+    return by_target
 
 
 def linked_eshidis_enrichment_steps() -> list[dict[str, Any]]:

@@ -60,7 +60,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.14" in INDEX_HTML
+    assert "v0.1.15" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -1256,6 +1256,14 @@ regions: []
         ),
         encoding="utf-8",
     )
+    ui_server.upsert_verified_tender_link(
+        ui_server.runtime_db_path(),
+        source_row_key="KIMDIS:26PROC019444361",
+        source_identifier="26PROC019444361",
+        source_label="ΚΗΜΔΗΣ",
+        target_eshidis_id="221744",
+        evidence={"official_fetch_ok": True},
+    )
 
     payload = dashboard_payload(scope="focus", as_of=date(2026, 7, 18))
 
@@ -1349,6 +1357,14 @@ regions: []
         connection.commit()
     finally:
         connection.close()
+    ui_server.upsert_verified_tender_link(
+        ui_server.runtime_db_path(),
+        source_row_key="AUTHORITY:AUTH-1234567890abcdef",
+        source_identifier="AUTHORITY:AUTH-1234567890abcdef",
+        source_label="Φορέας",
+        target_eshidis_id="221473",
+        evidence={"official_fetch_ok": True},
+    )
 
     payload = dashboard_payload(scope="focus", as_of=date(2026, 7, 18))
 
@@ -1862,6 +1878,47 @@ def test_candidate_enrichment_uses_selected_fetch_and_records_attempts(tmp_path,
     assert result["summary"]["enriched_with_eshidis"] == 1
     assert attempts["KIMDIS:26PROC000000001"]["linked_eshidis_ids"] == ["221473"]
     assert attempts["AUTHORITY:AUTH-work"]["source_signature"] == "sig-2"
+
+
+def test_candidate_enrichment_persists_verified_eshidis_link(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(
+        ui_server,
+        "candidate_enrichment_targets",
+        lambda scope, limit: (
+            [
+                {
+                    "row_key": "AUTHORITY:AUTH-work",
+                    "identifier": "221473",
+                    "kind": "Φορέας",
+                    "source_url": "https://example.test/work",
+                    "source_signature": "sig-verified",
+                }
+            ],
+            0,
+        ),
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "run_selected_fetch",
+        lambda identifier: {
+            "ok": True,
+            "steps": [
+                {"name": "fetch_detail_221473", "returncode": 0},
+                {"name": "download_files_221473", "returncode": 0},
+            ],
+            "linked_eshidis_ids": [],
+        },
+    )
+    monkeypatch.setattr(ui_server, "dashboard_payload", lambda scope="focus": {"scope": scope, "summary": {}, "tenders": []})
+
+    result = run_candidate_enrichment(scope="focus", limit=10)
+    links = ui_server.list_verified_tender_links(ui_server.runtime_db_path(), source_row_key="AUTHORITY:AUTH-work")
+
+    assert result["summary"]["verified_eshidis_links"] == 1
+    assert links[0].target_eshidis_id == "221473"
+    assert links[0].verification_status == "VERIFIED_ESHIDIS_RESOURCE"
+    assert links[0].evidence["identifier_used"] == "221473"
 
 
 def test_auto_document_fetch_stops_before_next_target_when_budget_expires(tmp_path, monkeypatch) -> None:
@@ -2568,6 +2625,101 @@ regions: []
     payload = dashboard_payload(scope="focus", apply_triage=False)
 
     assert payload["tenders"][0]["linked_eshidis_ids"] == ["221744"]
+
+
+def test_dashboard_replaces_verified_non_eshidis_row_with_official_eshidis(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    ui_server.upsert_verified_tender_link(
+        ui_server.runtime_db_path(),
+        source_row_key="KIMDIS:26PROC000000001",
+        source_identifier="26PROC000000001",
+        source_label="ΚΗΜΔΗΣ",
+        source_url="https://example.test/kimdis",
+        target_eshidis_id="221744",
+        evidence={"official_fetch_ok": True},
+    )
+    rows = [
+        {
+            "source": "sqlite",
+            "source_label": "ΕΣΗΔΗΣ",
+            "row_key": "221744",
+            "display_id": "221744",
+            "eshidis_id": "221744",
+            "title": "Ίδιο έργο",
+            "current_deadline_at": "20-08-2026 10:00:00",
+        },
+        {
+            "source": "kimdis",
+            "source_label": "ΚΗΜΔΗΣ",
+            "row_key": "KIMDIS:26PROC000000001",
+            "display_id": "26PROC000000001",
+            "title": "Ίδιο έργο",
+            "linked_eshidis_ids": ["221744"],
+        },
+    ]
+
+    kept, hidden = ui_server.suppress_linked_eshidis_duplicates(rows)
+
+    assert [row["source_label"] for row in kept] == ["ΕΣΗΔΗΣ"]
+    assert kept[0]["verified_source_links"][0]["source_row_key"] == "KIMDIS:26PROC000000001"
+    assert hidden[0]["verified_eshidis_ids"] == ["221744"]
+    assert hidden[0]["verified_eshidis_link_status"] == "REPLACED_BY_OFFICIAL_ESHIDIS"
+
+
+def test_dashboard_keeps_unverified_non_eshidis_rows_visible(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    rows = [
+        {
+            "source": "sqlite",
+            "source_label": "ΕΣΗΔΗΣ",
+            "row_key": "221744",
+            "display_id": "221744",
+            "eshidis_id": "221744",
+            "title": "Έργο Ναυπάκτου",
+            "current_deadline_at": "20-08-2026 10:00:00",
+        },
+        {
+            "source": "authority",
+            "source_label": "Φορέας",
+            "row_key": "AUTHORITY:AUTH-work",
+            "display_id": "AUTH-work",
+            "title": "Έργο Ναυπάκτου",
+            "linked_eshidis_ids": ["221744"],
+        },
+    ]
+
+    kept, hidden = ui_server.suppress_linked_eshidis_duplicates(rows)
+
+    assert hidden == []
+    assert [row["source_label"] for row in kept] == ["ΕΣΗΔΗΣ", "Φορέας"]
+    assert kept[1]["verified_eshidis_link_status"] == "NO_VERIFIED_ESHIDIS_LINK"
+
+
+def test_dashboard_does_not_deduplicate_by_title_only(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    rows = [
+        {
+            "source": "sqlite",
+            "source_label": "ΕΣΗΔΗΣ",
+            "row_key": "221744",
+            "display_id": "221744",
+            "eshidis_id": "221744",
+            "title": "Αναπλάσεις ΔΕ Ναυπάκτου",
+            "current_deadline_at": "20-08-2026 10:00:00",
+        },
+        {
+            "source": "authority",
+            "source_label": "Φορέας",
+            "row_key": "AUTHORITY:AUTH-other",
+            "display_id": "AUTH-other",
+            "title": "Αναπλάσεις ΔΕ Ναυπάκτου",
+        },
+    ]
+
+    kept, hidden = ui_server.suppress_linked_eshidis_duplicates(rows)
+
+    assert hidden == []
+    assert len(kept) == 2
 
 
 def test_discovery_search_steps_run_eshidis_then_expanded_kimdis() -> None:

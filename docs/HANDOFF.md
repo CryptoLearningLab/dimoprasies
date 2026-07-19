@@ -619,6 +619,22 @@ The system `python` command is not present in the remote environment; use
     ESHIDIS hints;
   - candidate enrichment smoke finished in 7.81s with 1 attempted target,
     6 previously skipped attempts and 0 failures.
+- The UI now displays version `v0.1.15`. Cross-source ESHIDIS links are
+  persisted in SQLite `verified_tender_links` only after successful official
+  ESHIDIS fetch. Dashboard duplicate suppression now hides non-ESHIDIS rows
+  only when a persisted verified link points to an existing official ESHIDIS
+  row; unverified KIMDIS/authority hints remain visible as
+  `NO_VERIFIED_ESHIDIS_LINK` review candidates.
+- Local verification for `v0.1.15` passed:
+  `py_compile`, focused DB/UI tests (`97 passed`), full suite (`183 passed`)
+  and a no-discovery dashboard smoke. The local smoke reported
+  `duplicate_hidden 0` and `non_verified_review 29` because the local DB had
+  no persisted verified links yet.
+- Production deploy smoke for `v0.1.15` confirmed package version
+  `0.1.15`, HTTPS `/` returned `200`, unauthenticated `/api/dashboard`
+  returned `401`, and a no-discovery dashboard smoke on the droplet reported
+  `total_known 109`, `visible 29`, `verified_links 0`, `duplicate_hidden 0`
+  and `non_verified_review 22`.
 
 ## Next Work
 
@@ -626,6 +642,8 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Proceed to the ESHIDIS verifier/dedup persistence gate: store verified official
-ESHIDIS replacements/relations in SQLite and make the dashboard prefer the
-official ESHIDIS row when a municipal/KIMDIS row links to it.
+Implement the forced KIMDIS connected-acts lookup for rows with `26PROC...`
+ADAM: use the public Promitheus KIMDIS connected acts flow to discover related
+official acts/documents, extract ESHIDIS ids from them, verify each candidate
+through official `pwgopendata` fetch, then persist verified links in
+`verified_tender_links`.

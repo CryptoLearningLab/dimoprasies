@@ -9,6 +9,7 @@ from tender_radar.db import (
     import_eshidis_resource,
     list_source_documents,
     list_tender_dismissals,
+    list_verified_tender_links,
     notification_already_sent,
     record_notification_sent,
     record_source_run,
@@ -17,6 +18,7 @@ from tender_radar.db import (
     upsert_source_document,
     upsert_source_state,
     upsert_triage_override,
+    upsert_verified_tender_link,
 )
 from tender_radar.sources.eshidis import EshidisAttachmentListing, EshidisTenderDetails
 
@@ -364,3 +366,28 @@ def test_source_documents_track_fetch_provenance(tmp_path) -> None:
     assert [item.document_url for item in list_source_documents(db_path, row_key="AUTHORITY:AUTH-work")] == [
         "https://example.test/work.pdf"
     ]
+
+
+def test_verified_tender_links_are_persisted(tmp_path) -> None:
+    db_path = tmp_path / "tenders.sqlite"
+
+    upsert_verified_tender_link(
+        db_path,
+        source_row_key="KIMDIS:26PROC000000001",
+        source_identifier="26PROC000000001",
+        source_label="ΚΗΜΔΗΣ",
+        source_url="https://example.test/kimdis",
+        target_eshidis_id="221744",
+        verification_status="VERIFIED_ESHIDIS_RESOURCE",
+        verified_at="2026-07-19T10:00:00+00:00",
+        source_signature="sig-1",
+        evidence={"official_fetch_ok": True},
+    )
+
+    links = list_verified_tender_links(db_path, source_row_key="KIMDIS:26PROC000000001")
+
+    assert len(links) == 1
+    assert links[0].target_eshidis_id == "221744"
+    assert links[0].source_label == "ΚΗΜΔΗΣ"
+    assert links[0].source_signature == "sig-1"
+    assert links[0].evidence["official_fetch_ok"] is True
