@@ -685,3 +685,13 @@ The admin panel displays each user with the existing SQLite `rowid` from the
 is a concrete cross-system identity requirement. This keeps the current login
 database simple while giving the admin screen a stable local identifier for
 support and audit discussions.
+
+## D-061 - User roles are bounded to admin, tester and user
+**Status:** Accepted
+
+Tender Radar account roles are intentionally bounded to `admin`, `tester` and
+`user`. `admin` can access the admin panel and manage invitations/roles.
+`tester` and `user` can authenticate to the main app but do not receive admin
+panel permissions. The admin role update flow accepts email or displayed
+SQLite user id, and protects the system from removing the final enabled admin
+or demoting the currently active admin session.

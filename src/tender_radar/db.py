@@ -539,6 +539,24 @@ def get_admin_user(db_path: Path, email: str) -> AdminUser | None:
     return _admin_user_from_row(row) if row else None
 
 
+def get_admin_user_by_id(db_path: Path, user_id: int) -> AdminUser | None:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        row = connection.execute(
+            """
+            SELECT rowid, email, role, password_hash, enabled, invited_at, accepted_at,
+                   password_set_at, last_login_at
+            FROM admin_users
+            WHERE rowid = ?
+            """,
+            (user_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    return _admin_user_from_row(row) if row else None
+
+
 def list_admin_users(db_path: Path) -> list[AdminUser]:
     initialize(db_path)
     connection = connect(db_path)
@@ -554,6 +572,22 @@ def list_admin_users(db_path: Path) -> list[AdminUser]:
     finally:
         connection.close()
     return [_admin_user_from_row(row) for row in rows]
+
+
+def count_enabled_admin_users(db_path: Path) -> int:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        row = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM admin_users
+            WHERE role = 'admin' AND enabled = 1
+            """
+        ).fetchone()
+    finally:
+        connection.close()
+    return int(row[0]) if row else 0
 
 
 def create_admin_invite(

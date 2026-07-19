@@ -689,6 +689,10 @@ The system `python` command is not present in the remote environment; use
   password state and last login in a mobile-card responsive layout.
 - Production deploy on commit `99150d7` passed: package version `0.1.22`,
   homepage `v0.1.22`, admin users payload `ok True`, `users 1`, `has_id True`.
+- The UI now displays version `v0.1.23`. Admins can change roles by email or
+  displayed `#ID` using the bounded roles `admin`, `tester`, `user`. The main
+  source polling audit is hidden from the daily front page, and long tender
+  pills use a wrapping stack for cleaner mobile alignment.
 
 ## Next Work
 

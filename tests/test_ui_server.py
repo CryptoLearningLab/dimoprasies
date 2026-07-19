@@ -68,7 +68,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.22" in INDEX_HTML
+    assert "v0.1.23" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -99,6 +99,7 @@ def test_ui_exposes_admin_panel() -> None:
     assert "/api/auth/logout" in APP_JS
     assert "/api/admin/set-password" in APP_JS
     assert "/api/admin/invite-user" in APP_JS
+    assert "/api/admin/update-user-role" in APP_JS
     assert "/api/admin/users" in APP_JS
     assert "/api/admin/audit" in APP_JS
     assert "/api/admin/restore" in APP_JS
@@ -196,6 +197,49 @@ def test_admin_invite_user_creates_user_role(tmp_path, monkeypatch) -> None:
     assert ui_server.verify_admin_user_password(email="worker@example.test", password="long-secure-password") is False
 
 
+def test_admin_invite_accepts_tester_role(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    monkeypatch.setattr(ui_server, "runtime_db_path", lambda: db_path)
+    monkeypatch.setattr(ui_server, "send_email_alert", lambda recipient, subject, text_body, html_body: None)
+    monkeypatch.setattr(ui_server.secrets, "token_urlsafe", lambda size=32: "tester-token")
+
+    result = ui_server.invite_admin_user(
+        {"email": "tester@example.test", "role": "tester"},
+        inviter="owner@example.test",
+        base_url="https://example.test",
+    )
+    user = ui_server.get_admin_user(db_path, "tester@example.test")
+
+    assert result["role"] == "tester"
+    assert user is not None
+    assert user.role == "tester"
+
+
+def test_update_admin_user_role_accepts_email_or_id_and_protects_last_admin(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    monkeypatch.setattr(ui_server, "runtime_db_path", lambda: db_path)
+    owner = ui_server.upsert_admin_user(db_path, email="owner@example.test", role="admin", enabled=True)
+    worker = ui_server.upsert_admin_user(db_path, email="worker@example.test", role="user", enabled=True)
+
+    by_email = ui_server.update_admin_user_role(
+        {"identifier": "worker@example.test", "role": "tester"},
+        actor_email="owner@example.test",
+    )
+    by_id = ui_server.update_admin_user_role(
+        {"identifier": f"#{worker.id}", "role": "user"},
+        actor_email="owner@example.test",
+    )
+
+    assert by_email["user"]["role"] == "tester"
+    assert by_id["user"]["role"] == "user"
+    try:
+        ui_server.update_admin_user_role({"identifier": str(owner.id), "role": "user"}, actor_email="other-admin@example.test")
+    except ValueError as exc:
+        assert "last enabled admin" in str(exc)
+    else:
+        raise AssertionError("Expected last-admin protection.")
+
+
 def test_admin_users_payload_exposes_user_id(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "runtime.sqlite"
     monkeypatch.setattr(ui_server, "runtime_db_path", lambda: db_path)
@@ -210,9 +254,24 @@ def test_admin_users_payload_exposes_user_id(tmp_path, monkeypatch) -> None:
 def test_admin_users_ui_has_id_and_mobile_labels() -> None:
     assert "<th>ID</th>" in INDEX_HTML
     assert "adminUsersTableWrap" in INDEX_HTML
+    assert 'id="roleUserIdentifierInput"' in INDEX_HTML
+    assert 'id="updateUserRoleBtn"' in INDEX_HTML
     assert 'data-label="ID"' in APP_JS
     assert "userIdBadge" in APP_JS
     assert ".adminUsersTable" in STYLES_CSS
+
+
+def test_front_page_hides_source_audit_but_keeps_backend_audit() -> None:
+    assert '<details class="sourceAudit" open hidden>' in INDEX_HTML
+    assert 'id="sourceAuditRows"' in INDEX_HTML
+    assert "/api/source-polling" in APP_JS
+
+
+def test_dashboard_pills_use_wrapping_stack() -> None:
+    assert "function pillStack" in APP_JS
+    assert "pillStack" in APP_JS
+    assert ".pillStack" in STYLES_CSS
+    assert "overflow-wrap: anywhere" in STYLES_CSS
 
 
 def test_report_json_content_type_includes_utf8_charset() -> None:

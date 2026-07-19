@@ -2854,6 +2854,37 @@ production deploy smoke on commit 99150d7:
   has_id True
 ```
 
+### UI v0.1.23 admin role management and mobile polish
+
+- Bumped the application version from `0.1.22` to `0.1.23`.
+- Added an admin-only role update action. Admins can change a user role by
+  email or visible `#ID`.
+- Supported roles are now `admin`, `tester` and `user`. The UI invite form and
+  role-update form use the same bounded role list.
+- The role update path prevents removing the last enabled admin and prevents an
+  admin from demoting their own active admin session.
+- The source polling audit remains available in the DOM/API but is hidden from
+  the main daily front page by default.
+- Tender/admin pills now render through a wrapping `pillStack` with bounded
+  width and `overflow-wrap:anywhere`, so long Greek location/status bubbles
+  align cleanly on mobile.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_admin_invite_user_creates_user_role tests/test_ui_server.py::test_admin_invite_accepts_tester_role tests/test_ui_server.py::test_update_admin_user_role_accepts_email_or_id_and_protects_last_admin tests/test_ui_server.py::test_admin_users_ui_has_id_and_mobile_labels tests/test_ui_server.py::test_front_page_hides_source_audit_but_keeps_backend_audit tests/test_ui_server.py::test_dashboard_pills_use_wrapping_stack -q
+.venv/bin/python -m py_compile src/tender_radar/db.py src/tender_radar/ui_server.py
+.venv/bin/python -m pytest -q
+```
+
+Results:
+
+```text
+targeted admin/UI polish tests: 7 passed
+py_compile: passed
+full test suite: 204 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

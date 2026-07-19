@@ -31,11 +31,13 @@ from urllib.request import Request, urlopen
 from tender_radar import __version__
 from tender_radar.config import load_config
 from tender_radar.db import (
+    count_enabled_admin_users,
     create_admin_invite,
     delete_stale_verified_tender_links,
     dismiss_tender as dismiss_tender_in_db,
     get_admin_invite,
     get_admin_user,
+    get_admin_user_by_id,
     get_source_document,
     get_source_state,
     ignored_tender_keys as ignored_tender_keys_from_db,
@@ -79,6 +81,7 @@ DEFAULT_ESHIDIS_DISCOVERY_LIMIT = 100
 DEFAULT_KIMDIS_DISCOVERY_PAGES = 20
 DEFAULT_SCHEDULED_AUTO_FETCH_SECONDS = 20
 DEFAULT_AUTHORITY_LIMIT_PER_SOURCE = 10
+ADMIN_USER_ROLES = ("admin", "tester", "user")
 MAX_BACKFILL_ESHIDIS_LIMIT = 500
 MAX_BACKFILL_KIMDIS_PAGES = 80
 COMMAND_LOCK = threading.Lock()
@@ -337,6 +340,13 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                     self._send_json({"ok": False, "error": "Admin login required."}, status=401)
                     return
                 self._send_json(invite_admin_user(payload, inviter=session.get("email"), base_url=self._public_base_url()))
+                return
+            if parsed.path == "/api/admin/update-user-role":
+                session = self._admin_session()
+                if not session or session.get("role") != "admin":
+                    self._send_json({"ok": False, "error": "Admin login required."}, status=401)
+                    return
+                self._send_json(update_admin_user_role(payload, actor_email=session.get("email")))
                 return
             if parsed.path == "/api/admin/logout":
                 self._admin_logout()
@@ -3731,6 +3741,13 @@ def auth_status_payload(session: dict[str, str] | None) -> dict[str, Any]:
     }
 
 
+def normalize_admin_user_role(role: str) -> str:
+    normalized = role.strip().lower()
+    if normalized not in ADMIN_USER_ROLES:
+        raise ValueError(f"Role must be one of: {', '.join(ADMIN_USER_ROLES)}.")
+    return normalized
+
+
 def request_admin_login_code(payload: dict[str, Any]) -> dict[str, Any]:
     requested_email = str(payload.get("email") or "").strip().lower()
     allowed_email = admin_login_email()
@@ -3795,14 +3812,38 @@ def request_admin_password_setup(payload: dict[str, Any], *, base_url: str) -> d
 
 def invite_admin_user(payload: dict[str, Any], *, inviter: str | None, base_url: str) -> dict[str, Any]:
     email = str(payload.get("email") or "").strip().lower()
-    role = str(payload.get("role") or "user").strip().lower()
-    if role not in {"user", "admin"}:
-        raise ValueError("Role must be user or admin.")
+    role = normalize_admin_user_role(str(payload.get("role") or "user"))
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
         raise ValueError("Valid email is required.")
     token, link = create_password_setup_invite(email=email, role=role, created_by=inviter, base_url=base_url)
     send_password_setup_email(email, link, role=role)
     return {"ok": True, "sent": True, "email": email, "role": role, "token_preview": token[:6], "users": admin_users_payload()["users"]}
+
+
+def admin_user_for_identifier(identifier: str):
+    value = identifier.strip().lower().lstrip("#")
+    if not value:
+        raise ValueError("Email or user id is required.")
+    if value.isdigit():
+        user = get_admin_user_by_id(runtime_db_path(), int(value))
+    else:
+        user = get_admin_user(runtime_db_path(), value)
+    if not user:
+        raise ValueError("User was not found.")
+    return user
+
+
+def update_admin_user_role(payload: dict[str, Any], *, actor_email: str | None) -> dict[str, Any]:
+    identifier = str(payload.get("identifier") or "").strip()
+    role = normalize_admin_user_role(str(payload.get("role") or "user"))
+    user = admin_user_for_identifier(identifier)
+    actor = (actor_email or "").strip().lower()
+    if user.email == actor and user.role == "admin" and role != "admin":
+        raise ValueError("You cannot remove your own admin role.")
+    if user.role == "admin" and role != "admin" and count_enabled_admin_users(runtime_db_path()) <= 1:
+        raise ValueError("Cannot remove the last enabled admin.")
+    updated = upsert_admin_user(runtime_db_path(), email=user.email, role=role, enabled=user.enabled)
+    return {"ok": True, "user": {"id": updated.id, "email": updated.email, "role": updated.role}, "users": admin_users_payload()["users"]}
 
 
 def create_password_setup_invite(*, email: str, role: str, created_by: str | None, base_url: str) -> tuple[str, str]:
@@ -3822,7 +3863,7 @@ def create_password_setup_invite(*, email: str, role: str, created_by: str | Non
 
 
 def send_password_setup_email(email: str, link: str, *, role: str) -> None:
-    role_label = "διαχειριστής" if role == "admin" else "χρήστης"
+    role_label = {"admin": "διαχειριστής", "tester": "δοκιμαστής"}.get(role, "χρήστης")
     text_body = (
         "Έχεις πρόσκληση στο Tender Radar.\n\n"
         f"Ρόλος: {role_label}\n"
@@ -5282,7 +5323,7 @@ INDEX_HTML = f"""<!doctype html>
         <div><span id="focusTenderCount">0</span><small>ταιριάζουν στην περιοχή</small></div>
       </div>
 
-      <details class="sourceAudit" open>
+      <details class="sourceAudit" open hidden>
         <summary>
           <span>Έλεγχος πηγών</span>
           <strong id="sourceAuditSummary">Δεν υπάρχει ακόμα polling state</strong>
@@ -5438,11 +5479,24 @@ INDEX_HTML = f"""<!doctype html>
           <label>Ρόλος
             <select id="inviteRoleInput">
               <option value="user">user</option>
+              <option value="tester">tester</option>
               <option value="admin">admin</option>
             </select>
           </label>
           <button id="inviteUserBtn" class="secondary">Αποστολή πρόσκλησης</button>
           <span id="inviteStatus" class="noteText"></span>
+        </div>
+        <div class="toolbar adminRoleBox">
+          <label>Αλλαγή ρόλου <input id="roleUserIdentifierInput" type="text" placeholder="email ή #ID"></label>
+          <label>Νέος ρόλος
+            <select id="roleUpdateInput">
+              <option value="user">user</option>
+              <option value="tester">tester</option>
+              <option value="admin">admin</option>
+            </select>
+          </label>
+          <button id="updateUserRoleBtn" class="secondary">Αλλαγή ρόλου</button>
+          <span id="roleUpdateStatus" class="noteText"></span>
         </div>
         <details class="adminUsersBox">
           <summary>Χρήστες</summary>
@@ -5956,14 +6010,25 @@ td:nth-child(2) { white-space: nowrap; color: var(--muted); font-weight: 700; }
   font-size: 12px;
 }
 .pill {
-  display: inline-block;
-  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
   padding: 3px 7px;
-  border-radius: 999px;
+  border-radius: 10px;
   background: var(--soft);
   color: var(--accent-dark);
   font-size: 11px;
   font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.pillStack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  align-items: flex-start;
 }
 .previewPane {
   position: sticky;
@@ -6466,6 +6531,20 @@ async function inviteUser() {
   }
 }
 
+async function updateUserRole() {
+  const identifier = $('roleUserIdentifierInput').value;
+  const role = $('roleUpdateInput').value;
+  $('roleUpdateStatus').textContent = 'Αλλάζω ρόλο...';
+  try {
+    await adminApi('/api/admin/update-user-role', { method: 'POST', body: JSON.stringify({ identifier, role }) });
+    $('roleUserIdentifierInput').value = '';
+    $('roleUpdateStatus').textContent = 'Ο ρόλος ενημερώθηκε.';
+    await loadAdminUsers();
+  } catch (error) {
+    $('roleUpdateStatus').textContent = String(error.message || error);
+  }
+}
+
 async function loadAdminUsers() {
   const payload = await adminApi('/api/admin/users');
   const tbody = $('adminUsersRows');
@@ -6564,13 +6643,14 @@ function renderAdminAudit(payload) {
     const restoreButton = row.restorable
       ? `<button class="tinyButton restoreHiddenRow" data-key="${escapeHtml(row.row_key)}">Επαναφορά</button>`
       : '<span class="noteText">Audit only</span>';
-    const auditMatch = row.audit_match
-      ? `<span class="pill">match ${escapeHtml(row.audit_match.eshidis_id || '')} · ${escapeHtml(row.audit_match.score || '')}</span>`
-      : '';
+    const titlePills = [
+      row.ai_decision ? escapeHtml(row.ai_decision) : '',
+      row.audit_match ? `match ${escapeHtml(row.audit_match.eshidis_id || '')} · ${escapeHtml(row.audit_match.score || '')}` : '',
+    ].filter(Boolean).map((label) => `<span class="pill">${label}</span>`).join('');
     tr.innerHTML = `
       <td data-label="Κατηγορία"><span class="statusChip ${adminCategoryClass(row.category)}">${escapeHtml(adminCategoryLabel(row.category))}</span></td>
       <td data-label="Α/Α"><strong>${escapeHtml(row.display_id || '')}</strong><br><span class="noteText">${escapeHtml(row.source_label || '')}</span></td>
-      <td data-label="Έργο" class="tenderTitle">${escapeHtml(row.title || '')}${row.ai_decision ? `<span class="pill">${escapeHtml(row.ai_decision)}</span>` : ''}${auditMatch}</td>
+      <td data-label="Έργο" class="tenderTitle">${escapeHtml(row.title || '')}${titlePills ? `<span class="pillStack">${titlePills}</span>` : ''}</td>
       <td data-label="Φορέας" class="authorityCell">${escapeHtml(row.authority_name || '')}</td>
       <td data-label="Αιτιολογία">${escapeHtml(row.reason || '')}${row.ai_confidence ? `<br><span class="noteText">confidence ${escapeHtml(row.ai_confidence)}</span>` : ''}</td>
       <td data-label="Ενέργεια"><div class="actionStack">${sourceLink}${restoreButton}</div></td>
@@ -6666,6 +6746,14 @@ function formatDateTime(value) {
   return String(value).replace('T', ' ').replace('+00:00', ' UTC');
 }
 
+function pillStack(labels) {
+  const pills = (labels || [])
+    .filter((label) => label !== null && label !== undefined && String(label).trim())
+    .map((label) => `<span class="pill">${escapeHtml(label)}</span>`)
+    .join('');
+  return pills ? `<span class="pillStack">${pills}</span>` : '';
+}
+
 function renderDashboard(payload) {
   $('visibleTenderCount').textContent = payload.summary.visible || 0;
   $('focusTenderCount').textContent = payload.summary.focus_matches || 0;
@@ -6695,15 +6783,12 @@ function renderDashboard(payload) {
     const officialHref = preferredEshidis
       ? `https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/${encodeURIComponent(preferredEshidis)}`
       : (tender.official_url || tender.attachment_url || '#');
-    const linkedText = (tender.linked_eshidis_ids || []).length
-      ? `<span class="pill">ΕΣΗΔΗΣ ${escapeHtml((tender.linked_eshidis_ids || []).join(', '))}</span>`
-      : '';
-    const officialStatusText = tender.official_status_label
-      ? `<span class="pill">${escapeHtml(tender.official_status_label)}</span>`
-      : '';
-    const aiText = tender.ai_triage?.decision
-      ? `<span class="pill">${escapeHtml(tender.ai_triage.decision)}</span>`
-      : '';
+    const titlePills = pillStack([
+      tender.interest_reason || '',
+      tender.official_status_label || '',
+      (tender.linked_eshidis_ids || []).length ? `ΕΣΗΔΗΣ ${(tender.linked_eshidis_ids || []).join(', ')}` : '',
+      tender.ai_triage?.decision || '',
+    ]);
     const zipUrl = `/api/document-zip?identifier=${encodeURIComponent(fetchIdentifier)}`;
     const tr = document.createElement('tr');
     tr.dataset.key = rowKey;
@@ -6711,7 +6796,7 @@ function renderDashboard(payload) {
     tr.innerHTML = `
       <td data-label="Α/Α"><strong>${escapeHtml(tender.display_id || tender.eshidis_id || '')}</strong></td>
       <td data-label="Πηγή">${escapeHtml(tender.source_label || '')}</td>
-      <td data-label="Έργο" class="tenderTitle">${escapeHtml(tender.title || '')}${tender.interest_reason ? `<span class="pill">${escapeHtml(tender.interest_reason)}</span>` : ''}${officialStatusText}${linkedText}${aiText}</td>
+      <td data-label="Έργο" class="tenderTitle">${escapeHtml(tender.title || '')}${titlePills}</td>
       <td data-label="Φορέας" class="authorityCell">${escapeHtml(tender.authority_name || '')}</td>
       <td data-label="Προϋπολογισμός" class="budgetCell">${escapeHtml(tender.budget_display || '')}</td>
       <td data-label="Λήξη" class="deadlineCell">${escapeHtml(tender.deadline_display || '')}</td>
@@ -7180,6 +7265,7 @@ $('newRuleBtn').addEventListener('click', newRule);
 $('deleteRuleBtn').addEventListener('click', deleteRule);
 $('setupPasswordBtn').addEventListener('click', () => setupPassword().catch((error) => { $('setupPasswordStatus').textContent = String(error); }));
 $('inviteUserBtn').addEventListener('click', () => inviteUser().catch((error) => { $('inviteStatus').textContent = String(error); }));
+$('updateUserRoleBtn').addEventListener('click', () => updateUserRole().catch((error) => { $('roleUpdateStatus').textContent = String(error); }));
 $('adminRefreshBtn').addEventListener('click', () => loadAdminAudit().catch(() => {}));
 $('appLogoutBtn').addEventListener('click', () => adminLogout().catch((error) => { $('loginStatus').textContent = String(error); }));
 $('appLogoutTopBtn').addEventListener('click', () => adminLogout().catch((error) => { $('loginStatus').textContent = String(error); }));
