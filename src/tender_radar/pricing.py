@@ -23,7 +23,7 @@ ARTICLE_RE = re.compile(
 )
 TABLE_ROW_RE = re.compile(r"^\s*(?P<row>\d{1,3})\s+(?P<rest>.+)$")
 MERGED_BUDGET_SOURCE_DOCUMENT = "__PROJECT_BUDGET_MERGED__"
-NUMERIC_RE = re.compile(r"^\d+(?:[.,]\d{2,3})*$")
+NUMERIC_RE = re.compile(r"^\d+(?:[.,]\d{2,3})*\*?$")
 REVISION_RE = re.compile(
     r"(?:(?P<pct>\d+(?:[.,]\d+)?)\s*%)?\s*(?P<code>[A-ZΑ-ΩΟ∆Δ.]{2,8})\s*[-–—]?\s*(?P<num>\d+[A-ZΑ-ΩA-Z0-9]*)",
     re.IGNORECASE,
@@ -50,6 +50,7 @@ KNOWN_UNITS = {
 ARTICLE_CODE_PREFIXES = {
     "ΝΑΟΔΟ",
     "ΝΟΔΟ",
+    "ΟΔΟ",
     "ΝΑΥΔΡ",
     "ΥΔΡ",
     "ΝΑΟΙΚ",
@@ -199,7 +200,7 @@ def strip_accents(value: str) -> str:
 def parse_greek_decimal(value: str | None) -> float | None:
     if not value:
         return None
-    text = value.strip().replace(" ", "")
+    text = value.strip().replace(" ", "").rstrip("*")
     if "," in text:
         text = text.replace(".", "").replace(",", ".")
     elif text.count(".") > 1:
@@ -294,7 +295,7 @@ def _ocr_pdf_for_budget(path: Path, *, max_pages: int = 12) -> str | None:
 
 
 def parse_budget_rows_from_text(text: str) -> list[PricingBudgetRow]:
-    table_rows = _parse_budget_table_lines(text)
+    table_rows = _parse_budget_table_lines(text, unit_price_before_quantity=_unit_price_before_quantity(text))
     if table_rows:
         by_key: dict[tuple[int | None, str, str], PricingBudgetRow] = {}
         for row in table_rows:
@@ -305,34 +306,65 @@ def parse_budget_rows_from_text(text: str) -> list[PricingBudgetRow]:
     return rows
 
 
-def _parse_budget_table_lines(text: str) -> list[PricingBudgetRow]:
+def _unit_price_before_quantity(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", strip_accents(text).upper())
+    return bool(re.search(r"ΜΟΝΑΔΑΣ\s+ΠΟΣΟΤΗΤΑ", normalized))
+
+
+def _parse_budget_table_lines(text: str, *, unit_price_before_quantity: bool = False) -> list[PricingBudgetRow]:
     lines = [line.rstrip() for line in text.splitlines() if line.strip()]
     parsed: list[PricingBudgetRow] = []
     for index, line in enumerate(lines):
         previous_line = lines[index - 1] if index > 0 else ""
         next_line = lines[index + 1] if index + 1 < len(lines) else ""
-        row = _parse_budget_table_line(line, previous_line=previous_line, next_line=next_line)
+        next_lines = lines[index + 1 : min(len(lines), index + 4)]
+        row = _parse_budget_table_line(
+            line,
+            previous_line=previous_line,
+            next_line=next_line,
+            next_lines=next_lines,
+            unit_price_before_quantity=unit_price_before_quantity,
+        )
         if row is not None:
             parsed.append(row)
     return parsed
 
 
-def _parse_budget_table_line(line: str, *, previous_line: str = "", next_line: str = "") -> PricingBudgetRow | None:
+def _parse_budget_table_line(
+    line: str,
+    *,
+    previous_line: str = "",
+    next_line: str = "",
+    next_lines: list[str] | None = None,
+    unit_price_before_quantity: bool = False,
+) -> PricingBudgetRow | None:
     match = TABLE_ROW_RE.match(line)
     if not match:
         return None
     row_number = int(match.group("row"))
     tokens = _clean_text(match.group("rest")).split()
+    line_for_raw = line
     numeric_positions = [index for index, token in enumerate(tokens) if NUMERIC_RE.match(token)]
     if len(numeric_positions) < 3:
+        expanded_tokens = _expand_table_row_numeric_tail(tokens, next_lines or ([next_line] if next_line else []))
+        if expanded_tokens is not None:
+            tokens = expanded_tokens
+            line_for_raw = f"{line} {' '.join(next_lines or [next_line])}"
+            next_line = ""
+            numeric_positions = [index for index, token in enumerate(tokens) if NUMERIC_RE.match(token)]
+    if len(numeric_positions) < 3:
         return None
-    amount_pos, unit_price_pos, quantity_pos = numeric_positions[-1], numeric_positions[-2], numeric_positions[-3]
+    amount_pos = numeric_positions[-1]
+    if unit_price_before_quantity:
+        unit_price_pos, quantity_pos = numeric_positions[-3], numeric_positions[-2]
+    else:
+        quantity_pos, unit_price_pos = numeric_positions[-3], numeric_positions[-2]
     unit_end = _find_unit_end(tokens, quantity_pos)
     if unit_end is None:
         return None
     unit_start, unit = unit_end
     prefix_tokens = tokens[:unit_start]
-    revision_tokens = tokens[unit_start + len(unit.split()) : quantity_pos]
+    revision_tokens: list[str] = []
     structured = _split_structured_table_prefix(prefix_tokens, next_line=next_line)
     if structured is not None:
         row_number, article_code, description_tokens, revision_tokens, consumed_next_line = structured
@@ -341,10 +373,13 @@ def _parse_budget_table_line(line: str, *, previous_line: str = "", next_line: s
             next_line = ""
     else:
         article_code, description_tokens = _split_article_and_description(prefix_tokens)
+        if not revision_tokens and _tokens_are_only_revision_codes(description_tokens) and _is_description_continuation(previous_line):
+            revision_tokens = description_tokens
+            description_tokens = []
     if not article_code:
         article_code, description_tokens = _article_from_neighbor(previous_line, row_number, description_tokens)
     description_parts = [" ".join(description_tokens)]
-    if _is_description_continuation(previous_line):
+    if _should_prepend_previous_description(previous_line, description_tokens):
         description_parts.insert(0, previous_line)
     if _is_description_continuation(next_line):
         description_parts.append(next_line)
@@ -362,9 +397,27 @@ def _parse_budget_table_line(line: str, *, previous_line: str = "", next_line: s
         quantity=parse_greek_decimal(tokens[quantity_pos]),
         unit_price=parse_greek_decimal(tokens[unit_price_pos]),
         amount=parse_greek_decimal(tokens[amount_pos]),
-        raw_text=_clean_text(line),
+        raw_text=_clean_text(line_for_raw),
         confidence=0.9,
     )
+
+
+def _expand_table_row_numeric_tail(tokens: list[str], next_lines: list[str]) -> list[str] | None:
+    next_tokens = _clean_text(" ".join(next_lines)).split()
+    unit_suffix: str | None = None
+    unit_end = _find_unit_end(tokens, len(tokens))
+    if unit_end is not None:
+        unit_start, unit = unit_end
+        if unit.lower().rstrip(".") == "m" and next_tokens and next_tokens[0] in {"2", "3"}:
+            unit_suffix = next_tokens[0]
+            tokens = [*tokens[:unit_start], f"m{unit_suffix}", *tokens[unit_start + 1 :]]
+            next_tokens = next_tokens[1:]
+    next_numeric = [token for token in next_tokens if NUMERIC_RE.match(token)]
+    if len(next_numeric) < 3:
+        return None
+    if _find_unit_end(tokens, len(tokens)) is None:
+        return None
+    return [*tokens, *next_numeric[:3]]
 
 
 def _split_structured_table_prefix(tokens: list[str], *, next_line: str = "") -> tuple[int, str, list[str], list[str], bool] | None:
@@ -476,6 +529,9 @@ def _is_description_continuation(line: str) -> bool:
     clean = _clean_text(line)
     if not clean or TABLE_ROW_RE.match(clean):
         return False
+    tokens = clean.split()
+    if tokens and len([token for token in tokens if NUMERIC_RE.match(token)]) >= min(3, len(tokens)):
+        return False
     upper = strip_accents(clean).upper()
     if upper.startswith(("ΟΜΑΔΑ", "ΣΥΝΟΛΟ", "Γ.Ε.", "ΑΘΡΟΙΣΜΑ", "ΑΠΡΟΒΛ", "ΑΝΑΘΕΩΡΗΣΗ", "Φ.Π.Α.", "ΓΕΝΙΚΟ")):
         return False
@@ -484,11 +540,29 @@ def _is_description_continuation(line: str) -> bool:
     return True
 
 
+def _should_prepend_previous_description(previous_line: str, description_tokens: list[str]) -> bool:
+    if not _is_description_continuation(previous_line):
+        return False
+    if not description_tokens:
+        return True
+    first = description_tokens[0]
+    return bool(first) and first[0].islower()
+
+
 def _revision_codes_from_tokens(tokens: list[str]) -> list[str]:
     text = " ".join(tokens)
     if not text or text == "-":
         return []
     return _extract_revision_codes(text)
+
+
+def _tokens_are_only_revision_codes(tokens: list[str]) -> bool:
+    if not tokens:
+        return False
+    for token in tokens:
+        if not REVISION_RE.fullmatch(token):
+            return False
+    return True
 
 
 def _budget_row_blocks(text: str) -> list[list[str]]:

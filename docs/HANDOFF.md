@@ -814,6 +814,11 @@ The system `python` command is not present in the remote environment; use
   across continuation lines. Live smoke for `221689` produced `41` merged
   budget rows, no missing row numbers and amount total `422.052,75`; repeat
   run skipped all `9` existing downloads/indexed documents.
+- The pricing parser also handles the `221473` budget layout: split `m3`
+  units rendered as `m` plus next-line `3`, starred unit prices and headers
+  where `Τιμή Μονάδας` appears before `Ποσότητα`. Live force reprocess
+  produced `10` merged rows, no missing row numbers and amount total
+  `138.253,83`.
 - Production deploy on commit `0c203f6` passed through GitHub Actions run
   `29700913414`. The droplet reports `tender-radar 0.1.36`,
   `tender-radar-ui.service` is active, and the local droplet homepage contains

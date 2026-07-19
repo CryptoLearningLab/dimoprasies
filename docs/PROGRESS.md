@@ -34,10 +34,12 @@
 - Live skip smoke for ESHIDIS `221566` reused `25` existing attachments,
   downloaded `0`, failed `0`, and preserved the merged `36` budget rows with
   amount total `2.466.374,00`.
-- Live pricing smoke for ESHIDIS `221473` fetched `10` attachments, extracted
-  `6` rows from `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf`, built a merged amount total `21.749,20`,
-  and skipped OCR for non-pricing files. A repeat run completed in `7s` with
-  `downloaded 0`, `skipped_download 10`, `skipped_indexed 10`, `failed 0`.
+- Live pricing smoke for ESHIDIS `221473` fetched `10` attachments and now
+  extracts all `10` rows from `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf`, after adding support for
+  split `m3` units (`m` plus next-line `3`), starred unit prices such as
+  `27,45*`, and table headers where `Τιμή Μονάδας` appears before
+  `Ποσότητα`. The merged amount total is `138.253,83` with no missing row
+  numbers.
 - Pricing budget parsing now handles structured Greek budget tables where
   local group numbering restarts but the real global `Α.Τ.` row number appears
   immediately before the unit column. It also handles article codes split
@@ -3537,9 +3539,10 @@ Verification:
   --work-dir /tmp/tender_pricing_221473_work \
   --limit 50 \
   --allow-insecure-tls \
-  --report /tmp/tender_pricing_221473_report.json
-# ok true, downloaded 10, failed 0, rows extracted 6,
-# merged amount total 21.749,20
+  --force \
+  --report /tmp/tender_pricing_221473_fixed_report.json
+# ok true, downloaded 10, failed 0, rows extracted 10,
+# merged rows 10, missing row numbers [], merged amount total 138.253,83
 
 .venv/bin/python -m tender_radar pricing ingest-eshidis 221473 \
   --db /tmp/tender_pricing_221473.sqlite \
@@ -3570,7 +3573,7 @@ Verification:
 # merged rows 41, missing row numbers [], merged amount total 422.052,75
 
 .venv/bin/python -m pytest -q
-# 235 passed in 18.36s
+# 236 passed in 19.85s
 ```
 
 Cron remains intentionally unchanged for the new reverse-pricing flow until

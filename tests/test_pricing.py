@@ -79,6 +79,43 @@ def test_parse_budget_rows_uses_at_column_when_group_numbers_restart() -> None:
     assert rows[4].amount == 28000
 
 
+def test_parse_budget_rows_handles_split_m3_and_starred_unit_prices() -> None:
+    text = """
+                                                                                  Κωδικός                     Τιμή                           Δαπάνη (Ευρώ)
+                                                                                                Μονάδα
+    α/α      Κωδικός άρθρου                    Είδος εργασίας                                               Μονάδας       Ποσότητα       Μερική
+                                                                               Αναθεώρησης     Μέτρησης                                             Ολική Δαπάνη
+      1            Α-12               Καθαίρεση οπλισμένων σκυροδεμάτων            ΟΙΚ-2227        m
+                                                                                                   3
+                                                                                                          27,45*        50,00        1.372,50
+      2          Β-29.4.4            Μικροκατασκευές με σκυρόδεμα C20/25          ΟΔΟ-2551         m
+                                                                                                   3
+                                                                                                         143,00         15,00        2.145,00
+      3            Β-51                Πρόχυτα κράσπεδα από σκυρόδεμα             ΟΔΟ-2921          m          9,60          20,00        192,00
+      4           Β-85_α           ανακατασκευαζομένου πεζοδρομίου έως 0,50       ΟΔΟ-2548         τεμ.        40,30         70,00        2.821,00
+      5           Β-85_β                                                          ΟΔΟ-2548         τεμ.        80,60         15,00        1.209,00
+                              ανακατασκευαζομένου πεζοδρομίου > 0,50 m2
+      6           Β-85_γ                                                          ΟΔΟ-2548         τεμ.       322,40         3,00         967,20
+                              ανακατασκευαζομένου πεζοδρομίου > 0,50 m2
+                                  Απόξεση ασφαλτικού οδοστρώματος
+      7           Δ-2.1                          (φρεζάρισμα)                     ΟΔΟ-1132         m2          1,15        10.350,00     11.902,50
+      8            Δ-4                  Ασφαλτική συγκολλητική επάλειψη           ΟΔΟ-4120         m2          0,45        10.350,00      4.657,50
+                                Ασφαλτικές στρώσεις μεταβλητού πάχους
+      9            Δ-6                                                            ΟΔΟ-4421Β        ton         79,30*       180,00       14.274,00
+     10            Δ-8Α            Ασφαλτική στρώση κυκλοφορίας αστικής οδού      ΟΔΟ-4521Β        m2          9,54*       10.350,00     98.713,13
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert [row.row_number for row in rows] == list(range(1, 11))
+    assert rows[0].unit == "m3"
+    assert rows[0].unit_price == 27.45
+    assert rows[1].unit == "m3"
+    assert rows[8].unit_price == 79.30
+    assert rows[9].unit_price == 9.54
+    assert sum(row.amount or 0 for row in rows) == 138253.83
+
+
 def test_ingest_and_search_pricing_rows_from_text_pdf_fixture(tmp_path: Path) -> None:
     db_path = tmp_path / "runtime.sqlite"
     pdf_text_path = tmp_path / "budget.txt"

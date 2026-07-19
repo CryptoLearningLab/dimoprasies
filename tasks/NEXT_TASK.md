@@ -29,9 +29,10 @@ Local version `0.1.36` starts the independent reverse-pricing foundation:
   existing downloads and indexed documents unless `--force` is passed.
 - Non-pricing ESHIDIS attachments are stored as provenance with
   `SKIPPED_NON_PRICING_DOCUMENT` and skipped on subsequent pricing runs.
-- Live smoke for ESHIDIS `221473` fetched `10` attachments, extracted `6`
-  budget rows, then repeated in `7s` with `downloaded 0`,
-  `skipped_download 10`, `skipped_indexed 10`.
+- Live smoke for ESHIDIS `221473` fetched `10` attachments and now extracts
+  all `10` budget rows from `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf`. This covers split `m3` units
+  (`m` plus next-line `3`), starred unit prices and table headers where
+  `Τιμή Μονάδας` appears before `Ποσότητα`.
 - Live smoke for ESHIDIS `221689` covers a second budget-table layout where
   numbering restarts inside sections and the true global `Α.Τ.` appears before
   the unit column. The parser now extracts `41` merged rows, has no missing row
@@ -39,7 +40,7 @@ Local version `0.1.36` starts the independent reverse-pricing foundation:
   `422.052,75`.
 - A repeat `221689` run is skip-aware: `downloaded 0`, `skipped_download 9`,
   `skipped_indexed 9`, `failed 0`.
-- Full local suite passed: `235 passed`.
+- Full local suite passed: `236 passed`.
 
 The reverse-pricing workflow is intentionally separate from the local
 `ΔΗΜΟΣΙΑ ΕΡΓΑ` dashboard and is not attached to the six-hour cron yet.
@@ -74,6 +75,8 @@ Complete the next gate:
   search.
 - Regression test that structured budgets using a separate `Α.Τ.` column and
   split article codes do not reuse local section numbering as row numbers.
+- Regression test that split `m3` units, starred unit prices and
+  price-before-quantity budget headers still extract all rows.
 - Full test suite before production deploy.
 
 ## Required Closeout
