@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS documents (
     text_sample TEXT,
     text_path TEXT,
     extraction_error TEXT,
+    ocr_status TEXT,
+    ocr_error TEXT,
     analyzed_at TEXT
 );
 

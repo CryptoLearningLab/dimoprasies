@@ -2207,6 +2207,46 @@ targeted admin/db tests: 6 passed
 full test suite: 165 passed
 ```
 
+### UI v0.1.11 OCR fallback for weak PDF text extraction
+
+Implemented behavior:
+
+- Bumped the application version from `0.1.10` to `0.1.11`.
+- Added deterministic OCR fallback for PDF document analysis:
+  - OCR is not attempted when embedded PDF text extraction returns enough text;
+  - OCR is attempted when extraction fails, returns no text, has no extractor,
+    or returns very short text under the configured threshold;
+  - OCR uses local system tools `pdftoppm` and `tesseract` when available;
+  - OCR is bounded to the first 3 pages in this gate to avoid slow full-file
+    scans during normal cron/document processing;
+  - missing OCR tools are recorded as `OCR_TOOL_MISSING` instead of failing the
+    app.
+- Added OCR provenance fields to document analysis outputs:
+  - `ocr_status`
+  - `ocr_error`
+- Added `ocr_status` and `ocr_error` columns to SQLite `documents`, with
+  migration support for existing databases.
+- Updated document-analysis Markdown reports to show the OCR status per file.
+- Kept existing non-PDF behavior unchanged. Originals remain untouched; OCR
+  temporary page images are created under a temporary directory and removed
+  after processing.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_documents.py::test_pdf_text_extraction_does_not_run_ocr_for_strong_text tests/test_documents.py::test_pdf_weak_text_attempts_ocr_when_available tests/test_documents.py::test_pdf_weak_text_records_missing_ocr_tools tests/test_documents.py::test_render_markdown_report_includes_types_and_files
+.venv/bin/python -m py_compile src/tender_radar/documents.py src/tender_radar/db.py src/tender_radar/cli.py src/tender_radar/__init__.py
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted OCR/document tests: 4 passed
+py_compile: passed
+full test suite: 168 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

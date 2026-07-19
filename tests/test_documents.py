@@ -1,7 +1,8 @@
 import sqlite3
 
+from tender_radar import documents
 from tender_radar.db import import_attachment_download, import_eshidis_resource, list_downloaded_attachments
-from tender_radar.documents import classify_document_name, extract_text_sample, render_markdown_report
+from tender_radar.documents import analyze_document, classify_document_name, extract_text_sample, render_markdown_report
 from tender_radar.sources.eshidis import EshidisAttachmentListing, EshidisTenderDetails
 
 
@@ -22,6 +23,57 @@ def test_extract_xml_text_sample(tmp_path) -> None:
     assert count is None
     assert sample == "Δοκιμαστικό ESPD"
     assert error is None
+
+
+def test_pdf_text_extraction_does_not_run_ocr_for_strong_text(tmp_path, monkeypatch) -> None:
+    pdf_path = tmp_path / "declaration.pdf"
+    pdf_path.write_bytes(b"%PDF")
+    text = "Αυτό είναι κανονικό κείμενο διακήρυξης με αρκετούς χαρακτήρες ώστε να μη χρειάζεται OCR."
+    monkeypatch.setattr(documents.importlib.util, "find_spec", lambda name: object() if name == "pypdf" else None)
+    monkeypatch.setattr(documents, "_extract_pdf_with_pypdf", lambda path, max_chars: ("TEXT_EXTRACTED", 2, text, text, None))
+
+    def fail_ocr(*args, **kwargs):
+        raise AssertionError("OCR should not run for strong embedded text")
+
+    monkeypatch.setattr(documents, "_ocr_pdf_text", fail_ocr)
+
+    analysis = analyze_document(pdf_path)
+
+    assert analysis.extraction_status == "TEXT_EXTRACTED"
+    assert analysis.ocr_status == "NOT_NEEDED"
+    assert analysis.full_text == text
+
+
+def test_pdf_weak_text_attempts_ocr_when_available(tmp_path, monkeypatch) -> None:
+    pdf_path = tmp_path / "scan.pdf"
+    pdf_path.write_bytes(b"%PDF")
+    monkeypatch.setattr(documents.importlib.util, "find_spec", lambda name: object() if name == "pypdf" else None)
+    monkeypatch.setattr(documents, "_extract_pdf_with_pypdf", lambda path, max_chars: ("NO_TEXT_FOUND", 3, None, None, None))
+    monkeypatch.setattr(
+        documents,
+        "_ocr_pdf_text",
+        lambda path, page_count: ("OCR_TEXT_EXTRACTED", "Α/Α ΕΣΗΔΗΣ 221744 άρθρο 2.2", None),
+    )
+
+    analysis = analyze_document(pdf_path)
+
+    assert analysis.extraction_status == "TEXT_EXTRACTED_WITH_OCR"
+    assert analysis.ocr_status == "OCR_TEXT_EXTRACTED"
+    assert analysis.full_text == "Α/Α ΕΣΗΔΗΣ 221744 άρθρο 2.2"
+
+
+def test_pdf_weak_text_records_missing_ocr_tools(tmp_path, monkeypatch) -> None:
+    pdf_path = tmp_path / "scan.pdf"
+    pdf_path.write_bytes(b"%PDF")
+    monkeypatch.setattr(documents.importlib.util, "find_spec", lambda name: object() if name == "pypdf" else None)
+    monkeypatch.setattr(documents, "_extract_pdf_with_pypdf", lambda path, max_chars: ("NO_TEXT_FOUND", 1, None, None, None))
+    monkeypatch.setattr(documents.shutil, "which", lambda name: None)
+
+    analysis = analyze_document(pdf_path)
+
+    assert analysis.extraction_status == "NO_TEXT_FOUND"
+    assert analysis.ocr_status == "OCR_TOOL_MISSING"
+    assert "Missing OCR tool" in str(analysis.ocr_error)
 
 
 def test_list_downloaded_attachments(tmp_path) -> None:
@@ -59,6 +111,7 @@ def test_render_markdown_report_includes_types_and_files() -> None:
                     "document_type": "budget",
                     "page_or_sheet_count": 4,
                     "extraction_status": "TEXT_EXTRACTED",
+                    "ocr_status": "NOT_NEEDED",
                     "original_name": "ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
                     "text_sample": "sample",
                 }
@@ -67,4 +120,5 @@ def test_render_markdown_report_includes_types_and_files() -> None:
     )
 
     assert "`budget`" in markdown
+    assert "`NOT_NEEDED`" in markdown
     assert "ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf" in markdown

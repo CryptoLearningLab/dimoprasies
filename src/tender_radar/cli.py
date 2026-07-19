@@ -650,6 +650,8 @@ def _documents_analyze(args: argparse.Namespace) -> int:
             analysis.text_sample,
             str(text_path) if text_path else None,
             analysis.extraction_error,
+            analysis.ocr_status,
+            analysis.ocr_error,
         )
         analysis_dict = analysis.to_dict()
         analysis_dict.pop("full_text", None)

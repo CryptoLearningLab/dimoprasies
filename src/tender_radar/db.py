@@ -348,6 +348,8 @@ def upsert_document_analysis(
     text_sample: str | None,
     text_path: str | None,
     extraction_error: str | None,
+    ocr_status: str | None = None,
+    ocr_error: str | None = None,
 ) -> DocumentUpsertSummary:
     initialize(db_path)
     now = datetime.now(timezone.utc).isoformat()
@@ -364,7 +366,8 @@ def upsert_document_analysis(
                 UPDATE documents
                 SET document_type = ?, classification_confidence = ?,
                     extraction_status = ?, page_or_sheet_count = ?,
-                    text_sample = ?, text_path = ?, extraction_error = ?, analyzed_at = ?
+                    text_sample = ?, text_path = ?, extraction_error = ?,
+                    ocr_status = ?, ocr_error = ?, analyzed_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -375,6 +378,8 @@ def upsert_document_analysis(
                     text_sample,
                     text_path,
                     extraction_error,
+                    ocr_status,
+                    ocr_error,
                     now,
                     document_id,
                 ),
@@ -385,8 +390,8 @@ def upsert_document_analysis(
                 INSERT INTO documents (
                     attachment_id, document_type, classification_confidence,
                     extraction_status, page_or_sheet_count, text_sample, text_path,
-                    extraction_error, analyzed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    extraction_error, ocr_status, ocr_error, analyzed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     attachment_id,
@@ -397,6 +402,8 @@ def upsert_document_analysis(
                     text_sample,
                     text_path,
                     extraction_error,
+                    ocr_status,
+                    ocr_error,
                     now,
                 ),
             )
@@ -1025,6 +1032,8 @@ def _ensure_document_columns(connection: sqlite3.Connection) -> None:
         "text_sample": "TEXT",
         "text_path": "TEXT",
         "extraction_error": "TEXT",
+        "ocr_status": "TEXT",
+        "ocr_error": "TEXT",
         "analyzed_at": "TEXT",
     }
     for column, column_type in additions.items():

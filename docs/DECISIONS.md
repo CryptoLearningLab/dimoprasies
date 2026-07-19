@@ -542,3 +542,16 @@ bridge. Duplicate and expired rows remain audit-only in the first admin gate.
 Admin access is inside the main UI as an `Admin panel` tab. Login supports
 email one-time codes to the configured admin/alert email, with optional
 password fallback through runtime environment variables.
+
+## D-052 - OCR is an optional bounded fallback
+**Status:** Accepted
+
+OCR is used only as fallback for weak PDF text extraction, not as the default
+path for every document. A PDF needs OCR when embedded extraction fails,
+returns no text, lacks a text extractor, or returns very short text.
+
+The runtime uses available system tools (`pdftoppm` and `tesseract`) and records
+`OCR_TOOL_MISSING`, `OCR_FAILED`, `OCR_NO_TEXT_FOUND` or
+`OCR_TEXT_EXTRACTED` in document analysis provenance. Missing OCR tooling is
+non-fatal. The first OCR gate is bounded to the first 3 pages so cron runs do
+not become unbounded full-document OCR jobs.

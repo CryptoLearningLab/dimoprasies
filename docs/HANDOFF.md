@@ -574,6 +574,11 @@ The system `python` command is not present in the remote environment; use
   intentionally limited to AI-hidden rows and mistaken `Δεν με ενδιαφέρει`
   dismissals; it writes `FORCE_KEEP` to SQLite `triage_overrides` and removes
   dismissal state.
+- The UI now displays version `v0.1.11`. PDF document analysis has optional
+  bounded OCR fallback: strong embedded text skips OCR, weak/empty extraction
+  attempts `pdftoppm` + `tesseract` when available, and missing OCR tooling is
+  recorded as non-fatal provenance. SQLite `documents` includes `ocr_status`
+  and `ocr_error`.
 
 ## Next Work
 
@@ -581,5 +586,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Continue with the text extraction/OCR gate: make scanned or image-only
-documents produce useful text artifacts before AI classification.
+Continue by feeding fetched/OCR document text into AI classifier and linked
+ESHIDIS-id resolution, while preserving incremental skip behavior for unchanged
+rows.
