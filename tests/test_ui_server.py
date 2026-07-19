@@ -38,7 +38,7 @@ from tender_radar.ui_server import (
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.8" in INDEX_HTML
+    assert "v0.1.9" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -520,7 +520,7 @@ def test_scheduled_poll_and_alert_writes_audit_reports(tmp_path, monkeypatch) ->
     monkeypatch.setattr(
         ui_server,
         "run_candidate_enrichment",
-        lambda scope="focus", limit=50: {"ok": True, "summary": {"attempted": 0}},
+        lambda scope="focus", limit=50, **kwargs: {"ok": True, "summary": {"attempted": 0}},
     )
     monkeypatch.setattr(
         ui_server,
@@ -620,9 +620,10 @@ def test_scheduled_poll_skips_ai_when_all_rows_already_triaged(tmp_path, monkeyp
     assert result["summary"]["kept_total"] == 1
 
 
-def test_scheduled_poll_skips_enrichment_when_discovery_skipped(tmp_path, monkeypatch) -> None:
+def test_scheduled_poll_skips_auto_document_fetch_when_discovery_skipped(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "data").mkdir()
+    calls = []
     monkeypatch.setattr(
         ui_server,
         "run_discovery_search",
@@ -640,22 +641,26 @@ def test_scheduled_poll_skips_enrichment_when_discovery_skipped(tmp_path, monkey
         lambda scope="focus", sort="deadline_asc", batch_size=20: {"ok": True, "skipped": True},
     )
 
-    def fail_enrichment(*args, **kwargs):
-        raise AssertionError("scheduler should not enrich stale candidates when discovery was skipped")
+    def fail_auto_document_fetch(*args, **kwargs):
+        raise AssertionError("scheduler should not process old fetch targets when discovery was skipped")
 
-    monkeypatch.setattr(ui_server, "run_candidate_enrichment", fail_enrichment)
-    monkeypatch.setattr(
-        ui_server,
-        "run_email_alerts",
-        lambda scope="focus", sort="deadline_asc", recipient=None, dry_run=False: {
+    def fake_email(*args, **kwargs):
+        calls.append("email")
+        return {
             "ok": True,
-            "dry_run": dry_run,
-            "recipient": recipient,
+            "dry_run": kwargs.get("dry_run"),
+            "recipient": kwargs.get("recipient"),
             "candidate_rows": 1,
             "new_count": 1,
             "skipped_already_sent": 0,
             "sent": 0,
-        },
+        }
+
+    monkeypatch.setattr(ui_server, "run_auto_document_fetch", fail_auto_document_fetch)
+    monkeypatch.setattr(
+        ui_server,
+        "run_email_alerts",
+        fake_email,
     )
     monkeypatch.setattr(
         ui_server,
@@ -666,8 +671,55 @@ def test_scheduled_poll_skips_enrichment_when_discovery_skipped(tmp_path, monkey
     payload = run_scheduled_poll_and_alert(dry_run=True)
 
     assert payload["ok"] is True
-    assert payload["enrichment"]["skipped"] is True
-    assert payload["enrichment"]["error"] is None
+    assert calls == ["email"]
+    assert payload["auto_document_fetch"]["skipped"] is True
+    assert payload["auto_document_fetch"]["summary"] == {}
+    assert payload["auto_document_fetch"]["error"] is None
+    assert payload["enrichment"] == payload["auto_document_fetch"]
+
+
+def test_scheduled_poll_treats_auto_document_fetch_failure_as_warning(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    monkeypatch.setattr(
+        ui_server,
+        "run_discovery_search",
+        lambda limit, backfill=False: {"ok": True, "skipped": False, "source_preflight": {}, "steps": []},
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "run_incremental_ai_triage",
+        lambda scope="focus", sort="deadline_asc", batch_size=20: {"ok": True, "skipped": True},
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "run_auto_document_fetch",
+        lambda scope="focus", limit=50: {
+            "ok": False,
+            "summary": {"attempted": 1, "failed": 1, "stopped_by_time_budget": True},
+        },
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "run_email_alerts",
+        lambda scope="focus", sort="deadline_asc", recipient=None, dry_run=False: {
+            "ok": True,
+            "dry_run": dry_run,
+            "recipient": recipient,
+            "candidate_rows": 1,
+            "new_count": 0,
+            "skipped_already_sent": 1,
+            "sent": 0,
+        },
+    )
+    monkeypatch.setattr(ui_server, "source_polling_payload", lambda: {"summary": {}, "rows": []})
+
+    payload = run_scheduled_poll_and_alert(dry_run=True)
+
+    assert payload["ok"] is True
+    assert payload["errors"] == []
+    assert payload["warnings"] == [{"stage": "auto_document_fetch", "message": "automatic document fetch failed"}]
+    assert payload["email"]["ok"] is True
 
 
 def test_ui_labels_bounded_and_backfill_discovery_modes() -> None:
@@ -1513,6 +1565,50 @@ def test_candidate_enrichment_uses_selected_fetch_and_records_attempts(tmp_path,
     assert result["summary"]["enriched_with_eshidis"] == 1
     assert attempts["KIMDIS:26PROC000000001"]["linked_eshidis_ids"] == ["221473"]
     assert attempts["AUTHORITY:AUTH-work"]["source_signature"] == "sig-2"
+
+
+def test_auto_document_fetch_stops_before_next_target_when_budget_expires(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    now = {"value": 0.0}
+    calls = []
+    monkeypatch.setattr(ui_server.time, "monotonic", lambda: now["value"])
+    monkeypatch.setattr(
+        ui_server,
+        "candidate_enrichment_targets",
+        lambda scope, limit: (
+            [
+                {
+                    "row_key": "KIMDIS:26PROC000000001",
+                    "identifier": "26PROC000000001",
+                    "kind": "ΚΗΜΔΗΣ",
+                    "source_signature": "sig-1",
+                },
+                {
+                    "row_key": "AUTHORITY:AUTH-work",
+                    "identifier": "AUTHORITY:AUTH-work",
+                    "kind": "Φορέας",
+                    "source_signature": "sig-2",
+                },
+            ],
+            0,
+        ),
+    )
+
+    def fake_selected_fetch(identifier):
+        calls.append(identifier)
+        now["value"] = 2.0
+        return {"ok": True, "linked_eshidis_ids": []}
+
+    monkeypatch.setattr(ui_server, "run_selected_fetch", fake_selected_fetch)
+    monkeypatch.setattr(ui_server, "dashboard_payload", lambda scope="focus": {"scope": scope, "summary": {}, "tenders": []})
+
+    result = ui_server.run_auto_document_fetch(scope="focus", limit=10, max_seconds=1)
+
+    assert result["ok"] is True
+    assert calls == ["26PROC000000001"]
+    assert result["summary"]["attempted"] == 1
+    assert result["summary"]["remaining_targets"] == 1
+    assert result["summary"]["stopped_by_time_budget"] is True
 
 
 def test_ai_triage_job_runs_openai_backed_cli_and_refreshes_dashboard(monkeypatch) -> None:

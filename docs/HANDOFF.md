@@ -506,7 +506,7 @@ The system `python` command is not present in the remote environment; use
 - SQLite runtime state tables now exist for source fingerprints/runs, permanent
   tender dismissals and notification-send de-duplication. The UI dismissal path
   writes to SQLite while still reading the legacy ignored-tenders JSON file.
-- The UI now displays version `v0.1.8` in the header. Source preflight writes
+- The UI now displays version `v0.1.9` in the header. Source preflight writes
   per-source state/run audit to SQLite and reads SQLite before the legacy
   fingerprint JSON. Errors and changed fingerprints are source-specific and
   do not automatically force global full-depth discovery.
@@ -557,6 +557,16 @@ The system `python` command is not present in the remote environment; use
   SQLite `source_documents` and reuse unchanged local documents instead of
   downloading them again. Droplet smoke on `AUTHORITY:AUTH-f36d0588e7c7b729`
   proved first run `downloaded 5`, second run `downloaded 0`, `skipped 5`.
+- Scheduled runs now include `auto_document_fetch` between incremental AI
+  triage and email alerts. This automatically downloads/links documents for
+  new, changed or unprocessed non-ESHIDIS rows before presentation when source
+  discovery actually ran. If source discovery is skipped as unchanged,
+  scheduled auto-fetch is skipped too, so the cron does not process old
+  unresolved candidates. Existing attempt ledgers and SQLite `source_documents`
+  prevent unchanged rows from being re-downloaded. The scheduled stage has a
+  `20` second budget and records `stopped_by_time_budget` rather than blocking
+  the whole cron run. Individual auto-fetch failures are reported as warnings,
+  not fatal scheduled errors.
 
 ## Next Work
 

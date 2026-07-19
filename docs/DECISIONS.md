@@ -503,3 +503,26 @@ Authority document fetchers must reuse unchanged local files when the source
 signature and document URL match, rather than downloading duplicate copies on
 every enrichment run. Legacy JSON document indexes may remain as UI bridges,
 but SQLite is the operational state for skip/fetch decisions.
+
+## D-050 - Scheduled alerts collect documents before presentation
+**Status:** Accepted
+
+The normal scheduled path should not require a user to click `Fetch` before the
+system can inspect documents, run OCR or send useful alerts. The scheduler runs
+automatic document fetch for new, changed or unprocessed non-ESHIDIS candidates
+before email alerts when source discovery actually ran.
+
+Manual row `Fetch` remains as retry/admin control. Repeated scheduled runs are
+bounded by the candidate-enrichment attempt ledger, ESHIDIS attachment skip
+behavior and SQLite `source_documents` provenance, so unchanged rows should not
+force repeated downloads.
+
+If source discovery is skipped as unchanged, scheduled auto-fetch is skipped
+too. Scheduled auto-fetch also has a small time budget when it does run. If
+unresolved rows still need slow external fetches, the scheduled run records
+that it stopped by budget and continues to email/audit output instead of
+blocking the whole cron run.
+
+Per-target auto-fetch failures are warnings for the scheduled run, not fatal
+errors. Discovery, AI triage and email delivery failures can still fail the
+scheduled run.

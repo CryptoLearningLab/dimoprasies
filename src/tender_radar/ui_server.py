@@ -58,6 +58,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_ESHIDIS_DISCOVERY_LIMIT = 100
 DEFAULT_KIMDIS_DISCOVERY_PAGES = 20
+DEFAULT_SCHEDULED_AUTO_FETCH_SECONDS = 20
 DEFAULT_AUTHORITY_LIMIT_PER_SOURCE = 10
 MAX_BACKFILL_ESHIDIS_LIMIT = 500
 MAX_BACKFILL_KIMDIS_PAGES = 80
@@ -854,16 +855,21 @@ def incremental_ai_triage_summary(rows: list[dict[str, Any]], errors: list[dict[
     return {"decisions": decisions, "kept_total": kept, "dropped_total": dropped, "errors": len(errors)}
 
 
-def run_candidate_enrichment(*, scope: str = "focus", limit: int = 50) -> dict[str, Any]:
+def run_candidate_enrichment(*, scope: str = "focus", limit: int = 50, max_seconds: float | None = None) -> dict[str, Any]:
     if limit < 1:
         raise ValueError("Enrichment limit must be positive.")
     if not ENRICHMENT_LOCK.acquire(blocking=False):
         return {"ok": False, "error": "Another candidate enrichment is already running."}
     attempt_records: list[dict[str, Any]] = []
     results: list[dict[str, Any]] = []
+    started_monotonic = time.monotonic()
+    stopped_by_time_budget = False
     try:
         targets, skipped = candidate_enrichment_targets(scope=scope, limit=limit)
         for target in targets:
+            if max_seconds is not None and time.monotonic() - started_monotonic >= max_seconds:
+                stopped_by_time_budget = True
+                break
             identifier = str(target["identifier"])
             result = run_selected_fetch(identifier)
             linked_ids = [str(value) for value in result.get("linked_eshidis_ids") or [] if str(value).strip()]
@@ -898,12 +904,31 @@ def run_candidate_enrichment(*, scope: str = "focus", limit: int = 50) -> dict[s
                 "enriched_with_eshidis": len(enriched),
                 "failed": len(failed),
                 "skipped_previously_attempted": skipped,
+                "stopped_by_time_budget": stopped_by_time_budget,
+                "remaining_targets": max(0, len(targets) - len(results)),
             },
             "results": results,
             "dashboard": dashboard_payload(scope=scope if scope in {"focus", "all"} else "focus"),
         }
     finally:
         ENRICHMENT_LOCK.release()
+
+
+def run_auto_document_fetch(
+    *,
+    scope: str = "focus",
+    limit: int = 50,
+    max_seconds: float | None = DEFAULT_SCHEDULED_AUTO_FETCH_SECONDS,
+) -> dict[str, Any]:
+    result = run_candidate_enrichment(scope=scope, limit=limit, max_seconds=max_seconds)
+    result["stage"] = "auto_document_fetch"
+    result["max_seconds"] = max_seconds
+    result["purpose"] = (
+        "Fetch documents for new, changed or unprocessed non-ESHIDIS rows before "
+        "email/UI presentation. Existing attempts and source_documents prevent "
+        "unnecessary re-downloads."
+    )
+    return result
 
 
 def candidate_enrichment_targets(*, scope: str = "focus", limit: int = 50) -> tuple[list[dict[str, str]], int]:
@@ -1550,12 +1575,13 @@ def run_scheduled_poll_and_alert(
 ) -> dict[str, Any]:
     started_at = utc_now_iso()
     errors: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
     discovery = run_discovery_search(limit=limit, backfill=False)
     if discovery.get("ok") is False:
         errors.append({"stage": "discovery", "message": str(discovery.get("error") or "discovery failed")})
 
     ai_result: dict[str, Any] = {"ok": True, "skipped": False}
-    enrichment: dict[str, Any] = {"ok": True, "skipped": False}
+    auto_document_fetch: dict[str, Any] = {"ok": True, "skipped": False}
     email_result: dict[str, Any] = {"ok": True, "skipped": False}
     if discovery.get("ok") is not False:
         discovery_skipped = bool(discovery.get("skipped"))
@@ -1563,11 +1589,21 @@ def run_scheduled_poll_and_alert(
         if ai_result.get("ok") is False:
             errors.append({"stage": "ai_triage", "message": str(ai_result.get("error") or "AI triage failed")})
         if discovery_skipped:
-            enrichment = {"ok": True, "skipped": True, "skip_reason": "DISCOVERY_SKIPPED"}
+            auto_document_fetch = {
+                "ok": True,
+                "skipped": True,
+                "skip_reason": "DISCOVERY_SKIPPED_NO_NEW_ROWS",
+                "discovery_skipped": True,
+            }
         else:
-            enrichment = run_candidate_enrichment(scope=scope, limit=enrichment_limit)
-            if enrichment.get("ok") is False:
-                errors.append({"stage": "enrichment", "message": str(enrichment.get("error") or "candidate enrichment failed")})
+            auto_document_fetch = run_auto_document_fetch(scope=scope, limit=enrichment_limit)
+            if auto_document_fetch.get("ok") is False:
+                warnings.append(
+                    {
+                        "stage": "auto_document_fetch",
+                        "message": str(auto_document_fetch.get("error") or "automatic document fetch failed"),
+                    }
+                )
         try:
             email_result = run_email_alerts(scope=scope, sort=sort, recipient=recipient, dry_run=dry_run)
         except Exception as exc:
@@ -1600,9 +1636,11 @@ def run_scheduled_poll_and_alert(
         ],
         "discovery": summarize_scheduled_stage(discovery),
         "ai_triage": summarize_scheduled_stage(ai_result),
-        "enrichment": summarize_scheduled_stage(enrichment),
+        "auto_document_fetch": summarize_scheduled_stage(auto_document_fetch),
+        "enrichment": summarize_scheduled_stage(auto_document_fetch),
         "email": summarize_email_result(email_result),
         "errors": errors,
+        "warnings": warnings,
     }
     write_scheduled_run_reports(payload, report_path=report_path, markdown_report_path=markdown_report_path)
     return payload
@@ -1695,6 +1733,11 @@ def render_scheduled_run_markdown(payload: dict[str, Any]) -> str:
     errors = payload.get("errors") or []
     lines.extend(f"- {item.get('stage')}: {item.get('message')}" for item in errors)
     if not errors:
+        lines.append("- none")
+    lines.extend(["", "## Warnings", ""])
+    warnings = payload.get("warnings") or []
+    lines.extend(f"- {item.get('stage')}: {item.get('message')}" for item in warnings)
+    if not warnings:
         lines.append("- none")
     return "\n".join(lines) + "\n"
 

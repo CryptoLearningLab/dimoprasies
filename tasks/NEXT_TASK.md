@@ -14,6 +14,11 @@ The document fetcher gate is complete for authority/municipal/regional rows:
   `attachments` table and skip behavior;
 - KIMDIS has an existing JSON document-index bridge and local-file skip
   behavior.
+- scheduled runs execute automatic document fetch before email alerts when
+  source discovery actually ran, so the normal cron path can collect documents
+  for new/changed rows without waiting for a manual `Fetch` click. If discovery
+  is skipped as unchanged, scheduled auto-fetch is skipped too. Manual `Fetch`
+  remains available as retry/admin control.
 
 The next product gate is text extraction/OCR. Existing document analysis can
 extract embedded text from supported PDFs and documents, but scanned PDFs or

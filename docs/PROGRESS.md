@@ -4,7 +4,7 @@
 `PHASE_2_SQLITE_VERTICAL_SLICE_PARTIAL`
 
 ## Last Updated
-`2026-07-18`
+`2026-07-19`
 
 ## Current Task
 `tasks/NEXT_TASK.md`
@@ -2114,6 +2114,53 @@ SQLite source_documents smoke row: 5 rows, 5 with local path and SHA-256
 tender-radar-ui.service: active
 caddy.service: active
 tender-radar-scheduled.timer: enabled, active
+```
+
+### UI v0.1.9 scheduled auto document fetch before alerts
+
+Implemented behavior:
+
+- Bumped the application version from `0.1.8` to `0.1.9`.
+- Added `run_auto_document_fetch()` as the scheduled document-collection stage.
+- `tender-radar runtime scheduled-run` now runs automatic document fetch after
+  incremental AI triage and before email alerts.
+- If source discovery is skipped as unchanged, scheduled auto-fetch is also
+  skipped so the cron does not process old unresolved candidates. When
+  discovery actually runs, auto-fetch uses the existing candidate-enrichment
+  attempt ledger and SQLite `source_documents` provenance to avoid repeated
+  work for unchanged rows.
+- Scheduled auto-fetch has a default time budget of `20` seconds. When the
+  budget is reached, it stops before starting the next row, records
+  `stopped_by_time_budget` and still lets the scheduled run proceed to email
+  and audit-report writing.
+- Auto-fetch target failures are recorded as scheduled-run warnings, not
+  fatal run errors, so one bad external document fetch does not prevent email
+  alerts or audit output.
+- The scheduled JSON audit exposes both `auto_document_fetch` and the legacy
+  `enrichment` key for backward-compatible report readers.
+- Manual row `Fetch` remains available as a retry/admin action, not as the
+  required normal path before OCR/email.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_scheduled_poll_skips_auto_document_fetch_when_discovery_skipped tests/test_ui_server.py::test_candidate_enrichment_uses_selected_fetch_and_records_attempts tests/test_ui_server.py::test_authority_fetch_reuses_unchanged_source_document
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_scheduled_poll_skips_auto_document_fetch_when_discovery_skipped
+.venv/bin/python -m py_compile src/tender_radar/__init__.py src/tender_radar/ui_server.py
+.venv/bin/python -m pytest tests/test_ui_server.py::test_auto_document_fetch_stops_before_next_target_when_budget_expires tests/test_ui_server.py::test_scheduled_poll_and_alert_writes_audit_reports
+.venv/bin/python -m pytest tests/test_ui_server.py::test_scheduled_poll_treats_auto_document_fetch_failure_as_warning tests/test_ui_server.py::test_scheduled_poll_and_alert_writes_audit_reports tests/test_ui_server.py::test_auto_document_fetch_stops_before_next_target_when_budget_expires
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted auto-fetch/fetcher tests: 3 passed
+targeted version/scheduler tests: 2 passed
+targeted time-budget/report tests: 2 passed
+targeted warning/report tests: 3 passed
+full test suite: 159 passed
 ```
 
 ## Handoff Discipline
