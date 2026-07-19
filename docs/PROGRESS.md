@@ -2962,6 +2962,12 @@ targeted timestamp normalization tests: 3 passed
 targeted SQLite first-hidden-time tests: 3 passed
 py_compile: passed
 full test suite: 208 passed
+production deploy smoke on commit 7400b6a:
+  package version 0.1.25
+  homepage contains v0.1.25
+  admin hidden_total 86
+  hidden rows expose ISO audit_at
+  repeated admin_audit_payload calls keep first_seen_at stable
 ```
 
 ## Handoff Discipline

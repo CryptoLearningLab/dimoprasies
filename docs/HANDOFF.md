@@ -709,6 +709,9 @@ The system `python` command is not present in the remote environment; use
   with epoch timestamps normalized to ISO UTC. Deterministic audit rows store
   their first hidden time in SQLite `admin_hidden_events`, so refreshes do not
   reorder old hidden rows as if they were newly cut.
+- Production deploy on commit `7400b6a` passed: package version `0.1.25`,
+  homepage `v0.1.25`, admin audit `hidden_total 86`, hidden rows expose ISO
+  `audit_at`, and repeated audit loads kept `first_seen_at` stable.
 
 ## Next Work
 
