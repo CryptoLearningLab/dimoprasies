@@ -687,6 +687,8 @@ The system `python` command is not present in the remote environment; use
 - The UI now displays version `v0.1.22`. The admin users API exposes the
   SQLite `rowid` as `id`, and the admin users table shows `ID`, email, role,
   password state and last login in a mobile-card responsive layout.
+- Production deploy on commit `99150d7` passed: package version `0.1.22`,
+  homepage `v0.1.22`, admin users payload `ok True`, `users 1`, `has_id True`.
 
 ## Next Work
 

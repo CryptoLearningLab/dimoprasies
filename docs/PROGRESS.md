@@ -2846,6 +2846,12 @@ Results:
 targeted admin users/version tests: 4 passed
 py_compile: passed
 full test suite: 200 passed
+production deploy smoke on commit 99150d7:
+  package version 0.1.22
+  homepage contains v0.1.22
+  admin users payload ok True
+  users 1
+  has_id True
 ```
 
 ## Handoff Discipline
