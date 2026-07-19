@@ -52,6 +52,33 @@ def test_parse_budget_rows_extracts_b18_6_fixture_row() -> None:
     assert row.amount == 168000
 
 
+def test_parse_budget_rows_uses_at_column_when_group_numbers_restart() -> None:
+    text = """
+      1 Γενικές Εκσκαφές σε έδαφος     ΝΑΟΔΟ Α02      ΝΟΔΟ 1123.Α    1            m3    6.500,00               3,55    23.075,00
+        γαιώδες - ημιβραχώδες
+      2 Αποξηλωση ασφαλτοταπήτων       ΝΑΟΔΟ Α02.1    ΝΟΔΟ 1123.Α    2            m3      200,00               8,25     1.650,00
+        και στρώσεων οδοστρωσίας
+        Σύνολο : 1. ΧΩΜΑΤΟΥΡΓΙΚΑ-TEXNIKA                                                                          302.126,25      302.126,25
+        2. ΟΔΟΣΤΡΩΣΙΑ-ΑΣΦΑΛΤΙΚΑ
+      1 Υπόβαση οδοστρωσίας             ΝΑΟΔΟ Γ01.1   ΝΟΔΟ 3121Β    30          m3      120,00        19,10         2.292,00
+        μεταβλητού πάχους
+      2 Βάση πάχους 0,10 m (Π.Τ.Π.      ΝΑΟΔΟ Γ02.2   ΝΟΔΟ 3211Β    31          m2     1.200,00            8,80    10.560,00
+        Ο-155)
+        3. ΣΗΜΑΝΣΗ-ΑΣΦΑΛΕΙΑ
+      1 Μονόπλευρα χαλύβδινα            ΝΑΟΔΟ         ΝΟΔΟ 2653     36          m       400,00        70,00        28.000,00
+        στηθαία ασφαλείας, ικανότητας   Ε01.2.3
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert [row.row_number for row in rows] == [1, 2, 30, 31, 36]
+    assert [row.article_code for row in rows] == ["ΝΑΟΔΟ Α02", "ΝΑΟΔΟ Α02.1", "ΝΑΟΔΟ Γ01.1", "ΝΑΟΔΟ Γ02.2", "ΝΑΟΔΟ Ε01.2.3"]
+    assert rows[2].quantity == 120
+    assert rows[2].unit_price == 19.10
+    assert rows[2].amount == 2292
+    assert rows[4].amount == 28000
+
+
 def test_ingest_and_search_pricing_rows_from_text_pdf_fixture(tmp_path: Path) -> None:
     db_path = tmp_path / "runtime.sqlite"
     pdf_text_path = tmp_path / "budget.txt"

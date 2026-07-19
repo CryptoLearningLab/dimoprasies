@@ -38,6 +38,17 @@
   `6` rows from `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf`, built a merged amount total `21.749,20`,
   and skipped OCR for non-pricing files. A repeat run completed in `7s` with
   `downloaded 0`, `skipped_download 10`, `skipped_indexed 10`, `failed 0`.
+- Pricing budget parsing now handles structured Greek budget tables where
+  local group numbering restarts but the real global `Α.Τ.` row number appears
+  immediately before the unit column. It also handles article codes split
+  across lines, such as `ΝΑΟΔΟ` on the row and `Ε01.2.3` on the continuation
+  line.
+- Live pricing smoke for ESHIDIS `221689` fetched `9` attachments and, after
+  the structured-table parser fix, extracted `41` merged budget rows with no
+  missing row numbers and amount total `422.052,75`, matching the budget
+  subtotal before GE/OE, contingencies, revision and VAT. A repeat run
+  completed in `7.5s` with `downloaded 0`, `skipped_download 9`,
+  `skipped_indexed 9`, `failed 0`.
 - UI discovery flow now starts a real OpenAI-backed `sources ai-triage-report`
   job from `/api/ai-triage` after bounded discovery, using the existing
   `OPENAI_API_KEY` in `.env.local` without exposing the secret.
@@ -3537,6 +3548,29 @@ Verification:
   --allow-insecure-tls \
   --report /tmp/tender_pricing_221473_skip_report_2.json
 # ok true, downloaded 0, skipped_download 10, skipped_indexed 10, failed 0
+
+.venv/bin/python -m tender_radar pricing ingest-eshidis 221689 \
+  --db /tmp/tender_pricing_221689.sqlite \
+  --work-dir /tmp/tender_pricing_221689_work \
+  --limit 50 \
+  --allow-insecure-tls \
+  --force \
+  --report /tmp/tender_pricing_221689_force_report.json
+# ok true, attachments_found 9, downloaded 9, failed 0,
+# rows upserted 41, merged rows 41, missing row numbers [],
+# merged amount total 422.052,75
+
+.venv/bin/python -m tender_radar pricing ingest-eshidis 221689 \
+  --db /tmp/tender_pricing_221689.sqlite \
+  --work-dir /tmp/tender_pricing_221689_work \
+  --limit 50 \
+  --allow-insecure-tls \
+  --report /tmp/tender_pricing_221689_skip_after_parser_fix.json
+# ok true, downloaded 0, skipped_download 9, skipped_indexed 9, failed 0,
+# merged rows 41, missing row numbers [], merged amount total 422.052,75
+
+.venv/bin/python -m pytest -q
+# 235 passed in 18.36s
 ```
 
 Cron remains intentionally unchanged for the new reverse-pricing flow until

@@ -38,6 +38,7 @@ KNOWN_UNITS = {
     "m3",
     "kg",
     "tn",
+    "ton",
     "τεμ",
     "τεμ.",
     "τεμαχ",
@@ -45,6 +46,17 @@ KNOWN_UNITS = {
     "h",
     "km",
     "lt",
+}
+ARTICLE_CODE_PREFIXES = {
+    "ΝΑΟΔΟ",
+    "ΝΟΔΟ",
+    "ΝΑΥΔΡ",
+    "ΥΔΡ",
+    "ΝΑΟΙΚ",
+    "ΟΙΚ",
+    "ΠΡΣ",
+    "ΗΛΜ",
+    "ΛΙΜ",
 }
 
 
@@ -321,7 +333,14 @@ def _parse_budget_table_line(line: str, *, previous_line: str = "", next_line: s
     unit_start, unit = unit_end
     prefix_tokens = tokens[:unit_start]
     revision_tokens = tokens[unit_start + len(unit.split()) : quantity_pos]
-    article_code, description_tokens = _split_article_and_description(prefix_tokens)
+    structured = _split_structured_table_prefix(prefix_tokens, next_line=next_line)
+    if structured is not None:
+        row_number, article_code, description_tokens, revision_tokens, consumed_next_line = structured
+        previous_line = ""
+        if consumed_next_line:
+            next_line = ""
+    else:
+        article_code, description_tokens = _split_article_and_description(prefix_tokens)
     if not article_code:
         article_code, description_tokens = _article_from_neighbor(previous_line, row_number, description_tokens)
     description_parts = [" ".join(description_tokens)]
@@ -346,6 +365,67 @@ def _parse_budget_table_line(line: str, *, previous_line: str = "", next_line: s
         raw_text=_clean_text(line),
         confidence=0.9,
     )
+
+
+def _split_structured_table_prefix(tokens: list[str], *, next_line: str = "") -> tuple[int, str, list[str], list[str], bool] | None:
+    if len(tokens) < 5 or not tokens[-1].isdigit():
+        return None
+    row_number = int(tokens[-1])
+    work_tokens = tokens[:-1]
+    article_index = _find_structured_article_index(work_tokens)
+    if article_index is None:
+        split_article = _split_article_from_next_line(work_tokens, next_line)
+        if split_article is None:
+            return None
+        article_code, description_tokens, revision_tokens = split_article
+        return row_number, article_code, description_tokens, revision_tokens, True
+    article_code = " ".join(work_tokens[article_index : article_index + 2])
+    description_tokens = work_tokens[:article_index]
+    revision_tokens = work_tokens[article_index + 2 :]
+    if not description_tokens or not revision_tokens:
+        split_article = _split_article_from_next_line(work_tokens, next_line)
+        if split_article is None:
+            return None
+        article_code, description_tokens, revision_tokens = split_article
+        return row_number, article_code, description_tokens, revision_tokens, True
+    return row_number, article_code, description_tokens, revision_tokens, False
+
+
+def _find_structured_article_index(tokens: list[str]) -> int | None:
+    for index in range(0, len(tokens) - 1):
+        prefix = strip_accents(tokens[index]).upper().rstrip(".")
+        next_token = tokens[index + 1]
+        if prefix in ARTICLE_CODE_PREFIXES and re.search(r"\d", next_token):
+            return index
+    return None
+
+
+def _split_article_from_next_line(tokens: list[str], next_line: str) -> tuple[str, list[str], list[str]] | None:
+    next_tokens = _clean_text(next_line).split()
+    if not next_tokens:
+        return None
+    for index in range(0, len(tokens) - 1):
+        prefix = strip_accents(tokens[index]).upper().rstrip(".")
+        revision_prefix = strip_accents(tokens[index + 1]).upper().rstrip(".")
+        if prefix not in ARTICLE_CODE_PREFIXES or revision_prefix not in ARTICLE_CODE_PREFIXES:
+            continue
+        suffix_index = _find_article_suffix_index(next_tokens)
+        if suffix_index is None:
+            return None
+        article_code = f"{tokens[index]} {next_tokens[suffix_index]}"
+        description_tokens = [*tokens[:index], *next_tokens[:suffix_index]]
+        revision_tokens = tokens[index + 1 :]
+        if description_tokens and revision_tokens:
+            return article_code, description_tokens, revision_tokens
+    return None
+
+
+def _find_article_suffix_index(tokens: list[str]) -> int | None:
+    for index, token in enumerate(tokens):
+        clean = _clean_token(token)
+        if re.fullmatch(r"[A-ZΑ-ΩΒB]?\d+(?:[./-]\d+)+[A-ZΑ-ΩA-Z0-9]*", clean, flags=re.IGNORECASE):
+            return index
+    return None
 
 
 def _find_unit_end(tokens: list[str], before_index: int) -> tuple[int, str] | None:
@@ -377,6 +457,8 @@ def _split_article_and_description(tokens: list[str]) -> tuple[str | None, list[
 
 
 def _article_from_neighbor(previous_line: str, row_number: int, description_tokens: list[str]) -> tuple[str | None, list[str]]:
+    if re.match(r"^\s*\d+\.\s+", previous_line):
+        return None, description_tokens
     match = TABLE_ROW_RE.match(previous_line)
     if not match:
         previous_tokens = _clean_text(previous_line).split()

@@ -32,7 +32,14 @@ Local version `0.1.36` starts the independent reverse-pricing foundation:
 - Live smoke for ESHIDIS `221473` fetched `10` attachments, extracted `6`
   budget rows, then repeated in `7s` with `downloaded 0`,
   `skipped_download 10`, `skipped_indexed 10`.
-- Full local suite passed: `234 passed`.
+- Live smoke for ESHIDIS `221689` covers a second budget-table layout where
+  numbering restarts inside sections and the true global `Α.Τ.` appears before
+  the unit column. The parser now extracts `41` merged rows, has no missing row
+  numbers, handles split article code `ΝΑΟΔΟ Ε01.2.3`, and totals
+  `422.052,75`.
+- A repeat `221689` run is skip-aware: `downloaded 0`, `skipped_download 9`,
+  `skipped_indexed 9`, `failed 0`.
+- Full local suite passed: `235 passed`.
 
 The reverse-pricing workflow is intentionally separate from the local
 `ΔΗΜΟΣΙΑ ΕΡΓΑ` dashboard and is not attached to the six-hour cron yet.
@@ -65,6 +72,8 @@ Complete the next gate:
 - Regression test that the budget fixture still extracts `Β18.6`.
 - Regression test that project-level merged rows are preferred by pricing
   search.
+- Regression test that structured budgets using a separate `Α.Τ.` column and
+  split article codes do not reuse local section numbering as row numbers.
 - Full test suite before production deploy.
 
 ## Required Closeout
