@@ -657,6 +657,11 @@ The system `python` command is not present in the remote environment; use
   Manual selected fetch also persists `verified_tender_links` after the
   official ESHIDIS fetch succeeds and deletes stale target ids for the same
   source row after successful re-verification.
+- The UI now displays version `v0.1.19`. The daily dashboard now requires a
+  parseable future submission deadline. Rows can use deadlines from direct
+  source fields, linked official ESHIDIS rows or fetched document evidence.
+  Unknown-deadline candidates are kept out of the front page and belong in
+  audit/review until their deadline is verified.
 
 ## Next Work
 
@@ -664,7 +669,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Run full verification/deploy for `v0.1.18`, then smoke the live droplet without
-full discovery and report how many visible KIMDIS rows gained linked ESHIDIS
-ids through connected acts versus how many remain
-`NO_VERIFIED_ESHIDIS_LINK` review candidates.
+Run full verification/deploy for `v0.1.19`, then smoke the live droplet without
+full discovery and confirm the front page has zero visible rows without a
+verified/parseable future deadline.

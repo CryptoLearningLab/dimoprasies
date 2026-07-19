@@ -2675,6 +2675,46 @@ local dashboard smoke without full discovery:
   non_verified_review 20
 ```
 
+### UI v0.1.19 deadline-evidence dashboard gate
+
+- Bumped the application version from `0.1.18` to `0.1.19`.
+- The dashboard now enriches rows with fetched document evidence before
+  active/expired filtering.
+- Document evidence now extracts submission-deadline candidates from Greek
+  declaration-like contexts, including `προθεσμία`, `καταληκτική`,
+  `υποβολή προσφορών`, `παράταση` and related snippets.
+- The daily front page no longer treats missing deadlines as active. A row
+  must have a parseable future deadline from the source, linked official
+  ESHIDIS row or document-derived evidence to appear in the actionable list.
+- Unknown-deadline candidates remain review/audit data, not front-page
+  bidding opportunities.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py -q
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+.venv/bin/python -m pytest -q
+.venv/bin/python -c "from datetime import date; from tender_radar.ui_server import dashboard_payload, deadline_date; ..."
+```
+
+Results:
+
+```text
+focused UI tests: 92 passed
+py_compile: passed
+full test suite: 195 passed
+local no-discovery dashboard smoke:
+  total_known 95
+  visible 13
+  expired_hidden 67
+  duplicate_hidden 8
+  triage_hidden 1
+  unknown_visible []
+  expired_visible []
+  document-derived deadline visible rows 4
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

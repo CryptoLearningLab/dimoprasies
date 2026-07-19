@@ -1133,8 +1133,15 @@ def row_with_document_evidence(row: dict[str, Any]) -> dict[str, Any]:
     for document in documents:
         document_ids.extend(str(value) for value in document.get("linked_eshidis_ids") or [] if str(value).strip())
     linked_ids = sorted({value for value in [*existing_ids, *document_ids] if value.isdigit()})
+    deadline_evidence = best_deadline_evidence(documents)
+    current_deadline = row.get("current_deadline_at") or row.get("submission_deadline")
+    if not current_deadline and deadline_evidence:
+        current_deadline = deadline_evidence.get("deadline_at")
     return {
         **row,
+        "current_deadline_at": current_deadline,
+        "deadline_evidence": deadline_evidence,
+        "deadline_verification_status": "DOCUMENT_DEADLINE_EVIDENCE" if deadline_evidence else row.get("deadline_verification_status"),
         "document_evidence": documents,
         "document_evidence_count": len(documents),
         "linked_eshidis_ids": linked_ids,
@@ -1241,6 +1248,12 @@ def document_evidence_payload(
             *extract_eshidis_ids_from_text(name, document_url, source_url, text),
         }
     )
+    deadline_evidence = extract_deadline_evidence_from_text(
+        text,
+        document_name=name or "document",
+        document_url=document_url,
+        source_url=source_url,
+    )
     return {
         "row_key": row_key,
         "name": name or "document",
@@ -1253,6 +1266,7 @@ def document_evidence_payload(
         "ocr_error": analysis.get("ocr_error"),
         "fetch_error": fetch_error,
         "linked_eshidis_ids": [value for value in linked_ids if value.isdigit()],
+        "deadline_evidence": deadline_evidence,
         "snippets": select_document_snippets(text),
     }
 
@@ -1275,6 +1289,16 @@ def select_document_snippets(text: str, *, max_snippets: int = 5, radius: int = 
     snippets.append(compact_document_snippet(normalized[:900]))
     markers = [
         "2.2",
+        "προθεσμία",
+        "προθεσμια",
+        "καταληκτική",
+        "καταληκτικη",
+        "υποβολή προσφορών",
+        "υποβολη προσφορων",
+        "ημερομηνία λήξης",
+        "ημερομηνια ληξης",
+        "παράταση",
+        "παραταση",
         "ΕΣΗΔΗΣ",
         "Ε.Σ.Η.Δ",
         "Α/Α",
@@ -1304,6 +1328,10 @@ def compact_document_snippet(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()[:1200]
 
 
+def compact_full_document_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
 def document_evidence_rank(item: dict[str, Any]) -> tuple[int, str]:
     name = normalize_greek(str(item.get("name") or ""))
     doc_type = normalize_greek(str(item.get("document_type") or ""))
@@ -1316,6 +1344,138 @@ def document_evidence_rank(item: dict[str, Any]) -> tuple[int, str]:
     else:
         rank = 3
     return rank, name
+
+
+def best_deadline_evidence(documents: list[dict[str, Any]]) -> dict[str, Any] | None:
+    candidates: list[dict[str, Any]] = []
+    for document in documents:
+        evidence = document.get("deadline_evidence") if isinstance(document.get("deadline_evidence"), dict) else None
+        if not evidence:
+            continue
+        deadline_at = str(evidence.get("deadline_at") or "")
+        if deadline_sort_key(deadline_at) == "9999":
+            continue
+        candidates.append(evidence)
+    if not candidates:
+        return None
+    return sorted(
+        candidates,
+        key=lambda item: (
+            deadline_sort_key(str(item.get("deadline_at") or "")),
+            1 if item.get("is_extension") else 0,
+            float(item.get("confidence") or 0),
+        ),
+        reverse=True,
+    )[0]
+
+
+def extract_deadline_evidence_from_text(
+    text: str,
+    *,
+    document_name: str,
+    document_url: str | None,
+    source_url: str | None,
+) -> dict[str, Any] | None:
+    if not text.strip():
+        return None
+    normalized = compact_full_document_text(text)
+    matches: list[dict[str, Any]] = []
+    for match in _date_candidate_matches(normalized):
+        start, end = match["span"]
+        context = normalized[max(0, start - 260) : min(len(normalized), end + 260)]
+        score = deadline_context_score(context)
+        if score <= 0:
+            continue
+        matches.append(
+            {
+                "deadline_at": match["deadline_at"],
+                "document_name": document_name,
+                "document_url": document_url,
+                "source_url": source_url,
+                "snippet": context[:900],
+                "matched_text": match["matched_text"],
+                "is_extension": deadline_context_is_extension(context),
+                "confidence": min(0.98, 0.55 + score * 0.1),
+                "evidence_status": "DEADLINE_EVIDENCE_FOUND",
+            }
+        )
+    if not matches:
+        return None
+    return sorted(
+        matches,
+        key=lambda item: (
+            deadline_sort_key(str(item.get("deadline_at") or "")),
+            1 if item.get("is_extension") else 0,
+            float(item.get("confidence") or 0),
+        ),
+        reverse=True,
+    )[0]
+
+
+def _date_candidate_matches(text: str) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    patterns = [
+        re.compile(
+            r"(?P<day>\d{1,2})[/-](?P<month>\d{1,2})[/-](?P<year>20\d{2})"
+            r"(?:\s*(?:και\s*)?(?:ώρα|ωρα)?\s*(?P<hour>\d{1,2})[:.](?P<minute>\d{2})(?::\d{2})?)?",
+            flags=re.IGNORECASE,
+        ),
+        re.compile(
+            r"(?P<year>20\d{2})-(?P<month>\d{1,2})-(?P<day>\d{1,2})"
+            r"(?:[T\s]+(?P<hour>\d{1,2})[:.](?P<minute>\d{2})(?::\d{2}(?:\.\d+)?)?)?",
+            flags=re.IGNORECASE,
+        ),
+    ]
+    for pattern in patterns:
+        for match in pattern.finditer(text):
+            try:
+                year = int(match.group("year"))
+                month = int(match.group("month"))
+                day = int(match.group("day"))
+                hour = int(match.group("hour") or 0)
+                minute = int(match.group("minute") or 0)
+                parsed = date(year, month, day)
+            except (TypeError, ValueError):
+                continue
+            deadline_at = f"{parsed.isoformat()} {hour:02d}:{minute:02d}" if match.group("hour") else parsed.isoformat()
+            matches.append(
+                {
+                    "deadline_at": deadline_at,
+                    "matched_text": match.group(0),
+                    "span": match.span(),
+                }
+            )
+    return matches
+
+
+def deadline_context_score(context: str) -> int:
+    normalized = normalize_greek(context)
+    positive_groups = [
+        ("προθεσμια", "καταληκτικ", "ληξη"),
+        ("υποβολ", "προσφορ"),
+        ("διαγωνισμ", "συμβαση"),
+        ("παραταση", "παρατειν"),
+    ]
+    score = 0
+    for group in positive_groups:
+        if any(term in normalized for term in group):
+            score += 1
+    negative_terms = (
+        "ημερομηνια δημοσιευση",
+        "ημερομηνια συνεδριαση",
+        "αποσφραγιση",
+        "υπογραφη",
+        "πρωτοκολλ",
+        "φεκ",
+    )
+    if any(term in normalized for term in negative_terms):
+        score -= 1
+    return score
+
+
+def deadline_context_is_extension(context: str) -> bool:
+    normalized = normalize_greek(context)
+    return any(term in normalized for term in ("παραταση", "παρατειν", "νεα καταληκτικ"))
 
 
 def load_ai_triage_report_payload() -> dict[str, Any]:
@@ -3089,6 +3249,7 @@ def dashboard_payload(
     rows = merged_tender_rows()
     rows = [row for row in rows if str(row.get("row_key") or row.get("eshidis_id") or row.get("display_id") or "") not in ignored]
     rows = [attach_ai_triage(row, triage, overrides=overrides) for row in rows]
+    rows = [row_with_document_evidence(row) for row in rows]
     canonical_rows, duplicate_hidden_rows = suppress_linked_eshidis_duplicates(rows)
     official_deadlines = official_eshidis_deadlines_by_id(canonical_rows)
     active_rows = [
@@ -4745,7 +4906,9 @@ def dashboard_row_is_active(
         if linked_deadlines:
             deadline = max(linked_deadlines)
     if deadline is None:
-        return True
+        deadline = deadline_date(str((row.get("deadline_evidence") or {}).get("deadline_at") or ""))
+    if deadline is None:
+        return False
     return deadline >= (as_of or date.today())
 
 

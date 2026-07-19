@@ -660,3 +660,19 @@ on the daily dashboard.
 JSF φόρμας `upgkimdis/unprotected/home.xhtml` όταν υπάρχει σταθερό Open Data
 API. Τα ευρήματα αποθηκεύονται ως candidate evidence και γίνονται verified
 μόνο αφού περάσει official fetch από `pwgopendata`.
+
+## D-059 - Daily dashboard requires verified future deadline evidence
+**Status:** Accepted
+
+The main daily dashboard is an actionable bidding list, not a raw discovery
+queue. A row is visible only when the system has a parseable submission
+deadline that is still active after the current date. The deadline may come
+from the official ESHIDIS row, from a directly discovered source field, from a
+linked official ESHIDIS row, or from fetched document evidence such as a
+declaration, summary declaration, extension notice or economic-offer form.
+
+Rows without a verified/parseable future deadline are hidden from the main
+dashboard and remain available through audit/review paths. This avoids showing
+expired authority rows or candidates whose publication date was mistaken for a
+submission deadline. The parser must keep provenance for document-derived
+deadlines, including document name, URL/source URL, matched text and snippet.
