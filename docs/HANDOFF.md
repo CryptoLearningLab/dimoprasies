@@ -778,6 +778,14 @@ The system `python` command is not present in the remote environment; use
   report, and is warning-only so tender alerts continue if entalmata scanning
   fails. Email alerts now support multiple comma/semicolon/newline-separated
   runtime recipients with notification de-duplication per recipient.
+- Production deploy on commit `6ef7089` passed. The droplet reports runtime
+  version `0.1.34`, `tender-radar-ui.service` and
+  `tender-radar-scheduled.timer` are active, a scheduled dry-run completed
+  with `ok true` and entalmata summary `matched 5`, `errors 0`. Runtime
+  `ALERT_EMAIL_TO` contains four recipients. The first real email-alert stage
+  after adding the new mailboxes sent the current 11-row list to the three
+  newly added recipients and skipped the original recipient because those rows
+  were already recorded as sent.
 
 ## Next Work
 

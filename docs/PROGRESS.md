@@ -3350,6 +3350,28 @@ Verification so far:
 # 223 passed in 19.28s
 ```
 
+Production deploy smoke on commit `6ef7089` passed:
+
+```text
+package/runtime version: 0.1.34
+tender-radar-ui.service: active
+tender-radar-scheduled.timer: active
+local UI smoke: homepage contains v0.1.34
+auth status: ok true, unauthenticated, password_users 3
+scheduled dry-run: ok true, warnings []
+scheduled dry-run entalmata: checked_organizations 2, pages_checked 6,
+  decisions_seen 240, matched 5, rejected 109, errors 0, archived 0
+email recipients parsed:
+  xrgeorg@gmail.com
+  xrgeorg2@gmail.com
+  georgakopouloi.afoi@gmail.com
+  dim.georgak@gmail.com
+real email alert stage:
+  candidate_rows 11
+  original recipient skipped_already_sent 11
+  3 newly added recipients received the current 11-row list
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:
