@@ -6322,7 +6322,7 @@ h3 {
   .tenderTable td,
   .adminTableWrap .adminTable td {
     display: grid;
-    grid-template-columns: 96px minmax(0, 1fr);
+    grid-template-columns: minmax(132px, 36%) minmax(0, 1fr);
     gap: 12px;
     padding: 10px 12px;
     border-bottom: 1px solid #eef2f6;
@@ -6335,6 +6335,8 @@ h3 {
     font-size: 11px;
     font-weight: 900;
     text-transform: uppercase;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .tenderTitle,
   .authorityCell {

@@ -2892,6 +2892,41 @@ production deploy smoke on commit 3a61ad0:
   tester role normalization passed
 ```
 
+### UI v0.1.24 mobile label width and audit order check
+
+- Bumped the application version from `0.1.23` to `0.1.24`.
+- Mobile tender/admin table cards now use a wider responsive label column
+  (`minmax(132px, 36%)`) so long labels such as `Προϋπολογισμός` no longer
+  collide with their values.
+- Confirmed on the live droplet that admin audit rows are grouped by rejection
+  category, not chronological order. The current live focus dashboard reported
+  11 visible rows from 14 focus candidates; the 3 hidden focus rows were
+  `AI_HIDDEN`.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_mobile_table_label_column_fits_long_budget_label tests/test_ui_server.py::test_dashboard_pills_use_wrapping_stack -q
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+.venv/bin/python -m pytest -q
+```
+
+Results:
+
+```text
+targeted version/mobile tests: 3 passed
+py_compile: passed
+full test suite: 205 passed
+live pre-deploy audit check:
+  visible 11
+  focus candidates 14
+  AI hidden 3
+  duplicates 9
+  duplicate_candidates 1
+  expired 13
+  missing_deadline 60
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

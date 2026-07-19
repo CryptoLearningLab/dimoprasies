@@ -68,7 +68,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.23" in INDEX_HTML
+    assert "v0.1.24" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -272,6 +272,11 @@ def test_dashboard_pills_use_wrapping_stack() -> None:
     assert "pillStack" in APP_JS
     assert ".pillStack" in STYLES_CSS
     assert "overflow-wrap: anywhere" in STYLES_CSS
+
+
+def test_mobile_table_label_column_fits_long_budget_label() -> None:
+    assert "Προϋπολογισμός" in APP_JS
+    assert "grid-template-columns: minmax(132px, 36%) minmax(0, 1fr)" in STYLES_CSS
 
 
 def test_report_json_content_type_includes_utf8_charset() -> None:

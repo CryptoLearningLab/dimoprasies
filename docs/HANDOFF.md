@@ -696,6 +696,11 @@ The system `python` command is not present in the remote environment; use
 - Production deploy on commit `3a61ad0` passed: package version `0.1.23`,
   homepage `v0.1.23`, role update controls present, source audit hidden on
   the front page, and `tester` role normalization passed.
+- The UI now displays version `v0.1.24`. Mobile table cards use a wider
+  responsive label column so `Προϋπολογισμός` does not overlap values. Live
+  audit order was checked: admin hidden rows are grouped by category, not
+  chronological order. Live focus counts before deploy were `visible 11` from
+  `14` focus candidates, with `3` focus rows hidden by AI.
 
 ## Next Work
 

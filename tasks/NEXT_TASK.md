@@ -6,7 +6,7 @@ Execute:
 ## Current Input
 
 The deadline-evidence dashboard gate is deployed and admin audit re-enrichment
-is implemented locally in UI package version `0.1.23`.
+is implemented locally in UI package version `0.1.24`.
 
 - `dashboard_payload` enriches rows with fetched document evidence before
   active filtering.
@@ -35,6 +35,8 @@ is implemented locally in UI package version `0.1.23`.
 - Admins can update bounded user roles (`admin`, `tester`, `user`) by email or
   displayed `#ID`. The main source polling audit is hidden from the daily front
   page and tender pills wrap cleanly on mobile.
+- Mobile tender cards reserve enough label width for `Προϋπολογισμός`. Admin
+  hidden rows are grouped by rejection category, not chronological order.
 
 ## Instruction
 
