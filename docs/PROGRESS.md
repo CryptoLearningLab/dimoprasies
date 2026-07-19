@@ -10,6 +10,20 @@
 `tasks/NEXT_TASK.md`
 
 ## Completed Milestones
+- Independent reverse-pricing ESHIDIS ingest now downloads official ESHIDIS
+  attachments into pricing-specific storage, expands ZIP/RAR bundles, extracts
+  text with layout-aware PDF parsing/OCR fallback, stores raw document rows for
+  audit and builds a merged per-project budget row set for searchable pricing.
+- Live pricing smoke for ESHIDIS `221566` fetched the official project metadata
+  and attachment bundle. Local reprocess of the extracted `ΤΕΧΝΙΚΗ_ΕΚΘΕΣΗ.pdf`
+  and `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf` produced merged rows `1-36`, no missing row numbers
+  and amount total `2.466.374,00`, matching the project budget subtotal before
+  GE/OE, contingencies, revision and VAT.
+- Pricing search now prefers the merged project budget source when present, so
+  article searches do not return duplicate rows from multiple source documents.
+- The pricing parser avoids expensive OCR fallback when a layout text layer
+  already contains many budget rows; missing sections should be resolved by
+  cross-document merge before OCR-heavy fallback.
 - UI discovery flow now starts a real OpenAI-backed `sources ai-triage-report`
   job from `/api/ai-triage` after bounded discovery, using the existing
   `OPENAI_API_KEY` in `.env.local` without exposing the secret.
@@ -218,6 +232,24 @@
   - `/` returned the new first screen.
   - `/api/dashboard?scope=focus` returned 1 local-interest visible row from
     20 known/discovered rows.
+- `.venv/bin/python -m tender_radar pricing ingest-eshidis 221566 --db /tmp/tender_pricing_221566.sqlite --work-dir /tmp/tender_pricing_221566_work --limit 50 --allow-insecure-tls`
+  fetched official metadata for `221566`, found 25 ESHIDIS attachment rows,
+  downloaded 25 files and expanded the tender RAR bundle. The first live rerun
+  was manually interrupted before final report writing, leaving no running
+  process and preserving partial local artifacts for targeted reprocess.
+- Targeted local pricing reprocess of `221566`:
+  `ΤΕΧΝΙΚΗ_ΕΚΘΕΣΗ.pdf` parsed 27 rows covering row numbers `1-27`,
+  `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf` parsed 25 rows covering row numbers `12-36`, and
+  `consolidate_pricing_project_budget` produced 36 merged rows, no missing
+  rows and amount total `2466374.0`.
+- Verification on 2026-07-19:
+  `.venv/bin/python -m py_compile src/tender_radar/pricing.py src/tender_radar/cli.py`
+  passed.
+- Verification on 2026-07-19:
+  `.venv/bin/python -m pytest tests/test_cli.py tests/test_pricing.py -q`
+  passed with `20 passed`.
+- Verification on 2026-07-19:
+  `.venv/bin/python -m pytest -q` passed with `233 passed`.
   - `/api/dashboard?scope=all` returned 20 visible rows.
   - `/api/document-preview?eshidis_id=221675` returned 9 documents and featured
     declaration, technical description and budget.

@@ -837,3 +837,16 @@ them.
 The six-hour cron must not run the new reverse-pricing workflow until the
 manual controlled fetcher, budget parser, cleanup and UI smoke gates are all
 passing.
+
+## D-072 - Reverse pricing keeps raw rows and serves merged rows
+**Status:** Accepted
+
+Reverse-pricing extraction stores structured budget rows per source document
+for audit and provenance. Search and user-facing analysis should prefer a
+merged per-project budget source when it exists.
+
+The merge groups rows by `row_number` and chooses the strongest available row
+using source priority and extraction confidence. Official budget documents are
+preferred over technical reports for overlapping rows, while technical reports
+may fill row ranges missing from the budget PDF text layer. This preserves
+traceability without showing duplicate article hits to users.

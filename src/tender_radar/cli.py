@@ -26,7 +26,7 @@ from tender_radar.documents import analyze_document, render_markdown_report
 from tender_radar.evaluation import evaluate_documents, load_evaluation_profile, render_evaluation_markdown
 from tender_radar.logging_config import configure_logging
 from tender_radar.matching import load_search_profile, match_profile, render_search_markdown
-from tender_radar.pricing import ingest_pricing_budget_pdf, search_pricing_rows
+from tender_radar.pricing import ingest_pricing_budget_pdf, ingest_pricing_eshidis_project, search_pricing_rows
 from tender_radar.sources.eshidis import (
     EshidisAttachmentListing,
     health_check,
@@ -173,6 +173,21 @@ def build_parser() -> argparse.ArgumentParser:
     pricing_search.add_argument("query", help="Article, description or revision code.")
     pricing_search.add_argument("--db", default="data/tender_radar.sqlite", help="SQLite database path.")
     pricing_search.add_argument("--limit", type=int, default=50)
+    pricing_ingest_eshidis = pricing_sub.add_parser(
+        "ingest-eshidis",
+        help="Fetch one official ESHIDIS project into the independent pricing/deep-analysis tables.",
+    )
+    pricing_ingest_eshidis.add_argument("eshidis_id", help="Numeric ESHIDIS id.")
+    pricing_ingest_eshidis.add_argument("--db", default="data/tender_radar.sqlite", help="SQLite database path.")
+    pricing_ingest_eshidis.add_argument("--work-dir", default="work/pricing", help="Pricing-specific work directory.")
+    pricing_ingest_eshidis.add_argument("--limit", type=int, default=50, help="Maximum attachment rows to download.")
+    pricing_ingest_eshidis.add_argument("--report", default=None, help="JSON report output path.")
+    pricing_ingest_eshidis.add_argument("--allow-insecure-tls", action="store_true")
+    pricing_ingest_eshidis.add_argument(
+        "--delete-heavy-files",
+        action="store_true",
+        help="Delete downloaded PDFs after text extraction and structured row persistence.",
+    )
 
     sources_parser = subparsers.add_parser("sources", help="Source audit commands.")
     sources_sub = sources_parser.add_subparsers(dest="sources_command")
@@ -447,6 +462,8 @@ def main(argv: list[str] | None = None) -> int:
         return _pricing_parse_budget(args)
     if args.command == "pricing" and args.pricing_command == "search":
         return _pricing_search(args)
+    if args.command == "pricing" and args.pricing_command == "ingest-eshidis":
+        return _pricing_ingest_eshidis(args)
     if args.command == "sources" and args.sources_command == "health":
         return _sources_health(args.allow_insecure_tls)
     if args.command == "sources" and args.sources_command == "audit-whitelist":
@@ -517,6 +534,24 @@ def _pricing_parse_budget(args: argparse.Namespace) -> int:
 
 def _pricing_search(args: argparse.Namespace) -> int:
     payload = search_pricing_rows(Path(args.db), str(args.query), limit=int(args.limit))
+    _emit_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def _pricing_ingest_eshidis(args: argparse.Namespace) -> int:
+    payload = ingest_pricing_eshidis_project(
+        Path(args.db),
+        eshidis_id=str(args.eshidis_id),
+        work_dir=Path(args.work_dir),
+        limit=int(args.limit),
+        allow_insecure_tls=bool(args.allow_insecure_tls),
+        keep_heavy_files=not bool(args.delete_heavy_files),
+    )
+    if args.report:
+        report_path = Path(args.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = {**payload, "report_path": str(report_path)}
     _emit_json(payload)
     return 0 if payload.get("ok") else 1
 

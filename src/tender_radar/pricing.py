@@ -4,19 +4,25 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
 import re
+import shutil
 import sqlite3
 import subprocess
 import unicodedata
 from pathlib import Path
 from typing import Any
+import zipfile
 
 from tender_radar.db import connect, initialize
-from tender_radar.documents import extract_text_with_metadata
+from tender_radar.documents import analyze_document, extract_text_with_metadata
+from tender_radar.sources.eshidis import parse_eshidis_attachment_xml, parse_eshidis_resource_text
+from tender_radar.sources.eshidis_browser import download_attachment_audit, fetch_resource_audit
 
 
 ARTICLE_RE = re.compile(
     r"^\s*(?P<row>\d{1,3})\s+(?P<article>[A-ZΑ-ΩΒB][A-ZΑ-ΩΒB0-9./-]*\d+(?:[.-]\d+)*)\s+(?P<rest>.*)$"
 )
+TABLE_ROW_RE = re.compile(r"^\s*(?P<row>\d{1,3})\s+(?P<rest>.+)$")
+MERGED_BUDGET_SOURCE_DOCUMENT = "__PROJECT_BUDGET_MERGED__"
 NUMERIC_RE = re.compile(r"^\d+(?:[.,]\d{2,3})*$")
 REVISION_RE = re.compile(
     r"(?:(?P<pct>\d+(?:[.,]\d+)?)\s*%)?\s*(?P<code>[A-ZΑ-ΩΟ∆Δ.]{2,8})\s*[-–—]?\s*(?P<num>\d+[A-ZΑ-ΩA-Z0-9]*)",
@@ -33,6 +39,7 @@ KNOWN_UNITS = {
     "kg",
     "tn",
     "τεμ",
+    "τεμ.",
     "τεμαχ",
     "στρ",
     "h",
@@ -206,16 +213,200 @@ def extract_budget_text(path: Path) -> str:
                 timeout=45,
             )
             if completed.returncode == 0 and completed.stdout.strip():
-                return completed.stdout
+                text = completed.stdout
+                if _looks_like_partial_budget_text(text):
+                    ocr_text = _ocr_pdf_for_budget(path)
+                    if ocr_text:
+                        text = f"{text}\n\n{ocr_text}"
+                return text
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
     extraction = extract_text_with_metadata(path, max_chars=500_000)
     return extraction.full_text or extraction.text_sample or ""
 
 
+def _looks_like_partial_budget_text(text: str) -> bool:
+    normalized = strip_accents(text).upper()
+    if "ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ" not in normalized:
+        return False
+    row_numbers = [int(match.group(1)) for match in re.finditer(r"(?m)^\s*(\d{1,3})\s+", text)]
+    return bool(row_numbers) and min(row_numbers) > 1 and len(set(row_numbers)) <= 10
+
+
+def _ocr_pdf_for_budget(path: Path, *, max_pages: int = 12) -> str | None:
+    pdftoppm = shutil.which("pdftoppm")
+    tesseract = shutil.which("tesseract")
+    if not pdftoppm or not tesseract:
+        return None
+    try:
+        with subprocess.Popen(
+            ["pdfinfo", str(path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ) as proc:
+            stdout, _ = proc.communicate(timeout=10)
+        page_match = re.search(r"^Pages:\s+(\d+)", stdout or "", re.MULTILINE)
+        page_count = int(page_match.group(1)) if page_match else max_pages
+    except Exception:
+        page_count = max_pages
+    pages = min(page_count, max_pages)
+    try:
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="tender-pricing-ocr-") as tmp:
+            prefix = str(Path(tmp) / "page")
+            rendered = subprocess.run(
+                [pdftoppm, "-f", "1", "-l", str(pages), "-r", "220", "-png", str(path), prefix],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if rendered.returncode != 0:
+                return None
+            texts: list[str] = []
+            for image_path in sorted(Path(tmp).glob("page-*.png")):
+                completed = subprocess.run(
+                    [tesseract, str(image_path), "stdout", "-l", "ell+eng", "--psm", "6"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=90,
+                )
+                if completed.returncode == 0 and completed.stdout.strip():
+                    texts.append(completed.stdout)
+            return _clean_text("\n".join(texts)) or None
+    except Exception:
+        return None
+
+
 def parse_budget_rows_from_text(text: str) -> list[PricingBudgetRow]:
+    table_rows = _parse_budget_table_lines(text)
+    if table_rows:
+        by_key: dict[tuple[int | None, str, str], PricingBudgetRow] = {}
+        for row in table_rows:
+            by_key[(row.row_number, row.canonical_article_code, row.description)] = row
+        return list(by_key.values())
     blocks = _budget_row_blocks(text)
-    return [row for block in blocks if (row := _parse_budget_block(block)) is not None]
+    rows = [row for block in blocks if (row := _parse_budget_block(block)) is not None]
+    return rows
+
+
+def _parse_budget_table_lines(text: str) -> list[PricingBudgetRow]:
+    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
+    parsed: list[PricingBudgetRow] = []
+    for index, line in enumerate(lines):
+        previous_line = lines[index - 1] if index > 0 else ""
+        next_line = lines[index + 1] if index + 1 < len(lines) else ""
+        row = _parse_budget_table_line(line, previous_line=previous_line, next_line=next_line)
+        if row is not None:
+            parsed.append(row)
+    return parsed
+
+
+def _parse_budget_table_line(line: str, *, previous_line: str = "", next_line: str = "") -> PricingBudgetRow | None:
+    match = TABLE_ROW_RE.match(line)
+    if not match:
+        return None
+    row_number = int(match.group("row"))
+    tokens = _clean_text(match.group("rest")).split()
+    numeric_positions = [index for index, token in enumerate(tokens) if NUMERIC_RE.match(token)]
+    if len(numeric_positions) < 3:
+        return None
+    amount_pos, unit_price_pos, quantity_pos = numeric_positions[-1], numeric_positions[-2], numeric_positions[-3]
+    unit_end = _find_unit_end(tokens, quantity_pos)
+    if unit_end is None:
+        return None
+    unit_start, unit = unit_end
+    prefix_tokens = tokens[:unit_start]
+    revision_tokens = tokens[unit_start + len(unit.split()) : quantity_pos]
+    article_code, description_tokens = _split_article_and_description(prefix_tokens)
+    if not article_code:
+        article_code, description_tokens = _article_from_neighbor(previous_line, row_number, description_tokens)
+    description_parts = [" ".join(description_tokens)]
+    if _is_description_continuation(previous_line):
+        description_parts.insert(0, previous_line)
+    if _is_description_continuation(next_line):
+        description_parts.append(next_line)
+    revision_codes = _revision_codes_from_tokens(revision_tokens) or _extract_revision_codes(" ".join(revision_tokens))
+    description = _clean_description(" ".join(description_parts), revision_codes)
+    if not article_code or not description:
+        return None
+    return PricingBudgetRow(
+        row_number=row_number,
+        article_code=article_code,
+        canonical_article_code=canonical_article_code(article_code),
+        description=description,
+        revision_codes=revision_codes,
+        unit=unit,
+        quantity=parse_greek_decimal(tokens[quantity_pos]),
+        unit_price=parse_greek_decimal(tokens[unit_price_pos]),
+        amount=parse_greek_decimal(tokens[amount_pos]),
+        raw_text=_clean_text(line),
+        confidence=0.9,
+    )
+
+
+def _find_unit_end(tokens: list[str], before_index: int) -> tuple[int, str] | None:
+    for index in range(before_index - 1, -1, -1):
+        token = tokens[index].lower().rstrip(".")
+        if token == "αποκοπή" and index > 0 and tokens[index - 1].lower().startswith("κατ"):
+            return index - 1, "κατ' αποκοπή"
+        if token in {unit.rstrip(".") for unit in KNOWN_UNITS}:
+            return index, tokens[index]
+    return None
+
+
+def _split_article_and_description(tokens: list[str]) -> tuple[str | None, list[str]]:
+    if not tokens:
+        return None, []
+    first = tokens[0].strip()
+    if first.startswith("Ν") and len(tokens) > 1 and tokens[1].startswith("("):
+        article_tokens = [first]
+        for token in tokens[1:]:
+            article_tokens.append(token)
+            if token.endswith(")"):
+                break
+        return " ".join(article_tokens), tokens[len(article_tokens) :]
+    if first in {"ΛΙΜ", "ΟΔΟ", "ΥΔΡ", "ΟΙΚ", "ΠΡΣ", "ΗΛΜ", "ΥΣΦ"} and len(tokens) > 1:
+        return " ".join(tokens[:2]), tokens[2:]
+    if re.search(r"\d", first):
+        return first, tokens[1:]
+    return None, tokens
+
+
+def _article_from_neighbor(previous_line: str, row_number: int, description_tokens: list[str]) -> tuple[str | None, list[str]]:
+    match = TABLE_ROW_RE.match(previous_line)
+    if not match:
+        previous_tokens = _clean_text(previous_line).split()
+        article_code, extra_description = _split_article_and_description(previous_tokens)
+        return article_code, [*extra_description, *description_tokens]
+    previous_row = int(match.group("row"))
+    if previous_row != row_number:
+        return None, description_tokens
+    previous_tokens = _clean_text(match.group("rest")).split()
+    article_code, extra_description = _split_article_and_description(previous_tokens)
+    return article_code, [*extra_description, *description_tokens]
+
+
+def _is_description_continuation(line: str) -> bool:
+    clean = _clean_text(line)
+    if not clean or TABLE_ROW_RE.match(clean):
+        return False
+    upper = strip_accents(clean).upper()
+    if upper.startswith(("ΟΜΑΔΑ", "ΣΥΝΟΛΟ", "Γ.Ε.", "ΑΘΡΟΙΣΜΑ", "ΑΠΡΟΒΛ", "ΑΝΑΘΕΩΡΗΣΗ", "Φ.Π.Α.", "ΓΕΝΙΚΟ")):
+        return False
+    if "ΣΕΛΙΔΑ" in upper or "ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ" in upper:
+        return False
+    return True
+
+
+def _revision_codes_from_tokens(tokens: list[str]) -> list[str]:
+    text = " ".join(tokens)
+    if not text or text == "-":
+        return []
+    return _extract_revision_codes(text)
 
 
 def _budget_row_blocks(text: str) -> list[list[str]]:
@@ -498,6 +689,87 @@ def upsert_pricing_budget_rows(
         connection.close()
 
 
+def consolidate_pricing_project_budget(db_path: Path, *, eshidis_id: str) -> dict[str, Any]:
+    ensure_pricing_tables(db_path)
+    connection = connect(db_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        stored_rows = connection.execute(
+            """
+            SELECT *
+            FROM pricing_budget_rows
+            WHERE eshidis_id = ?
+              AND source_document != ?
+              AND row_number IS NOT NULL
+            ORDER BY row_number, source_document
+            """,
+            (eshidis_id, MERGED_BUDGET_SOURCE_DOCUMENT),
+        ).fetchall()
+    finally:
+        connection.close()
+
+    best_by_number: dict[int, PricingBudgetRow] = {}
+    source_by_number: dict[int, str] = {}
+    for row in stored_rows:
+        row_number = int(row["row_number"])
+        candidate = PricingBudgetRow(
+            row_number=row_number,
+            article_code=str(row["article_code"] or ""),
+            canonical_article_code=str(row["canonical_article_code"] or ""),
+            description=str(row["description"] or ""),
+            revision_codes=json.loads(str(row["revision_codes_json"] or "[]")),
+            unit=row["unit"],
+            quantity=row["quantity"],
+            unit_price=row["unit_price"],
+            amount=row["amount"],
+            raw_text=str(row["raw_text"] or ""),
+            confidence=float(row["confidence"] or 0.0),
+        )
+        source_document = str(row["source_document"] or "")
+        current = best_by_number.get(row_number)
+        current_source = source_by_number.get(row_number, "")
+        if current is None or _budget_row_score(candidate, source_document) > _budget_row_score(current, current_source):
+            best_by_number[row_number] = candidate
+            source_by_number[row_number] = source_document
+
+    merged_rows = [best_by_number[number] for number in sorted(best_by_number)]
+    inserted = upsert_pricing_budget_rows(
+        db_path,
+        eshidis_id=eshidis_id,
+        document_id=None,
+        source_document=MERGED_BUDGET_SOURCE_DOCUMENT,
+        rows=merged_rows,
+    )
+    row_numbers = [row.row_number for row in merged_rows if row.row_number is not None]
+    missing_numbers: list[int] = []
+    if row_numbers:
+        expected = set(range(min(row_numbers), max(row_numbers) + 1))
+        missing_numbers = sorted(expected.difference(row_numbers))
+    amount_total = sum(float(row.amount or 0) for row in merged_rows)
+    return {
+        "rows_merged": len(merged_rows),
+        "rows_upserted": inserted,
+        "row_number_min": min(row_numbers) if row_numbers else None,
+        "row_number_max": max(row_numbers) if row_numbers else None,
+        "missing_row_numbers": missing_numbers,
+        "amount_total": amount_total,
+        "source_documents": sorted(set(source_by_number.values())),
+    }
+
+
+def _budget_row_score(row: PricingBudgetRow, source_document: str) -> tuple[int, float, int]:
+    source_upper = strip_accents(source_document).upper()
+    source_score = 0
+    if "ΠΡΟΥΠΟΛΟΓΙΣ" in source_upper:
+        source_score = 30
+    elif "ΤΕΧΝΙΚΗ_ΕΚΘΕΣΗ" in source_upper or "ΤΕΧΝΙΚΗ ΕΚΘΕΣΗ" in source_upper:
+        source_score = 20
+    elif "ΤΙΜΟΛΟΓ" in source_upper:
+        source_score = 10
+    completeness = sum(1 for value in (row.unit, row.quantity, row.unit_price, row.amount) if value is not None)
+    return source_score, row.confidence, completeness
+
+
 def ingest_pricing_budget_pdf(
     db_path: Path,
     *,
@@ -534,14 +806,332 @@ def ingest_pricing_budget_pdf(
     }
 
 
+def ingest_pricing_eshidis_project(
+    db_path: Path,
+    *,
+    eshidis_id: str,
+    work_dir: Path = Path("work/pricing"),
+    limit: int = 50,
+    allow_insecure_tls: bool = False,
+    keep_heavy_files: bool = True,
+) -> dict[str, Any]:
+    if not eshidis_id.isdigit():
+        raise ValueError("Pricing ESHIDIS ingest accepts only a numeric ESHIDIS id.")
+    if limit < 1:
+        raise ValueError("limit must be positive.")
+    ensure_pricing_tables(db_path)
+    audit_dir = work_dir / "source_audit"
+    download_dir = work_dir / "downloads" / eshidis_id
+    text_dir = work_dir / "extracted_text" / eshidis_id
+    archive_dir = work_dir / "archives" / eshidis_id
+    audit_path = audit_dir / f"eshidis_resource_audit_{eshidis_id}.json"
+    resource_payload = fetch_resource_audit(
+        eshidis_id,
+        audit_path,
+        allow_insecure_tls=allow_insecure_tls,
+    )
+    details = parse_eshidis_resource_text(
+        str(resource_payload.get("target_url") or ""),
+        str(resource_payload.get("snapshot", {}).get("bodyTextSample") or ""),
+    )
+    attachment_body = _find_attachment_body(resource_payload)
+    attachment_listing = parse_eshidis_attachment_xml(attachment_body) if attachment_body else None
+    filenames = list(attachment_listing.filenames if attachment_listing else ())
+    upsert_pricing_project(
+        db_path,
+        eshidis_id=eshidis_id,
+        official_url=details.source_url,
+        title=details.title or details.project_title,
+        authority_name=details.contracting_authority,
+        region=details.location,
+        budget_display=details.budget_with_vat,
+        deadline_at=details.submission_deadline,
+        metadata={
+            "source": "eshidis_pricing_ingest",
+            "audit_path": str(audit_path),
+            "cpv": details.cpv,
+            "publication_date": details.publication_date,
+            "attachment_rows": attachment_listing.row_count if attachment_listing else None,
+        },
+    )
+    documents: list[dict[str, Any]] = []
+    downloaded = 0
+    failed = 0
+    rows_total = 0
+    cleanup_deleted = 0
+    for row_index, filename in enumerate(filenames[:limit]):
+        download_audit_path = audit_dir / f"eshidis_download_audit_{eshidis_id}_{row_index}.json"
+        download_payload = download_attachment_audit(
+            eshidis_id,
+            row_index,
+            download_audit_path,
+            download_dir,
+            allow_insecure_tls=allow_insecure_tls,
+        )
+        downloaded_file = download_payload.get("downloaded_file")
+        doc_report: dict[str, Any] = {
+            "row_index": row_index,
+            "document_name": filename,
+            "download_audit_path": str(download_audit_path),
+            "download_status": "failed",
+            "download_error": download_payload.get("download_error"),
+            "rows_extracted": 0,
+        }
+        if not isinstance(downloaded_file, dict) or not downloaded_file.get("path"):
+            failed += 1
+            documents.append(doc_report)
+            continue
+        downloaded += 1
+        local_path = Path(str(downloaded_file["path"]))
+        indexed = _index_pricing_document_path(
+            db_path,
+            eshidis_id=eshidis_id,
+            source_url=details.source_url,
+            document_name=filename,
+            local_path=local_path,
+            row_index=row_index,
+            text_dir=text_dir,
+            archive_dir=archive_dir,
+            keep_heavy_files=keep_heavy_files,
+            metadata={"download_audit_path": str(download_audit_path), "size_bytes": downloaded_file.get("size_bytes")},
+        )
+        rows_inserted = int(indexed.get("rows_upserted") or 0)
+        rows_total += rows_inserted
+        if not keep_heavy_files:
+            try:
+                local_path.unlink()
+                cleanup_deleted += 1
+            except FileNotFoundError:
+                pass
+        doc_report.update(
+            {
+                "download_status": "downloaded",
+                "local_path": str(local_path) if keep_heavy_files else None,
+                "size_bytes": downloaded_file.get("size_bytes"),
+                "sha256": downloaded_file.get("sha256"),
+                "document_type": indexed.get("document_type"),
+                "extraction_status": indexed.get("extraction_status"),
+                "ocr_status": indexed.get("ocr_status"),
+                "text_path": indexed.get("text_path"),
+                "rows_extracted": indexed.get("rows_extracted", 0),
+                "rows_upserted": rows_inserted,
+            }
+        )
+        if indexed.get("extracted_documents"):
+            doc_report["extracted_documents"] = indexed["extracted_documents"]
+        documents.append(doc_report)
+    merged_budget = consolidate_pricing_project_budget(db_path, eshidis_id=eshidis_id)
+    return {
+        "ok": failed == 0,
+        "eshidis_id": eshidis_id,
+        "db_path": str(db_path),
+        "work_dir": str(work_dir),
+        "official_url": details.source_url,
+        "summary": {
+            "attachments_found": len(filenames),
+            "attachments_requested": min(len(filenames), limit),
+            "downloaded": downloaded,
+            "failed": failed,
+            "pricing_budget_rows_upserted": rows_total,
+            "merged_budget_rows": merged_budget["rows_merged"],
+            "merged_budget_amount_total": merged_budget["amount_total"],
+            "merged_budget_missing_row_numbers": merged_budget["missing_row_numbers"],
+            "heavy_files_deleted": cleanup_deleted,
+        },
+        "project": {
+            "title": details.title or details.project_title,
+            "authority_name": details.contracting_authority,
+            "region": details.location,
+            "budget_display": details.budget_with_vat,
+            "deadline_at": details.submission_deadline,
+        },
+        "documents": documents,
+        "merged_budget": merged_budget,
+    }
+
+
+def _find_attachment_body(payload: dict[str, Any]) -> str | None:
+    response_bodies = payload.get("response_bodies")
+    if not isinstance(response_bodies, list):
+        return None
+    for item in response_bodies:
+        if not isinstance(item, dict):
+            continue
+        sample = item.get("body_sample")
+        if isinstance(sample, str) and '_rowCount="' in sample and "t1:" in sample:
+            return sample
+    return None
+
+
+def _index_pricing_document_path(
+    db_path: Path,
+    *,
+    eshidis_id: str,
+    source_url: str | None,
+    document_name: str,
+    local_path: Path,
+    row_index: int,
+    text_dir: Path,
+    archive_dir: Path,
+    keep_heavy_files: bool,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    suffix = local_path.suffix.lower()
+    if suffix in {".zip", ".rar"}:
+        extracted = _extract_pricing_archive(local_path, archive_dir / f"{row_index}_{_safe_path_part(local_path.stem)}")
+        child_reports: list[dict[str, Any]] = []
+        rows_total = 0
+        for child_path in extracted.get("files", []):
+            if not isinstance(child_path, Path):
+                continue
+            child_name = f"{document_name}/{child_path.relative_to(extracted['directory'])}"
+            child_report = _index_pricing_document_path(
+                db_path,
+                eshidis_id=eshidis_id,
+                source_url=source_url,
+                document_name=child_name,
+                local_path=child_path,
+                row_index=row_index,
+                text_dir=text_dir,
+                archive_dir=archive_dir,
+                keep_heavy_files=True,
+                metadata={**(metadata or {}), "archive_path": str(local_path)},
+            )
+            rows_total += int(child_report.get("rows_upserted") or 0)
+            child_reports.append(child_report)
+        upsert_pricing_document(
+            db_path,
+            eshidis_id=eshidis_id,
+            document_name=document_name,
+            local_path=str(local_path) if keep_heavy_files else None,
+            source_url=source_url,
+            document_type="archive",
+            extraction_status=str(extracted.get("status") or "ARCHIVE_EXTRACTED"),
+            metadata={**(metadata or {}), "archive_error": extracted.get("error"), "extracted_files": len(child_reports)},
+        )
+        return {
+            "document_type": "archive",
+            "extraction_status": str(extracted.get("status") or "ARCHIVE_EXTRACTED"),
+            "ocr_status": "NOT_APPLICABLE",
+            "text_path": None,
+            "rows_extracted": rows_total,
+            "rows_upserted": rows_total,
+            "extracted_documents": child_reports,
+        }
+
+    analysis = analyze_document(local_path, original_name=document_name)
+    full_text = extract_budget_text(local_path)
+    if not full_text.strip():
+        full_text = analysis.full_text or ""
+    text_path = _write_pricing_text_artifact(text_dir, eshidis_id, row_index, document_name, full_text)
+    extraction_status = analysis.extraction_status if analysis.full_text else ("TEXT_EXTRACTED" if full_text.strip() else analysis.extraction_status)
+    document_id = upsert_pricing_document(
+        db_path,
+        eshidis_id=eshidis_id,
+        document_name=document_name,
+        local_path=str(local_path),
+        source_url=source_url,
+        document_type=analysis.document_type,
+        extraction_status=extraction_status,
+        text_path=str(text_path) if text_path else None,
+        text_sample=analysis.text_sample or (full_text[:4000] if full_text else None),
+        metadata={
+            **(metadata or {}),
+            "ocr_status": analysis.ocr_status,
+            "ocr_error": analysis.ocr_error,
+            "extraction_error": analysis.extraction_error,
+            "page_or_sheet_count": analysis.page_or_sheet_count,
+        },
+    )
+    budget_rows = parse_budget_rows_from_text(full_text or "")
+    rows_inserted = 0
+    if budget_rows:
+        rows_inserted = upsert_pricing_budget_rows(
+            db_path,
+            eshidis_id=eshidis_id,
+            document_id=document_id,
+            source_document=document_name,
+            rows=budget_rows,
+        )
+    return {
+        "document_name": document_name,
+        "document_type": analysis.document_type,
+        "extraction_status": extraction_status,
+        "ocr_status": analysis.ocr_status,
+        "text_path": str(text_path) if text_path else None,
+        "rows_extracted": len(budget_rows),
+        "rows_upserted": rows_inserted,
+    }
+
+
+def _extract_pricing_archive(path: Path, destination: Path) -> dict[str, Any]:
+    destination.mkdir(parents=True, exist_ok=True)
+    suffix = path.suffix.lower()
+    try:
+        if suffix == ".zip":
+            with zipfile.ZipFile(path) as archive:
+                archive.extractall(destination)
+        else:
+            unar = shutil.which("unar")
+            if not unar:
+                return {"status": "ARCHIVE_TOOL_MISSING", "directory": destination, "files": [], "error": "Missing unar."}
+            completed = subprocess.run(
+                [unar, "-quiet", "-force-overwrite", "-output-directory", str(destination), str(path)],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            if completed.returncode != 0:
+                return {
+                    "status": "ARCHIVE_EXTRACTION_FAILED",
+                    "directory": destination,
+                    "files": [],
+                    "error": completed.stderr.strip() or completed.stdout.strip() or f"unar exited {completed.returncode}",
+                }
+    except Exception as exc:
+        return {"status": "ARCHIVE_EXTRACTION_FAILED", "directory": destination, "files": [], "error": repr(exc)}
+    files = [item for item in sorted(destination.rglob("*")) if item.is_file() and item.suffix.lower() in {".pdf", ".xml", ".txt", ".zip", ".rar"}]
+    return {"status": "ARCHIVE_EXTRACTED", "directory": destination, "files": files, "error": None}
+
+
+def _safe_path_part(value: str) -> str:
+    return re.sub(r"[^0-9A-Za-zΑ-Ωα-ω._-]+", "_", value)[:90].strip("._") or "archive"
+
+
+def _write_pricing_text_artifact(
+    text_dir: Path,
+    eshidis_id: str,
+    row_index: int,
+    document_name: str,
+    full_text: str | None,
+) -> Path | None:
+    if not full_text:
+        return None
+    text_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = _safe_path_part(document_name)
+    path = text_dir / f"{eshidis_id}_{row_index}_{safe_name or 'document'}.txt"
+    path.write_text(full_text, encoding="utf-8")
+    return path
+
+
 def search_pricing_rows(db_path: Path, query: str, *, limit: int = 50) -> dict[str, Any]:
     ensure_pricing_tables(db_path)
     normalized_query = canonical_article_code(query)
     text_query = strip_accents(query).casefold()
     connection = connect(db_path)
     try:
+        merged_exists = connection.execute(
+            "SELECT 1 FROM pricing_budget_rows WHERE source_document = ? LIMIT 1",
+            (MERGED_BUDGET_SOURCE_DOCUMENT,),
+        ).fetchone()
+        source_clause = (
+            "pricing_budget_rows.source_document = ?"
+            if merged_exists
+            else "pricing_budget_rows.source_document != ?"
+        )
         rows = connection.execute(
-            """
+            f"""
             SELECT pricing_budget_rows.eshidis_id, pricing_projects.title, pricing_projects.authority_name,
                    pricing_projects.deadline_at, pricing_budget_rows.article_code,
                    pricing_budget_rows.canonical_article_code, pricing_budget_rows.description,
@@ -551,13 +1141,16 @@ def search_pricing_rows(db_path: Path, query: str, *, limit: int = 50) -> dict[s
                    pricing_budget_rows.confidence
             FROM pricing_budget_rows
             LEFT JOIN pricing_projects ON pricing_projects.eshidis_id = pricing_budget_rows.eshidis_id
-            WHERE pricing_budget_rows.canonical_article_code LIKE ?
-               OR pricing_budget_rows.description LIKE ?
-               OR pricing_budget_rows.revision_codes_json LIKE ?
+            WHERE {source_clause}
+              AND (
+                   pricing_budget_rows.canonical_article_code LIKE ?
+                OR pricing_budget_rows.description LIKE ?
+                OR pricing_budget_rows.revision_codes_json LIKE ?
+              )
             ORDER BY pricing_projects.deadline_at IS NULL, pricing_projects.deadline_at, pricing_budget_rows.eshidis_id
             LIMIT ?
             """,
-            (f"%{normalized_query}%", f"%{query}%", f"%{text_query}%", limit),
+            (MERGED_BUDGET_SOURCE_DOCUMENT, f"%{normalized_query}%", f"%{query}%", f"%{text_query}%", limit),
         ).fetchall()
     finally:
         connection.close()
