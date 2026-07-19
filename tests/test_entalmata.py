@@ -5,7 +5,7 @@ import json
 import sqlite3
 
 import tender_radar.entalmata as entalmata
-from tender_radar.entalmata import list_entalmata, safe_request_url, scan_entalmata
+from tender_radar.entalmata import extract_project_title, list_entalmata, safe_request_url, scan_entalmata
 
 
 def write_config(path) -> None:
@@ -154,7 +154,11 @@ def test_scan_entalmata_matches_keyword_inside_pdf_text(tmp_path, monkeypatch) -
     write_config(config_path)
     db_path = tmp_path / "state.sqlite"
     download_dir = tmp_path / "downloads"
-    monkeypatch.setattr(entalmata, "extract_pdf_text", lambda path: "Επωνυμία δικαιούχου ΛΑΤΩ ΑΤΕ")
+    monkeypatch.setattr(
+        entalmata,
+        "extract_pdf_text",
+        lambda path: "ΤΙΤΛΟΣ ΕΡΓΟΥ: ΣΥΝΤΗΡΗΣΗ ΟΔΙΚΟΥ ΔΙΚΤΥΟΥ Ι.Π. ΜΕΣΟΛΟΓΓΙΟΥ Επωνυμία δικαιούχου ΛΑΤΩ ΑΤΕ",
+    )
 
     report = scan_entalmata(
         db_path=db_path,
@@ -179,6 +183,7 @@ def test_scan_entalmata_matches_keyword_inside_pdf_text(tmp_path, monkeypatch) -
     records = list_entalmata(db_path, today=date(2026, 7, 19), visible_window_days=15)
     assert [record.ada for record in records] == ["PDFMATCH"]
     assert records[0].matched_keywords == ["ΛΑΤΩ"]
+    assert records[0].project_title == "ΣΥΝΤΗΡΗΣΗ ΟΔΙΚΟΥ ΔΙΚΤΥΟΥ Ι.Π. ΜΕΣΟΛΟΓΓΙΟΥ"
 
 
 def test_scan_entalmata_paginates_until_configured_depth(tmp_path, monkeypatch) -> None:
@@ -246,3 +251,18 @@ keywords:
     assert any("page=1" in url for url in seen_urls)
     records = list_entalmata(db_path, today=date(2026, 7, 19), visible_window_days=15)
     assert {record.protocol_number for record in records} == {"1720", "1569"}
+
+
+def test_extract_project_title_from_common_entalma_phrases() -> None:
+    assert (
+        extract_project_title(
+            "Εκκαθάριση-εντολή πληρωμής με τίτλο Ε.Π.Α./ΕΙΔΙΚΟ ΠΡΟΓΡΑΜΜΑ ΦΥΣΙΚΩΝ ΚΑΤΑΣΤΡΟΦΩΝ συνολικού ποσού 205.429,25 ευρώ"
+        )
+        == "Ε.Π.Α./ΕΙΔΙΚΟ ΠΡΟΓΡΑΜΜΑ ΦΥΣΙΚΩΝ ΚΑΤΑΣΤΡΟΦΩΝ"
+    )
+    assert (
+        extract_project_title(
+            "για το έργο/α: 2023ΝΠ86600034 ΣΥΝΤΗΡΗΣΗ ΟΔΙΚΟΥ ΔΙΚΤΥΟΥ ΦΘΙΩΤΙΔΑΣ Επωνυμία δικαιούχου: ΛΑΤΩ ΑΤΕ"
+        )
+        == "ΣΥΝΤΗΡΗΣΗ ΟΔΙΚΟΥ ΔΙΚΤΥΟΥ ΦΘΙΩΤΙΔΑΣ"
+    )

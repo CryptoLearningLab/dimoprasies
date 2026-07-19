@@ -65,6 +65,8 @@ human-friendly UI should compose these mechanisms instead of replacing them.
 - `entalmata scan`
   - Scans configured Diavgeia organizations from
     `config/diavgeia_entalmata.yml`.
+  - Accepts explicit `--max-pages N` for controlled deep/backfill checks
+    without changing the normal UI scan depth.
   - Downloads decision PDFs under `work/download_audit/diavgeia_entalmata`.
   - Keeps only configured keyword matches visible for the configured recent
     window, currently 15 days.
@@ -94,7 +96,10 @@ human-friendly UI should compose these mechanisms instead of replacing them.
   - Serves a fetched KIMDIS local file only if it exists under `work/`.
 - `/api/entalmata`
   - Returns the current recent Diavgeia entalmata list and summary metrics from
-    SQLite.
+    SQLite, including visible and archived counts.
+- `/api/entalmata-file?ada=...`
+  - Serves the retained local or archived PDF evidence for a Diavgeia entalma
+    row when the file exists.
 - `/api/entalmata/scan`
   - Starts a background Diavgeia entalmata scan using the configured
     organizations and keyword list.

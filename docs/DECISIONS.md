@@ -730,3 +730,15 @@ Older visible decisions are archived to an `old` folder and marked
 front-page items. This workflow is independent of public-works tender discovery
 and must not affect tender dashboard filtering, ESHIDIS/KIMDIS deduplication or
 daily email alerts until a separate product gate is approved.
+
+## D-064 - Deep entalmata scans are explicit CLI runs
+**Status:** Accepted
+
+The daily `Εντάλματα` UI scan keeps the configured bounded page depth from
+`config/diavgeia_entalmata.yml`. Deeper Diavgeia checks, such as a 100-page
+archive/backfill smoke, must be explicit operator runs through
+`tender-radar entalmata scan --max-pages N`.
+
+This prevents an ordinary UI click from downloading and parsing excessive PDF
+history, while still allowing controlled evidence checks with the same
+filters, SQLite state and archive behavior.

@@ -68,7 +68,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.30" in INDEX_HTML
+    assert "v0.1.31" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -83,8 +83,13 @@ def test_ui_exposes_entalmata_tab() -> None:
     assert 'data-view="entalmata"' in INDEX_HTML
     assert "Εντάλματα τελευταίων 15 ημερών" in INDEX_HTML
     assert 'id="entalmataRows"' in INDEX_HTML
+    assert 'id="entalmataArchivedCount"' in INDEX_HTML
+    assert "Δημόσια<br>έργα" in INDEX_HTML
+    assert "Αντίστροφη<br>αναζήτηση" in INDEX_HTML
     assert "/api/entalmata" in APP_JS
     assert "/api/entalmata/scan" in APP_JS
+    assert "/api/entalmata-file" in INDEX_HTML + APP_JS
+    assert "Τίτλος έργου" in APP_JS
     assert "renderEntalmata" in APP_JS
 
 

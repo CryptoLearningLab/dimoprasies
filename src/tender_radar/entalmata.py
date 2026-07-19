@@ -36,6 +36,8 @@ class EntalmaRecord:
     status: str
     matched_keywords: list[str]
     text_sample: str | None
+    archive_path: str | None = None
+    project_title: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -48,6 +50,8 @@ class EntalmaRecord:
             "published_at": self.published_at,
             "document_url": self.document_url,
             "local_path": self.local_path,
+            "archive_path": self.archive_path,
+            "project_title": self.project_title,
             "status": self.status,
             "matched_keywords": self.matched_keywords,
             "text_sample": self.text_sample,
@@ -60,6 +64,7 @@ def scan_entalmata(
     config_path: Path,
     download_dir: Path,
     today: date | None = None,
+    max_pages: int | None = None,
     json_fetcher: JsonFetcher | None = None,
     bytes_fetcher: BytesFetcher | None = None,
 ) -> dict[str, Any]:
@@ -98,8 +103,8 @@ def scan_entalmata(
             continue
         summary["checked_organizations"] += 1
         start_page = int(api.get("start_page") or api.get("page") or 0)
-        max_pages = int(api.get("max_pages") or 1)
-        for page in range(start_page, start_page + max_pages):
+        page_limit = int(max_pages if max_pages is not None else api.get("max_pages") or 1)
+        for page in range(start_page, start_page + page_limit):
             url = search_url(api, org_id, page=page)
             try:
                 payload = json_fetch(url)
@@ -138,7 +143,12 @@ def scan_entalmata(
                     summary["errors"] += 1
                     errors.append({"org_id": org_id, "stage": "decision", "page": str(page), "error": str(exc)})
                     continue
-                upsert_entalma_record(db_path, record, metadata={"source_search_url": url, "source_page": page})
+                metadata = {
+                    "source_search_url": url,
+                    "source_page": page,
+                    "project_title": record.project_title,
+                }
+                upsert_entalma_record(db_path, record, metadata=metadata)
                 if record.status == "VISIBLE":
                     summary["matched"] += 1
                     visible_records.append(record)
@@ -212,6 +222,8 @@ def process_decision(
         published_at=published,
         document_url=document_url,
         local_path=str(local_path) if local_path.exists() else None,
+        archive_path=None,
+        project_title=extract_project_title(text),
         status="VISIBLE" if matched else "REJECTED",
         matched_keywords=matched,
         text_sample=short_text_sample(text),
@@ -276,8 +288,8 @@ def list_entalmata(db_path: Path, *, today: date | None = None, visible_window_d
         rows = connection.execute(
             """
             SELECT ada, org_id, org_name, subject, protocol_number, issue_date,
-                   published_at, document_url, local_path, status,
-                   matched_keywords_json, text_sample
+                   published_at, document_url, local_path, archive_path, status,
+                   matched_keywords_json, text_sample, metadata_json
             FROM diavgeia_entalmata
             WHERE status = 'VISIBLE'
               AND (issue_date IS NULL OR issue_date >= ?)
@@ -288,6 +300,60 @@ def list_entalmata(db_path: Path, *, today: date | None = None, visible_window_d
     finally:
         connection.close()
     return [_record_from_row(row) for row in rows]
+
+
+def list_archived_entalmata(db_path: Path, *, limit: int = 50) -> list[EntalmaRecord]:
+    initialize(db_path)
+    connection = sqlite3.connect(db_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        rows = connection.execute(
+            """
+            SELECT ada, org_id, org_name, subject, protocol_number, issue_date,
+                   published_at, document_url, local_path, archive_path, status,
+                   matched_keywords_json, text_sample, metadata_json
+            FROM diavgeia_entalmata
+            WHERE status = 'ARCHIVED'
+            ORDER BY archived_at DESC, issue_date DESC, ada
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    finally:
+        connection.close()
+    return [_record_from_row(row) for row in rows]
+
+
+def archived_entalmata_count(db_path: Path) -> int:
+    initialize(db_path)
+    connection = sqlite3.connect(db_path)
+    try:
+        row = connection.execute("SELECT COUNT(*) FROM diavgeia_entalmata WHERE status = 'ARCHIVED'").fetchone()
+    finally:
+        connection.close()
+    return int(row[0] if row else 0)
+
+
+def entalma_file_path(db_path: Path, ada: str) -> Path | None:
+    initialize(db_path)
+    connection = sqlite3.connect(db_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        row = connection.execute(
+            "SELECT local_path, archive_path FROM diavgeia_entalmata WHERE ada = ?",
+            (ada,),
+        ).fetchone()
+    finally:
+        connection.close()
+    if not row:
+        return None
+    for key in ("local_path", "archive_path"):
+        value = row[key]
+        if value:
+            path = Path(str(value))
+            if path.exists() and path.is_file():
+                return path
+    return None
 
 
 def archive_old_entalmata(db_path: Path, archive_dir: Path, cutoff: date) -> int:
@@ -371,6 +437,35 @@ def extract_pdf_text(path: Path) -> str:
 def matched_keywords(text: str, keywords: list[str]) -> list[str]:
     normalized_text = normalize_greek(text)
     return [keyword for keyword in keywords if normalize_greek(keyword) in normalized_text]
+
+
+def extract_project_title(text: str) -> str | None:
+    cleaned = re.sub(r"\s+", " ", text or "").strip()
+    if not cleaned:
+        return None
+    patterns = [
+        r"ΤΙΤΛΟΣ\s+ΕΡΓΟΥ\s*:?\s*(?P<title>.+?)(?:\s+ΥΠΟΕΡΓΟ|\s+ΚΩΔΙΚΟΣ|\s+Π/Υ|\s+ΙΒΑΝ|\s+Επωνυμία\s+δικαιούχου|\s+ΑΠΟΦΑΣΙΖΟΥΜΕ|$)",
+        r"για\s+το\s+έργο/α\s*:?\s*(?P<title>.+?)(?:\s+Επωνυμία\s+δικαιούχου|\s+ΑΠΟΦΑΣΗ|\s+Έχοντας\s+υπόψη|$)",
+        r"με\s+τίτλο\s+(?P<title>.+?)(?:\s+συνολικού\s+ποσού|\s+προϋπολογισμού|\s+για\s+το\s+έργο/α|$)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, cleaned, flags=re.IGNORECASE)
+        if not match:
+            continue
+        title = normalize_project_title(match.group("title"))
+        if title:
+            return title
+    return None
+
+
+def normalize_project_title(value: str) -> str | None:
+    title = re.sub(r"\s+", " ", value or "").strip(" .:-")
+    if not title:
+        return None
+    title = re.sub(r"^\d{4}[A-ZΑ-Ω0-9/.\-]+\s+", "", title)
+    if len(title) < 8:
+        return None
+    return title[:240]
 
 
 def decision_issue_date(decision: dict[str, Any]) -> date | None:
@@ -461,6 +556,11 @@ def _record_from_row(row: sqlite3.Row) -> EntalmaRecord:
         keywords = json.loads(row["matched_keywords_json"] or "[]")
     except json.JSONDecodeError:
         keywords = []
+    metadata: dict[str, Any] = {}
+    try:
+        metadata = json.loads(row["metadata_json"] or "{}")
+    except (KeyError, json.JSONDecodeError):
+        metadata = {}
     return EntalmaRecord(
         ada=str(row["ada"]),
         org_id=str(row["org_id"]),
@@ -471,6 +571,8 @@ def _record_from_row(row: sqlite3.Row) -> EntalmaRecord:
         published_at=_none_or_str(row["published_at"]),
         document_url=_none_or_str(row["document_url"]),
         local_path=_none_or_str(row["local_path"]),
+        archive_path=_none_or_str(row["archive_path"]),
+        project_title=_none_or_str(metadata.get("project_title")),
         status=str(row["status"] or "UNKNOWN"),
         matched_keywords=[str(item) for item in keywords if str(item).strip()],
         text_sample=_none_or_str(row["text_sample"]),

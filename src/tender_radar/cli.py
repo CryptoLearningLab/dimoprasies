@@ -156,6 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     entalmata_scan.add_argument("--db", default="data/tender_radar.sqlite", help="SQLite database path.")
     entalmata_scan.add_argument("--download-dir", default="work/download_audit/diavgeia_entalmata", help="PDF storage path.")
     entalmata_scan.add_argument("--report", default="work/reports/diavgeia_entalmata_latest.json", help="JSON report output path.")
+    entalmata_scan.add_argument("--max-pages", type=int, default=None, help="Override configured Diavgeia pages per organization for one run.")
 
     sources_parser = subparsers.add_parser("sources", help="Source audit commands.")
     sources_sub = sources_parser.add_subparsers(dest="sources_command")
@@ -833,6 +834,7 @@ def _entalmata_scan(args: argparse.Namespace) -> int:
         db_path=Path(args.db),
         config_path=Path(args.config),
         download_dir=Path(args.download_dir),
+        max_pages=args.max_pages,
     )
     report_path = Path(args.report)
     report_path.parent.mkdir(parents=True, exist_ok=True)

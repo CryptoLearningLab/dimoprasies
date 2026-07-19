@@ -749,6 +749,11 @@ The system `python` command is not present in the remote environment; use
   entalmata scan checked `240` decisions across `6` pages, found `5` visible
   matches (`1793`, `1739`, `1720`, `1569`, `1737`), rejected `109`, marked
   `126` outside the 15-day window and completed with `errors 0`.
+- Local `v0.1.31` polishes the entalmata screen: nav is now `Δημόσια έργα`,
+  `Αντίστροφη αναζήτηση`, `Εντάλματα`, `Admin panel`; visible entalmata expose
+  local retained PDF links and original Διαύγεια links separately; cards can
+  show a deterministic `project_title`; the summary exposes archived count; and
+  CLI scans accept explicit `--max-pages` for one-off deep checks.
 
 ## Next Work
 
@@ -756,7 +761,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Add a clean entalmata document experience: visible rows should expose direct
-open/download actions for the locally retained PDF evidence, and admin audit
-should make rejected entalmata reviewable without mixing them into the tender
-dashboard.
+Deploy and smoke `v0.1.31`, run one explicit production
+`tender-radar entalmata scan --max-pages 100` to validate archived counts, then
+scaffold the second tab from `docs/PRODUCT_SPECIFICATION.md`
+`MODE B — Αντίστροφη αναζήτηση περιεχομένου`.

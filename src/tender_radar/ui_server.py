@@ -69,7 +69,7 @@ from tender_radar.discovery_watermark import (
     utc_now_iso,
 )
 from tender_radar.documents import analyze_document
-from tender_radar.entalmata import list_entalmata, scan_entalmata
+from tender_radar.entalmata import archived_entalmata_count, entalma_file_path, list_entalmata, scan_entalmata
 from tender_radar.evaluation import normalize_evaluation_config, save_evaluation_config
 from tender_radar.ai_triage import AI_TRIAGE_PROMPT_VERSION
 from tender_radar.sources.expanded_report import classify_public_works_candidate_dict
@@ -223,6 +223,15 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             path = authority_document_file_path(row_key, index)
             if not path:
                 self._send_json({"error": "Authority document file is not available."}, status=404)
+                return
+            self._send_file(path)
+            return
+        if parsed.path == "/api/entalmata-file":
+            query = parse_qs(parsed.query)
+            ada = str(query.get("ada", [""])[0]).strip()
+            path = entalma_file_path(runtime_db_path(), ada)
+            if not path:
+                self._send_json({"error": "Entalma PDF file is not available."}, status=404)
                 return
             self._send_file(path)
             return
@@ -2371,6 +2380,7 @@ def entalmata_payload() -> dict[str, Any]:
         "keywords": data.get("keywords") or [],
         "summary": {
             "visible": len(records),
+            "archived": archived_entalmata_count(runtime_db_path()),
             "configured_organizations": len(data.get("organizations") or []),
             "keywords": len(data.get("keywords") or []),
             "last_scan_at": (latest_report or {}).get("generated_at") or (latest_report or {}).get("cutoff_date"),
@@ -5408,10 +5418,10 @@ INDEX_HTML = f"""<!doctype html>
       </div>
     </div>
     <nav>
-      <button class="nav active" data-view="overview">Αναζήτηση</button>
-      <button class="nav" data-view="rules">Κανόνες</button>
-      <button id="adminNavBtn" class="nav" data-view="adminPanel">Admin panel</button>
+      <button class="nav active" data-view="overview">Δημόσια<br>έργα</button>
+      <button class="nav" data-view="workflow">Αντίστροφη<br>αναζήτηση</button>
       <button class="nav" data-view="entalmata">Εντάλματα</button>
+      <button id="adminNavBtn" class="nav" data-view="adminPanel">Admin<br>panel</button>
     </nav>
   </aside>
   <main>
@@ -5692,6 +5702,7 @@ INDEX_HTML = f"""<!doctype html>
       </div>
       <div class="metrics">
         <div><span id="entalmataVisibleCount">0</span><small>εντάλματα 15ημέρου</small></div>
+        <div><span id="entalmataArchivedCount">0</span><small>αρχειοθετημένα</small></div>
         <div><span id="entalmataOrgCount">0</span><small>φορείς</small></div>
         <div><span id="entalmataKeywordCount">0</span><small>λέξεις-κλειδιά</small></div>
       </div>
@@ -6249,6 +6260,12 @@ td:nth-child(2) { white-space: nowrap; color: var(--muted); font-weight: 700; }
   gap: 12px;
   align-items: start;
 }
+.entalmaActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .entalmaSubject {
   margin: 0;
   font-size: 16px;
@@ -6256,7 +6273,7 @@ td:nth-child(2) { white-space: nowrap; color: var(--muted); font-weight: 700; }
 }
 .entalmaMeta {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 8px;
 }
 .entalmaMeta span {
@@ -6681,6 +6698,7 @@ async function loadEntalmata() {
 function renderEntalmata(payload) {
   const summary = payload.summary || {};
   $('entalmataVisibleCount').textContent = summary.visible || 0;
+  $('entalmataArchivedCount').textContent = summary.archived || 0;
   $('entalmataOrgCount').textContent = summary.configured_organizations || 0;
   $('entalmataKeywordCount').textContent = summary.keywords || 0;
   const container = $('entalmataRows');
@@ -6696,16 +6714,21 @@ function renderEntalmata(payload) {
     const keywords = (item.matched_keywords || [])
       .map((keyword) => `<span class="pill">${escapeHtml(keyword)}</span>`)
       .join('');
+    const localPdfUrl = item.local_path || item.archive_path ? `/api/entalmata-file?ada=${encodeURIComponent(item.ada || '')}` : '';
     card.innerHTML = `
       <div class="entalmaHeader">
         <div>
           <p class="eyebrow">ΑΔΑ ${escapeHtml(item.ada || '')}</p>
           <h3 class="entalmaSubject">${escapeHtml(item.subject || '')}</h3>
         </div>
-        ${item.document_url ? `<a class="button tinyButton" href="${escapeHtml(item.document_url)}" target="_blank" rel="noreferrer">Open</a>` : ''}
+        <div class="entalmaActions">
+          ${localPdfUrl ? `<a class="button tinyButton" href="${escapeHtml(localPdfUrl)}" target="_blank" rel="noreferrer">PDF</a>` : ''}
+          ${item.document_url ? `<a class="button tinyButton secondary" href="${escapeHtml(item.document_url)}" target="_blank" rel="noreferrer">Διαύγεια</a>` : ''}
+        </div>
       </div>
       <div class="entalmaMeta">
         <span><small>Φορέας</small>${escapeHtml(item.org_name || item.org_id || '')}</span>
+        ${item.project_title ? `<span><small>Τίτλος έργου</small>${escapeHtml(item.project_title)}</span>` : ''}
         <span><small>Ημερομηνία</small>${escapeHtml(item.issue_date || '')}</span>
         <span><small>Πρωτόκολλο</small>${escapeHtml(item.protocol_number || '')}</span>
       </div>

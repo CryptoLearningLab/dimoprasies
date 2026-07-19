@@ -55,6 +55,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual("data/tender_radar.sqlite", args.db)
         self.assertEqual("work/download_audit/diavgeia_entalmata", args.download_dir)
         self.assertEqual("work/reports/diavgeia_entalmata_latest.json", args.report)
+        self.assertIsNone(args.max_pages)
+
+        args = parser.parse_args(["entalmata", "scan", "--max-pages", "100"])
+        self.assertEqual(100, args.max_pages)
 
     def test_sources_help_lists_live_fetch_commands(self) -> None:
         output = StringIO()

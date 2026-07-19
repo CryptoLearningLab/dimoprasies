@@ -3179,6 +3179,41 @@ visible entalmata:
   1737 Ψ7ΝΘΚ2Π-8ΩΧ keywords ΛΑΤΩ
 ```
 
+### UI v0.1.31 Entalmata polish and explicit deep scan override
+
+- The UI version was bumped from `0.1.30` to `0.1.31`.
+- Navigation now presents the daily product as:
+  `Δημόσια έργα`, `Αντίστροφη αναζήτηση`, `Εντάλματα`, `Admin panel`.
+- The `Εντάλματα` cards expose a local retained PDF link through
+  `/api/entalmata-file?ada=...` and keep the original Διαύγεια link separate.
+- Entalmata records now include a best-effort deterministic `project_title`
+  extracted from PDF text around common fields such as `ΤΙΤΛΟΣ ΕΡΓΟΥ`,
+  `για το έργο/α:` and `με τίτλο ... συνολικού ποσού`.
+- The entalmata summary now exposes `archived`, so old visible rows moved to
+  `work/download_audit/diavgeia_entalmata/old` can be counted in the UI.
+- Added CLI-only `tender-radar entalmata scan --max-pages N` for explicit deep
+  checks such as a 100-page archive/backfill smoke without changing the normal
+  UI scan depth.
+- Confirmed that the future second tab should follow
+  `docs/PRODUCT_SPECIFICATION.md` `MODE B — Αντίστροφη αναζήτηση
+  περιεχομένου`, not a new ad hoc workflow.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_entalmata.py tests/test_cli.py::CliTests::test_entalmata_scan_parser_has_safe_defaults tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_ui_exposes_entalmata_tab -q
+# 9 passed in 1.31s
+
+.venv/bin/python -m py_compile src/tender_radar/entalmata.py src/tender_radar/ui_server.py src/tender_radar/cli.py
+# passed
+
+.venv/bin/python -m tender_radar config validate
+# all repository configs ok
+
+.venv/bin/python -m pytest -q
+# 217 passed in 17.53s
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

@@ -1,14 +1,17 @@
 # NEXT TASK
 
 Execute:
-`Add Diavgeia entalmata document links and audit view`
+`Design and scaffold reverse content search tab`
 
 ## Current Input
 
 The deadline-evidence dashboard gate is deployed and admin audit re-enrichment
 is implemented. Nationwide search is disabled in production version `0.1.26`.
 Production version `0.1.30` fixes PDF-body text matching parity with the
-Windows `.exe` and adds paginated Diavgeia scan.
+Windows `.exe` and adds paginated Diavgeia scan. Local version `0.1.31`
+polishes the entalmata UI, adds local retained PDF links, adds deterministic
+project-title extraction and exposes a CLI-only `--max-pages` deep scan
+override.
 
 - `dashboard_payload` enriches rows with fetched document evidence before
   active filtering.
@@ -69,17 +72,25 @@ Windows `.exe` and adds paginated Diavgeia scan.
   entalmata scan checked `240` decisions across `6` pages, found `5` visible
   matches (`1793`, `1739`, `1720`, `1569`, `1737`), rejected `109`, marked
   `126` outside the 15-day window and completed with `errors 0`.
+- Local `v0.1.31` adds the requested nav order, entalmata PDF actions,
+  archived count, project-title extraction and CLI-only deep-scan override.
+- Product spec `MODE B — Αντίστροφη αναζήτηση περιεχομένου` defines the
+  intended second tab: phrase/word/article/revision/material/unit/quantity/price
+  search over extracted tender document content with document and time filters.
 
 ## Instruction
 
 Complete the next gate:
 
-1. Add direct open/download actions for locally retained entalmata PDFs.
-2. Keep PDF downloads enabled for filtered Diavgeia entalmata scan rows.
-3. Add or expose admin audit rows for rejected entalmata with concrete reasons
-   and source/PDF links.
-4. Keep the entalmata workflow separate from tender dashboard filtering.
-5. Smoke test the `Εντάλματα` tab on mobile-width HTML.
+1. Deploy and smoke `v0.1.31`.
+2. Run one explicit production `entalmata scan --max-pages 100` and report
+   visible/archived/error counts without changing the normal UI scan depth.
+3. Read `docs/PRODUCT_SPECIFICATION.md` Mode B and existing search/index
+   mechanisms.
+4. Scaffold the second tab as `Αντίστροφη αναζήτηση` with a minimal request
+   form and empty-state result surface.
+5. Do not implement expensive full-document search until the UI contract and
+   backend query path are confirmed.
 
 ## Required Tests
 
