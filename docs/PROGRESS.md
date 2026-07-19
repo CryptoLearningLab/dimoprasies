@@ -2405,6 +2405,9 @@ Implemented behavior after live smoke:
   repairs, transport services, Μη.Μ.Ε.Δ. drawings, signed contracts, awards
   and administrative approvals must not be parked as
   `REVIEW_TENDER_CANDIDATE` when they are clearly excluded.
+- Dropped AI rows now have their `eshidis_id_candidates` cleared during
+  normalization, so a hallucinated or irrelevant ESHIDIS hint on a rejected
+  supply/service/admin row cannot feed downstream official linking.
 
 Production smoke before prompt tightening:
 
@@ -2443,6 +2446,7 @@ Verification after prompt tightening:
 ```bash
 .venv/bin/python -m py_compile src/tender_radar/ai_triage.py src/tender_radar/ui_server.py
 .venv/bin/python -m pytest tests/test_ai_triage.py tests/test_ui_server.py::test_scheduled_poll_skips_ai_when_all_rows_already_triaged tests/test_ui_server.py::test_incremental_ai_triage_rechecks_stale_cached_rows tests/test_ui_server.py::test_ai_triage_signature_includes_prompt_version tests/test_ui_server.py::test_incremental_ai_triage_includes_fetched_ocr_document_text tests/test_ui_server.py::test_candidate_enrichment_uses_ai_eshidis_id_before_refetching_authority
+.venv/bin/python -m pytest tests/test_ai_triage.py tests/test_ui_server.py::test_ai_triage_signature_includes_prompt_version tests/test_ui_server.py::test_incremental_ai_triage_includes_fetched_ocr_document_text
 .venv/bin/python -m pytest
 ```
 
@@ -2451,7 +2455,8 @@ Results:
 ```text
 py_compile: passed
 targeted prompt/signature/OCR tests: 10 passed
-full test suite after prompt tightening: 177 passed
+targeted dropped-hint/signature/OCR tests: 8 passed
+full test suite after dropped-hint guard: 178 passed
 ```
 
 ## Handoff Discipline

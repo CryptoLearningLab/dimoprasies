@@ -446,6 +446,8 @@ def _normalize_classification(item: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         confidence = 0.0
     hints = [str(value) for value in item.get("eshidis_id_candidates") or [] if re.fullmatch(r"\d{5,6}", str(value))]
+    if decision not in KEEP_DECISIONS:
+        hints = []
     return {
         "decision": decision,
         "confidence": max(0.0, min(1.0, confidence)),

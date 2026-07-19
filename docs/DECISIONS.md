@@ -613,3 +613,7 @@ even when they include installation or commissioning, vehicle/machinery repairs,
 transport services, Μη.Μ.Ε.Δ. drawings, awards, contracts and administrative
 approvals are excluded unless the row is clearly an active open public-works
 tender with a future submission deadline.
+
+If the normalized AI decision is a drop decision, any model-returned
+`eshidis_id_candidates` are discarded. Downstream ESHIDIS verification is fed
+only by rows still kept for daily review.
