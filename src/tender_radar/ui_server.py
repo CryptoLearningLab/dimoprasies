@@ -39,6 +39,7 @@ from tender_radar.db import (
     get_source_state,
     ignored_tender_keys as ignored_tender_keys_from_db,
     list_admin_users,
+    list_source_documents,
     list_tender_dismissals,
     list_source_states,
     mark_admin_invite_used,
@@ -968,7 +969,11 @@ def run_incremental_ai_triage(*, scope: str = "focus", sort: str = "deadline_asc
     existing_report = load_ai_triage_report_payload()
     existing_rows = [row for row in existing_report.get("rows") or [] if isinstance(row, dict)]
     existing_by_key = {str(row.get("row_key") or ""): row for row in existing_rows if row.get("row_key")}
-    pending_rows = [row for row in rows if str(row.get("row_key") or "") not in existing_by_key]
+    pending_rows = [
+        row_with_document_evidence(row)
+        for row in rows
+        if str(row.get("row_key") or "") not in existing_by_key
+    ]
     retained_rows = [row for key, row in existing_by_key.items() if key in current_keys]
 
     if not pending_rows:
@@ -1011,6 +1016,184 @@ def run_incremental_ai_triage(*, scope: str = "focus", sort: str = "deadline_asc
         "dashboard": dashboard_payload(scope=scope, sort=sort),
         "ai_triage_report": ai_triage_report_status(),
     }
+
+
+def row_with_document_evidence(row: dict[str, Any]) -> dict[str, Any]:
+    row_key = str(row.get("row_key") or row.get("official_id") or row.get("display_id") or "").strip()
+    if not row_key:
+        return row
+    documents = document_evidence_for_row(row, row_key=row_key)
+    if not documents:
+        return row
+    existing_ids = [str(value) for value in row.get("linked_eshidis_ids") or [] if str(value).strip()]
+    document_ids: list[str] = []
+    for document in documents:
+        document_ids.extend(str(value) for value in document.get("linked_eshidis_ids") or [] if str(value).strip())
+    linked_ids = sorted({value for value in [*existing_ids, *document_ids] if value.isdigit()})
+    return {
+        **row,
+        "document_evidence": documents,
+        "document_evidence_count": len(documents),
+        "linked_eshidis_ids": linked_ids,
+    }
+
+
+def document_evidence_for_row(row: dict[str, Any], *, row_key: str) -> list[dict[str, Any]]:
+    evidence_by_url: dict[str, dict[str, Any]] = {}
+    for document in sqlite_source_document_evidence(row_key):
+        evidence_by_url[str(document.get("document_url") or document.get("name") or len(evidence_by_url))] = document
+    for document in legacy_row_document_evidence(row, row_key=row_key):
+        evidence_by_url.setdefault(str(document.get("document_url") or document.get("name") or len(evidence_by_url)), document)
+    evidence = list(evidence_by_url.values())
+    evidence.sort(key=lambda item: document_evidence_rank(item))
+    return evidence[:4]
+
+
+def sqlite_source_document_evidence(row_key: str) -> list[dict[str, Any]]:
+    try:
+        source_documents = list_source_documents(runtime_db_path(), row_key=row_key)
+    except (OSError, sqlite3.Error):
+        return []
+    evidence: list[dict[str, Any]] = []
+    for source_document in source_documents:
+        metadata = source_document.metadata if isinstance(source_document.metadata, dict) else {}
+        evidence.append(
+            document_evidence_payload(
+                row_key=row_key,
+                document_url=source_document.document_url,
+                source_url=source_document.source_url,
+                local_path=source_document.local_path,
+                metadata=metadata,
+                fetch_error=source_document.fetch_error,
+            )
+        )
+    return evidence
+
+
+def legacy_row_document_evidence(row: dict[str, Any], *, row_key: str) -> list[dict[str, Any]]:
+    documents: list[dict[str, Any]] = []
+    if row_key.startswith("KIMDIS:"):
+        official_id = row_key.split(":", 1)[1]
+        document = kimdis_documents_by_official_id().get(official_id)
+        if isinstance(document, dict):
+            documents.append(document)
+    else:
+        documents.extend(document for document in authority_documents_by_key().get(row_key, []) if isinstance(document, dict))
+    evidence: list[dict[str, Any]] = []
+    for document in documents:
+        metadata = {
+            "document_analysis": document.get("document_analysis"),
+            "text_path": document.get("text_path"),
+            "linked_eshidis_ids": document.get("linked_eshidis_ids"),
+        }
+        evidence.append(
+            document_evidence_payload(
+                row_key=row_key,
+                document_url=str(document.get("attachment_url") or document.get("document_url") or ""),
+                source_url=str(document.get("source_url") or row.get("official_url") or ""),
+                local_path=_none_or_str(document.get("local_path")),
+                metadata=metadata,
+                fetch_error=_none_or_str(document.get("fetch_error")),
+            )
+        )
+    return evidence
+
+
+def document_evidence_payload(
+    *,
+    row_key: str,
+    document_url: str | None,
+    source_url: str | None,
+    local_path: str | None,
+    metadata: dict[str, Any],
+    fetch_error: str | None,
+) -> dict[str, Any]:
+    analysis = metadata.get("document_analysis") if isinstance(metadata.get("document_analysis"), dict) else {}
+    text_path = _none_or_str(metadata.get("text_path")) or _none_or_str(analysis.get("text_path"))
+    local = normalize_local_path(local_path)
+    name = Path(local_path).name if local_path else Path(str(urlparse(str(document_url or "")).path)).name
+    text = read_document_text_sample(text_path=text_path, fallback=_none_or_str(analysis.get("full_text") or analysis.get("text_sample")))
+    linked_ids = sorted(
+        {
+            *[str(value) for value in metadata.get("linked_eshidis_ids") or [] if str(value).strip()],
+            *extract_eshidis_ids_from_text(name, document_url, source_url, text),
+        }
+    )
+    return {
+        "row_key": row_key,
+        "name": name or "document",
+        "document_url": document_url,
+        "source_url": source_url,
+        "local_path_available": bool(local and local.exists()),
+        "document_type": analysis.get("document_type"),
+        "extraction_status": analysis.get("extraction_status"),
+        "ocr_status": analysis.get("ocr_status") or "UNKNOWN",
+        "ocr_error": analysis.get("ocr_error"),
+        "fetch_error": fetch_error,
+        "linked_eshidis_ids": [value for value in linked_ids if value.isdigit()],
+        "snippets": select_document_snippets(text),
+    }
+
+
+def read_document_text_sample(*, text_path: str | None, fallback: str | None, limit: int = 16000) -> str:
+    path = normalize_local_path(text_path)
+    if path and path.exists():
+        try:
+            return path.read_text(encoding="utf-8", errors="replace")[:limit]
+        except OSError:
+            pass
+    return (fallback or "")[:limit]
+
+
+def select_document_snippets(text: str, *, max_snippets: int = 5, radius: int = 420) -> list[str]:
+    if not text.strip():
+        return []
+    normalized = text.replace("\r", "\n")
+    snippets: list[str] = []
+    snippets.append(compact_document_snippet(normalized[:900]))
+    markers = [
+        "2.2",
+        "ΕΣΗΔΗΣ",
+        "Ε.Σ.Η.Δ",
+        "Α/Α",
+        "Α/Α Διαγωνισμού",
+        "Α/Α Συστήματος",
+        "pwgopendata",
+        "publicworks.eprocurement",
+        "actSearchErgwn",
+        "ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ",
+    ]
+    lowered = normalized.casefold()
+    for marker in markers:
+        index = lowered.find(marker.casefold())
+        if index < 0:
+            continue
+        start = max(0, index - radius)
+        end = min(len(normalized), index + radius)
+        snippet = compact_document_snippet(normalized[start:end])
+        if snippet and snippet not in snippets:
+            snippets.append(snippet)
+        if len(snippets) >= max_snippets:
+            break
+    return snippets[:max_snippets]
+
+
+def compact_document_snippet(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()[:1200]
+
+
+def document_evidence_rank(item: dict[str, Any]) -> tuple[int, str]:
+    name = normalize_greek(str(item.get("name") or ""))
+    doc_type = normalize_greek(str(item.get("document_type") or ""))
+    if "διακηρυ" in name or "declaration" in doc_type:
+        rank = 0
+    elif "οικονομικ" in name or "προσφορ" in name:
+        rank = 1
+    elif item.get("linked_eshidis_ids"):
+        rank = 2
+    else:
+        rank = 3
+    return rank, name
 
 
 def load_ai_triage_report_payload() -> dict[str, Any]:
@@ -1154,13 +1337,13 @@ def candidate_enrichment_targets(*, scope: str = "focus", limit: int = 50) -> tu
 def candidate_enrichment_identifier(row: dict[str, Any]) -> str | None:
     row_key = str(row.get("row_key") or "").strip()
     official_id = str(row.get("official_id") or row.get("display_id") or "").strip()
+    linked_ids = linked_eshidis_ids_for_row(row)
+    if linked_ids:
+        return linked_ids[0]
     if row.get("supports_authority_actions") and row_key:
         return row_key
     if row.get("supports_kimdis_actions") and is_kimdis_identifier(official_id):
         return official_id
-    linked_ids = linked_eshidis_ids_for_row(row)
-    if linked_ids:
-        return linked_ids[0]
     if str(row.get("eshidis_id") or "").isdigit():
         return str(row.get("eshidis_id"))
     return None

@@ -60,7 +60,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.13" in INDEX_HTML
+    assert "v0.1.14" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -750,6 +750,94 @@ def test_scheduled_poll_skips_ai_when_all_rows_already_triaged(tmp_path, monkeyp
     assert result["skipped"] is True
     assert result["skip_reason"] == "NO_PENDING_AI_TRIAGE_ROWS"
     assert result["summary"]["kept_total"] == 1
+
+
+def test_incremental_ai_triage_includes_fetched_ocr_document_text(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "work/reports").mkdir(parents=True)
+    text_path = tmp_path / "work/extracted_text/authority/auth_work_0.txt"
+    text_path.parent.mkdir(parents=True)
+    text_path.write_text(
+        "ΔΙΑΚΗΡΥΞΗ ΕΡΓΟΥ άρθρο 2.2 Διεύθυνση εγγράφων σύμβασης "
+        "https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/217922 "
+        "Ε.Σ.Η.Δ.Η.Σ Α/Α Διαγωνισμού 217922",
+        encoding="utf-8",
+    )
+    ui_server.upsert_source_document(
+        ui_server.runtime_db_path(),
+        row_key="AUTHORITY:AUTH-work",
+        document_url="https://example.test/declaration.pdf",
+        source_url="https://example.test/work",
+        local_path=str(tmp_path / "work/download_audit/authority/declaration.pdf"),
+        metadata={
+            "text_path": str(text_path),
+            "document_analysis": {
+                "document_type": "tender_declaration",
+                "extraction_status": "TEXT_EXTRACTED_WITH_OCR",
+                "ocr_status": "OCR_TEXT_EXTRACTED",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "dashboard_payload",
+        lambda scope="focus", sort="deadline_asc", apply_triage=True: {
+            "summary": {"visible": 1},
+            "tenders": [
+                {
+                    "row_key": "AUTHORITY:AUTH-work",
+                    "display_id": "AUTH-work",
+                    "source_label": "Φορέας",
+                    "title": "Διακήρυξη έργου οδοποιίας",
+                    "authority_name": "Δήμος Δωρίδος",
+                    "supports_authority_actions": True,
+                }
+            ],
+        },
+    )
+    captured = {}
+
+    def fake_build_report(rows, **kwargs):
+        captured["rows"] = rows
+        return {
+            "model": "fake",
+            "rows": [
+                {
+                    "row_key": "AUTHORITY:AUTH-work",
+                    "ai": {
+                        "decision": "KEEP_ACTIVE_TENDER",
+                        "keep_for_daily_review": True,
+                        "confidence": 0.95,
+                        "reason": "OCR declaration contains ESHIDIS link.",
+                        "eshidis_id_candidates": rows[0]["linked_eshidis_ids"],
+                    },
+                }
+            ],
+            "errors": [],
+            "safety_note": "test",
+        }
+
+    monkeypatch.setattr("tender_radar.ai_triage.build_ai_triage_report", fake_build_report)
+
+    result = ui_server.run_incremental_ai_triage(scope="focus", sort="deadline_asc", batch_size=5)
+
+    assert result["ok"] is True
+    row = captured["rows"][0]
+    assert row["linked_eshidis_ids"] == ["217922"]
+    assert row["document_evidence_count"] == 1
+    assert row["document_evidence"][0]["ocr_status"] == "OCR_TEXT_EXTRACTED"
+    assert "217922" in " ".join(row["document_evidence"][0]["snippets"])
+
+
+def test_candidate_enrichment_uses_ai_eshidis_id_before_refetching_authority(monkeypatch) -> None:
+    row = {
+        "row_key": "AUTHORITY:AUTH-work",
+        "official_id": "AUTH-work",
+        "supports_authority_actions": True,
+        "ai_triage": {"eshidis_id_candidates": ["217922"]},
+    }
+
+    assert ui_server.candidate_enrichment_identifier(row) == "217922"
 
 
 def test_scheduled_poll_skips_auto_document_fetch_when_discovery_skipped(tmp_path, monkeypatch) -> None:

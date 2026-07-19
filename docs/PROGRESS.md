@@ -2350,6 +2350,46 @@ in-process UI smoke: loginScreen true, version true, unauthenticated auth false,
   dashboard_status 401, dashboard_body "Login required."
 ```
 
+### UI v0.1.14 fetched/OCR evidence feeds AI triage
+
+Implemented behavior:
+
+- Bumped the application version from `0.1.13` to `0.1.14`.
+- Incremental AI triage now enriches pending rows with fetched document
+  evidence before calling OpenAI.
+- Document evidence is assembled from SQLite `source_documents` and the
+  existing KIMDIS/authority document indexes.
+- Each evidence item includes filename, document type, extraction status,
+  OCR status/error, fetch error, deterministic linked ESHIDIS ids and bounded
+  text snippets.
+- Snippet selection prioritizes the first page, article `2.2`, ESHIDIS
+  wording, `pwgopendata`/`publicworks` URLs, `actSearchErgwn`, `Α/Α
+  Διαγωνισμού`, `Α/Α Συστήματος` and economic-offer form context.
+- Deterministic ESHIDIS ids extracted from OCR/text evidence are merged onto
+  the row before AI classification.
+- Candidate enrichment now prefers an AI/OCR-discovered linked ESHIDIS id over
+  refetching a municipal/authority/KIMDIS source row. That means the next
+  enrichment step hits `resources/search/{id}` directly when the id is known.
+- Already-triaged unchanged rows still skip OpenAI.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_scheduled_poll_skips_ai_when_all_rows_already_triaged tests/test_ui_server.py::test_incremental_ai_triage_includes_fetched_ocr_document_text tests/test_ui_server.py::test_candidate_enrichment_uses_ai_eshidis_id_before_refetching_authority tests/test_ai_triage.py
+.venv/bin/python -m pytest
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py src/tender_radar/ai_triage.py
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_incremental_ai_triage_includes_fetched_ocr_document_text tests/test_ui_server.py::test_candidate_enrichment_uses_ai_eshidis_id_before_refetching_authority tests/test_ai_triage.py
+```
+
+Results:
+
+```text
+targeted AI/document triage tests: 7 passed
+py_compile: passed
+targeted version/AI tests after version bump: 7 passed
+full test suite after version bump: 174 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

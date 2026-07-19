@@ -1,7 +1,7 @@
 # NEXT TASK
 
 Execute:
-`Feed fetched/OCR text into AI classifier and ESHIDIS-id resolution`
+`Production-smoke fetched/OCR AI classifier results`
 
 ## Current Input
 
@@ -27,34 +27,29 @@ The document fetcher and first OCR fallback gates are complete:
   available, and only `admin` role sessions can access audit/restore/invite
   controls.
 
-The next product gate is to make the AI classifier consume the fetched/OCR
-document text for candidate triage and ESHIDIS-id resolution, instead of relying
-only on listing/title metadata.
+The AI classifier now consumes fetched/OCR document evidence for pending rows.
+The next product gate is to run a production smoke, inspect exactly what the AI
+kept/dropped and tighten only observed prompt/classifier failures.
 
 ## Instruction
 
 Implement the next small gate:
 
-1. Inspect current AI triage prompt/payload creation and candidate enrichment
-   outputs.
-2. Add document text snippets/evidence from fetched authority/KIMDIS documents
-   to AI triage payloads for rows that have local documents.
-3. Include OCR provenance in that payload so weak/no-OCR cases remain visible.
-4. Keep AI calls incremental: do not resend already-triaged unchanged rows.
-5. Extract linked ESHIDIS ids from OCR-enhanced text before sending to AI where
-   deterministic extraction already succeeds.
-6. Add focused tests for:
-   - document text is included for untriaged rows with fetched files;
-   - rows with linked ESHIDIS ids are upgraded/deduped without an extra full
-     discovery;
-   - already-triaged unchanged rows do not call OpenAI again.
+1. Deploy `v0.1.14`.
+2. Run one live AI triage/enrichment smoke on the droplet without forcing full
+   discovery.
+3. Inspect `work/reports/ai_triage_report.json` and the dashboard summary.
+4. List rows kept, dropped and linked to ESHIDIS by the new document evidence.
+5. Record any concrete false keep/drop with provenance.
+6. Only if there is a concrete failure, tighten the prompt/classifier and add a
+   focused regression test.
 
 ## Required Closeout
 
-1. Run targeted AI/document triage tests.
-2. Run the full test suite if app code changes.
-3. Run one droplet scheduled-run dry-run or UI search smoke proving unchanged
-   sources remain fast and document text is available for changed rows.
+1. Run droplet AI triage/enrichment smoke and record elapsed time.
+2. Confirm unchanged sources do not trigger full discovery.
+3. Confirm document evidence appears for changed/pending rows where local
+   fetched/OCR text exists.
 4. Report changed files and verification commands.
 5. Update `docs/PROGRESS.md`.
 6. Update `docs/DECISIONS.md` only if a real decision was made.

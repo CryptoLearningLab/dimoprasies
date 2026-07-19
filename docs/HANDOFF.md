@@ -592,6 +592,11 @@ The system `python` command is not present in the remote environment; use
   HTTP 401 without a session, and the Admin panel no longer contains the old
   login widgets. The tender table switches to mobile card rows with per-cell
   labels on phone-width screens.
+- The UI now displays version `v0.1.14`. Incremental AI triage receives
+  fetched/OCR document evidence for pending rows, including bounded snippets,
+  OCR provenance and deterministic ESHIDIS ids. When AI/OCR evidence exposes a
+  linked ESHIDIS id, candidate enrichment prefers that id and fetches the
+  official ESHIDIS folder directly instead of refetching the source row.
 
 ## Next Work
 
@@ -599,6 +604,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Continue by feeding fetched/OCR document text into AI classifier and linked
-ESHIDIS-id resolution, while preserving incremental skip behavior for unchanged
-rows.
+Run production smoke on the fetched/OCR AI classifier path, inspect the
+resulting hidden/kept rows, then tighten the classifier prompt only from
+observed failures.

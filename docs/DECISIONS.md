@@ -579,3 +579,18 @@ dismissals and reports are not available without a session.
 
 SQLite users created through invite/password setup may access the main app.
 Only role `admin` may access audit, restore and user invitation controls.
+
+## D-055 - AI triage consumes bounded document evidence, not raw archives
+**Status:** Accepted
+
+Fetched/OCR documents are summarized into bounded evidence snippets before
+OpenAI triage. The AI payload includes provenance fields such as document name,
+document type, extraction status, OCR status/error, fetch error, deterministic
+ESHIDIS ids and selected snippets around high-value contexts like article 2.2,
+ESHIDIS wording, official eprocurement URLs and economic-offer forms.
+
+The system does not send unbounded raw PDFs or whole archive contents to the
+model. Deterministic ESHIDIS ids found in document text are merged into the row
+before AI classification, and later enrichment uses those ids to fetch the
+official ESHIDIS folder directly instead of reprocessing the original
+municipal/authority/KIMDIS source.

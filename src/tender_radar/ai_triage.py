@@ -318,6 +318,7 @@ def _triage_input(row: dict[str, Any]) -> dict[str, Any]:
         )
     )
     signals = deterministic_signals(row, text)
+    document_evidence = row.get("document_evidence") if isinstance(row.get("document_evidence"), list) else []
     return {
         "row_key": row_key,
         "display_id": row.get("display_id") or row.get("official_id") or row.get("eshidis_id"),
@@ -332,7 +333,30 @@ def _triage_input(row: dict[str, Any]) -> dict[str, Any]:
         "attachment_urls_count": len(row.get("attachment_urls") or []),
         "deterministic_signals": signals.to_dict(),
         "text_sample": text[:1200],
+        "document_evidence_count": row.get("document_evidence_count") or len(document_evidence),
+        "document_evidence": _trim_document_evidence(document_evidence),
     }
+
+
+def _trim_document_evidence(documents: list[object]) -> list[dict[str, Any]]:
+    trimmed: list[dict[str, Any]] = []
+    for document in documents[:4]:
+        if not isinstance(document, dict):
+            continue
+        snippets = [str(value)[:1200] for value in document.get("snippets") or [] if str(value).strip()]
+        trimmed.append(
+            {
+                "name": document.get("name"),
+                "document_type": document.get("document_type"),
+                "extraction_status": document.get("extraction_status"),
+                "ocr_status": document.get("ocr_status"),
+                "ocr_error": document.get("ocr_error"),
+                "fetch_error": document.get("fetch_error"),
+                "linked_eshidis_ids": document.get("linked_eshidis_ids") or [],
+                "snippets": snippets[:5],
+            }
+        )
+    return trimmed
 
 
 def deterministic_signals(row: dict[str, Any], text: str | None = None) -> DeterministicSignals:
@@ -367,6 +391,9 @@ def _prompt_text(batch: list[dict[str, Any]]) -> str:
         "pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/<id>, publicworks.eprocurement.gov.gr, "
         "Α/Α Διαγωνισμού near ESHIDIS/eprocurement wording, ΟΠΣ ΕΣΗΔΗΣ, Α/Α ΕΣΗΔΗΣ, and economic offer forms "
         "(ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ) where Α/Α ΣΥΣΤΗΜΑΤΟΣ is likely the ESHIDIS number.\n"
+        "Use document_evidence before listing metadata when present. It contains extracted/OCR text snippets from "
+        "downloaded PDFs/DOCX/ZIP contents plus extraction_status and ocr_status; weak or failed OCR is not proof "
+        "against the tender, it only means evidence may be incomplete.\n"
         "Rows:\n"
         f"{json.dumps(batch, ensure_ascii=False)}"
     )
