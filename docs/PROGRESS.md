@@ -2151,6 +2151,9 @@ Verification:
 .venv/bin/python -m pytest tests/test_ui_server.py::test_auto_document_fetch_stops_before_next_target_when_budget_expires tests/test_ui_server.py::test_scheduled_poll_and_alert_writes_audit_reports
 .venv/bin/python -m pytest tests/test_ui_server.py::test_scheduled_poll_treats_auto_document_fetch_failure_as_warning tests/test_ui_server.py::test_scheduled_poll_and_alert_writes_audit_reports tests/test_ui_server.py::test_auto_document_fetch_stops_before_next_target_when_budget_expires
 .venv/bin/python -m pytest
+gh run watch 29666867413 --repo CryptoLearningLab/dimoprasies --exit-status
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'cd /root/workspace/dimoprasies && git rev-parse --short HEAD && curl -s -L --max-time 30 https://165.227.143.152.sslip.io/ | grep -o "v0.1.9" | head -1 && systemctl is-active tender-radar-ui.service && systemctl is-active caddy.service && systemctl is-enabled tender-radar-scheduled.timer && systemctl is-active tender-radar-scheduled.timer'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'cd /root/workspace/dimoprasies && /usr/bin/time -f "ELAPSED %e" .venv/bin/python -m tender_radar runtime scheduled-run --dry-run --limit 1 --ai-batch-size 5 --enrichment-limit 10 --report work/reports/scheduled_poll_alert_auto_fetch_v019_final.json --markdown-report work/reports/scheduled_poll_alert_auto_fetch_v019_final.md'
 ```
 
 Results:
@@ -2161,6 +2164,13 @@ targeted version/scheduler tests: 2 passed
 targeted time-budget/report tests: 2 passed
 targeted warning/report tests: 3 passed
 full test suite: 159 passed
+GitHub Actions deploy 29666867413: success
+droplet HEAD: 66a7396
+live UI version: v0.1.9
+tender-radar-ui.service: active
+caddy.service: active
+tender-radar-scheduled.timer: enabled, active
+scheduled dry-run: ok true, discovery skipped true, AI triage skipped true, auto_document_fetch skipped true, errors 0, warnings 0, elapsed 6.94s
 ```
 
 ## Handoff Discipline
