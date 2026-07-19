@@ -610,6 +610,15 @@ The system `python` command is not present in the remote environment; use
   services, direct assignments and supply/installation rows. The AI prompt was
   tightened and versioned so these prompt changes invalidate stale cached
   decisions.
+- Final production smoke on commit `ab0d497` with
+  `AI_TRIAGE_PROMPT_VERSION=2026-07-19-strict-non-works-v2` confirmed:
+  - first v2 run classified 77 rows in 80.69s;
+  - second unchanged run skipped AI in 3.22s;
+  - final report contained 17 kept rows, 60 dropped rows, 12 rows with document
+    evidence, 9 kept rows with linked ESHIDIS ids and 0 dropped rows with
+    ESHIDIS hints;
+  - candidate enrichment smoke finished in 7.81s with 1 attempted target,
+    6 previously skipped attempts and 0 failures.
 
 ## Next Work
 
@@ -617,6 +626,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Deploy the tightened AI prompt/signature update, rerun production AI triage
-without full discovery, inspect kept/dropped/link results and then proceed to
-the ESHIDIS verifier/dedup persistence gate.
+Proceed to the ESHIDIS verifier/dedup persistence gate: store verified official
+ESHIDIS replacements/relations in SQLite and make the dashboard prefer the
+official ESHIDIS row when a municipal/KIMDIS row links to it.

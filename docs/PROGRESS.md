@@ -2463,6 +2463,26 @@ full test suite after dropped-hint guard: 178 passed
 full test suite after prompt/cache v2 bump: 178 passed
 ```
 
+Final production smoke after deploy:
+
+```text
+droplet commit: ab0d497
+AI_TRIAGE_PROMPT_VERSION: 2026-07-19-strict-non-works-v2
+v2 incremental AI triage first run: ok true, skipped false, pending_rows 77,
+  retained_rows 0, elapsed 80.69s
+v2 incremental AI triage second unchanged run: ok true, skipped true,
+  skip_reason NO_PENDING_AI_TRIAGE_ROWS, elapsed 3.22s
+v2 AI report: total 77, kept 17, dropped 60, with_document_evidence 12,
+  kept_with_linked_eshidis 9, dropped_rows_with_eshidis_hints 0
+candidate enrichment smoke after v2: ok true, targets 1, attempted 1,
+  skipped_previously_attempted 6, failed 0, stopped_by_time_budget false,
+  elapsed 7.81s
+```
+
+No full discovery was run during the production smoke. The smoke used
+`run_incremental_ai_triage` and `run_candidate_enrichment` directly against
+the existing dashboard/report state on the droplet.
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

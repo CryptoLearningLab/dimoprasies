@@ -1,65 +1,55 @@
 # NEXT TASK
 
 Execute:
-`Deploy tightened AI classifier and verify official ESHIDIS linking`
+`Persist verified ESHIDIS links and dashboard dedup preference`
 
 ## Current Input
 
-The document fetcher and first OCR fallback gates are complete:
+The fetched/OCR AI classifier gate is deployed and smoke-tested on the
+DigitalOcean droplet.
 
-- scheduled runs can automatically fetch documents for new/changed
-  non-ESHIDIS rows before presentation;
-- non-ESHIDIS fetched document provenance is persisted in SQLite
-  `source_documents`;
-- unchanged authority documents are reused instead of re-downloaded;
-- ESHIDIS official attachment downloads keep using the existing
-  `attachments` table and skip behavior;
-- KIMDIS has an existing JSON document-index bridge and local-file skip
-  behavior;
-- document analysis now records `ocr_status` and `ocr_error`;
-- weak PDF extraction attempts bounded OCR when `pdftoppm` and `tesseract`
-  are available and records non-fatal missing-tool errors otherwise;
-- the UI has an `Admin panel` tab for auditing hidden rows and restoring AI
-  false drops or accidental `Δεν με ενδιαφέρει` dismissals. Restores are stored
-  as SQLite `triage_overrides` feedback.
-- the UI is private-by-default as of `v0.1.13`: users must log in with
-  SQLite invite/password credentials before dashboard/action APIs are
-  available, and only `admin` role sessions can access audit/restore/invite
-  controls.
+Final verified state:
 
-The AI classifier consumes fetched/OCR document evidence for pending rows.
-Production smoke confirmed that signature-based caching works: the first run
-after adding signatures classified 77 rows, and the second unchanged run skipped
-AI in a few seconds. The live report exposed concrete false keeps for
-technical-consultant services, direct assignments and supply/installation rows;
-the prompt was tightened and `AI_TRIAGE_PROMPT_VERSION` was added to the cache
-signature.
+- live commit: `ab0d497`;
+- UI package version: `0.1.14`;
+- `AI_TRIAGE_PROMPT_VERSION`: `2026-07-19-strict-non-works-v2`;
+- first v2 AI triage run classified 77 existing dashboard rows in 80.69s;
+- second unchanged v2 AI triage run skipped OpenAI in 3.22s;
+- final AI report contained 17 kept rows, 60 dropped rows, 12 rows with
+  fetched/OCR document evidence, 9 kept rows with linked ESHIDIS ids and
+  0 dropped rows with ESHIDIS hints;
+- candidate enrichment smoke ran without full discovery: 1 attempted target,
+  6 previously skipped attempts, 0 failures, 7.81s.
 
 ## Instruction
 
 Implement the next small gate:
 
-1. Deploy the tightened prompt/signature update.
-2. Rerun live AI triage on the droplet without forcing full discovery.
-3. Confirm the prompt-version change invalidates old cached decisions once.
-4. Confirm the next unchanged run skips AI again.
-5. Inspect `work/reports/ai_triage_report.json` for remaining false keeps or
-   false drops.
-6. Run candidate enrichment for linked ESHIDIS ids with a time budget and list
-   which ids verified or failed.
-7. If linked ESHIDIS candidates verify successfully, prepare the next persistence
-   gate for storing official ESHIDIS replacements/dedup relations in SQLite.
+1. Add SQLite persistence for official cross-source links from KIMDIS/authority
+   rows to verified ESHIDIS ids.
+2. Verify candidate ESHIDIS ids through
+   `pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/{id}`
+   before storing them as official links.
+3. Do not merge records by title alone.
+4. Make the dashboard prefer the official ESHIDIS row when a KIMDIS/authority
+   row has a verified ESHIDIS link, while retaining provenance for the original
+   KIMDIS/authority source.
+5. Keep unverified non-ESHIDIS rows visible as review candidates with a clear
+   `NO_VERIFIED_ESHIDIS_LINK` style reason.
+6. Add focused tests for:
+   - verified link persistence;
+   - dashboard replacement/preference;
+   - unverified rows remaining visible;
+   - no title-only deduplication.
 
 ## Required Closeout
 
-1. Run droplet AI triage/enrichment smoke and record elapsed time.
-2. Confirm unchanged sources do not trigger full discovery.
-3. Confirm prompt-version invalidation and unchanged-row skip both work.
-4. Confirm document evidence appears for changed/pending rows where local
-   fetched/OCR text exists.
-5. Report changed files and verification commands.
-6. Update `docs/PROGRESS.md`.
-7. Update `docs/DECISIONS.md` only if a real decision was made.
-8. Update this file with the next single executable gate.
-9. Update `docs/HANDOFF.md` if project state or next gate changed.
-10. Commit and push tracked changes to GitHub unless explicitly told not to.
+1. Run unit tests and full test suite.
+2. Run a droplet smoke without full discovery.
+3. Report how many rows were replaced by verified ESHIDIS preference and how
+   many remain non-ESHIDIS review candidates.
+4. Update `docs/PROGRESS.md`.
+5. Update `docs/DECISIONS.md` only if a real decision was made.
+6. Update `docs/HANDOFF.md` if project state or next gate changed.
+7. Update this file with the next single executable gate.
+8. Commit and push tracked changes to GitHub unless explicitly told not to.
