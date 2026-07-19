@@ -2808,6 +2808,19 @@ local admin audit smoke:
   Mesologgi authority row -> DUPLICATE_CANDIDATE ESHIDIS 221624
   score 0.9
   signals title_overlap 1.00, authority_match
+production deploy smoke on commit 50a0c13:
+  package version 0.1.21
+  homepage contains v0.1.21
+  audit_enrichment_version 2026-07-19-deadline-v2
+  hidden_total 144
+  duplicate_candidates 1
+  missing_deadline 60
+  expired 13
+  duplicates 9
+  ai_hidden 61
+  Mesologgi authority row -> DUPLICATE_CANDIDATE ESHIDIS 221624
+  score 0.9
+  signals title_overlap 1.00, authority_match
 ```
 
 ## Handoff Discipline

@@ -680,6 +680,10 @@ The system `python` command is not present in the remote environment; use
   matches are shown as `DUPLICATE_CANDIDATE`. The Μεσολόγγι gymnasium row now
   explains its likely match to ESHIDIS `221624`. Admin hidden rows are
   mobile-card responsive.
+- Production deploy on commit `50a0c13` passed: package version `0.1.21`,
+  homepage `v0.1.21`, `duplicate_candidates 1`, `missing_deadline 60`,
+  and the Μεσολόγγι authority row is `DUPLICATE_CANDIDATE` for ESHIDIS
+  `221624` with score `0.9`.
 
 ## Next Work
 
