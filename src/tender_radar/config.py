@@ -118,6 +118,10 @@ def _validate_shape(path: Path, data: Any) -> None:
         window_days = data.get("visible_window_days", 15)
         if not isinstance(window_days, int) or window_days < 1:
             raise ConfigValidationError("visible_window_days must be a positive integer")
+        api = data.get("api") if isinstance(data.get("api"), dict) else {}
+        max_pages = api.get("max_pages", 1)
+        if not isinstance(max_pages, int) or max_pages < 1:
+            raise ConfigValidationError("api.max_pages must be a positive integer")
         for item in data["organizations"]:
             if not isinstance(item, dict):
                 raise ConfigValidationError("organizations entries must be mappings")

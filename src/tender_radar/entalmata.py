@@ -77,6 +77,7 @@ def scan_entalmata(
     summary = {
         "ok": True,
         "checked_organizations": 0,
+        "pages_checked": 0,
         "decisions_seen": 0,
         "outside_window": 0,
         "without_document": 0,
@@ -96,45 +97,55 @@ def scan_entalmata(
         if not org_id:
             continue
         summary["checked_organizations"] += 1
-        url = search_url(api, org_id)
-        try:
-            payload = json_fetch(url)
-        except Exception as exc:  # pragma: no cover - network fallback
-            summary["errors"] += 1
-            errors.append({"org_id": org_id, "stage": "search", "error": str(exc)})
-            continue
-        decisions = payload.get("decisions") if isinstance(payload.get("decisions"), list) else []
-        for decision in decisions:
-            if not isinstance(decision, dict):
-                continue
-            summary["decisions_seen"] += 1
-            issue = decision_issue_date(decision)
-            if issue is None or issue < cutoff:
-                summary["outside_window"] += 1
-                continue
-            document_url = str(decision.get("documentUrl") or "").strip() or None
-            if not document_url:
-                summary["without_document"] += 1
-                continue
+        start_page = int(api.get("start_page") or api.get("page") or 0)
+        max_pages = int(api.get("max_pages") or 1)
+        for page in range(start_page, start_page + max_pages):
+            url = search_url(api, org_id, page=page)
             try:
-                record = process_decision(
-                    decision,
-                    org_id=org_id,
-                    org_name=org_name,
-                    download_dir=download_dir,
-                    keywords=keywords,
-                    bytes_fetcher=bytes_fetch,
-                )
-            except Exception as exc:  # pragma: no cover - network/filesystem fallback
+                payload = json_fetch(url)
+            except Exception as exc:  # pragma: no cover - network fallback
                 summary["errors"] += 1
-                errors.append({"org_id": org_id, "stage": "decision", "error": str(exc)})
+                errors.append({"org_id": org_id, "stage": "search", "page": str(page), "error": str(exc)})
                 continue
-            upsert_entalma_record(db_path, record, metadata={"source_search_url": url})
-            if record.status == "VISIBLE":
-                summary["matched"] += 1
-                visible_records.append(record)
-            else:
-                summary["rejected"] += 1
+            decisions = payload.get("decisions") if isinstance(payload.get("decisions"), list) else []
+            if not decisions:
+                break
+            summary["pages_checked"] += 1
+            page_outside_window = 0
+            for decision in decisions:
+                if not isinstance(decision, dict):
+                    continue
+                summary["decisions_seen"] += 1
+                issue = decision_issue_date(decision)
+                if issue is None or issue < cutoff:
+                    summary["outside_window"] += 1
+                    page_outside_window += 1
+                    continue
+                document_url = str(decision.get("documentUrl") or "").strip() or None
+                if not document_url:
+                    summary["without_document"] += 1
+                    continue
+                try:
+                    record = process_decision(
+                        decision,
+                        org_id=org_id,
+                        org_name=org_name,
+                        download_dir=download_dir,
+                        keywords=keywords,
+                        bytes_fetcher=bytes_fetch,
+                    )
+                except Exception as exc:  # pragma: no cover - network/filesystem fallback
+                    summary["errors"] += 1
+                    errors.append({"org_id": org_id, "stage": "decision", "page": str(page), "error": str(exc)})
+                    continue
+                upsert_entalma_record(db_path, record, metadata={"source_search_url": url, "source_page": page})
+                if record.status == "VISIBLE":
+                    summary["matched"] += 1
+                    visible_records.append(record)
+                else:
+                    summary["rejected"] += 1
+            if page_outside_window == len(decisions):
+                break
 
     summary["archived"] = archive_old_entalmata(db_path, download_dir / "old", cutoff)
     return {
@@ -150,15 +161,19 @@ def scan_entalmata(
     }
 
 
-def search_url(api: dict[str, Any], org_id: str) -> str:
+def search_url(api: dict[str, Any], org_id: str, *, page: int | None = None) -> str:
     base = str(api.get("search_url") or "https://diavgeia.gov.gr/opendata/search.json")
     params = {
         "org": org_id,
         "size": int(api.get("size") or 40),
-        "page": int(api.get("page") or 0),
-        "sort": str(api.get("sort") or "recent"),
-        "status": str(api.get("status") or "published"),
+        "page": int(page if page is not None else api.get("start_page") or api.get("page") or 0),
     }
+    if api.get("order"):
+        params["order"] = str(api.get("order"))
+    else:
+        params["sort"] = str(api.get("sort") or "recent")
+    if api.get("status"):
+        params["status"] = str(api.get("status"))
     return f"{base}?{urlencode(params)}"
 
 

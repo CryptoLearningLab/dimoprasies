@@ -3127,6 +3127,33 @@ Verification:
 # 215 passed in 16.03s
 ```
 
+### UI v0.1.30 Diavgeia paginated entalmata scan
+
+- Confirmed that target entalmata can be outside the first Diavgeia page even
+  inside the 15-day window. Live checks showed `14722` protocol `1569` on
+  page `1`, and `50051` protocol `1739` on page `4`.
+- Aligned `config/diavgeia_entalmata.yml` with the Windows utility endpoint
+  style: `https://diavgeia.gov.gr/opendata/search` with `order=recent`.
+- Added `api.max_pages` and `api.start_page` support. The production config now
+  checks up to `8` pages per configured organization, stopping early when a
+  page is entirely outside the visible window.
+- Added test coverage that a keyword found only in a later Diavgeia page is
+  downloaded, read from PDF body text and kept visible.
+- Bumped the application version from `0.1.29` to `0.1.30`.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_entalmata.py tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_config.py -q
+# 7 passed in 1.59s
+
+.venv/bin/python -m py_compile src/tender_radar/entalmata.py src/tender_radar/config.py
+# passed
+
+.venv/bin/python -m pytest -q
+# 216 passed in 20.68s
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

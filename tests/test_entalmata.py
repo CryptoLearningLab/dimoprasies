@@ -179,3 +179,70 @@ def test_scan_entalmata_matches_keyword_inside_pdf_text(tmp_path, monkeypatch) -
     records = list_entalmata(db_path, today=date(2026, 7, 19), visible_window_days=15)
     assert [record.ada for record in records] == ["PDFMATCH"]
     assert records[0].matched_keywords == ["ΛΑΤΩ"]
+
+
+def test_scan_entalmata_paginates_until_configured_depth(tmp_path, monkeypatch) -> None:
+    config_path = tmp_path / "diavgeia_entalmata.yml"
+    config_path.write_text(
+        """
+api:
+  search_url: "https://diavgeia.gov.gr/opendata/search"
+  size: 40
+  start_page: 0
+  max_pages: 2
+  order: "recent"
+visible_window_days: 15
+organizations:
+  - id: "50051"
+    name: "Περιφέρεια Δυτικής Ελλάδας"
+keywords:
+  - "ΓΚΟΛΙΟΠΟΥΛΟΣ"
+""",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "state.sqlite"
+    download_dir = tmp_path / "downloads"
+    monkeypatch.setattr(entalmata, "extract_pdf_text", lambda path: "Επωνυμία δικαιούχου ΓΚΟΛΙΟΠΟΥΛΟΣ ΑΤΕ")
+    seen_urls: list[str] = []
+
+    def json_fetcher(url: str):
+        seen_urls.append(url)
+        if "page=0" in url:
+            return {
+                "decisions": [
+                    {
+                        "ada": "PAGE0",
+                        "subject": "ΕΝΤΟΛΗ ΠΛΗΡΩΜΗΣ 1720-08/07/2026",
+                        "protocolNumber": "1720",
+                        "issueDate": "2026-07-09",
+                        "documentUrl": "https://example.test/1720.pdf",
+                    }
+                ]
+            }
+        return {
+            "decisions": [
+                {
+                    "ada": "PAGE1",
+                    "subject": "ΕΝΤΟΛΗ ΠΛΗΡΩΜΗΣ 1569-07/07/2026",
+                    "protocolNumber": "1569",
+                    "issueDate": "2026-07-08",
+                    "documentUrl": "https://example.test/1569.pdf",
+                }
+            ]
+        }
+
+    report = scan_entalmata(
+        db_path=db_path,
+        config_path=config_path,
+        download_dir=download_dir,
+        today=date(2026, 7, 19),
+        json_fetcher=json_fetcher,
+        bytes_fetcher=lambda url: b"%PDF-1.4 fake",
+    )
+
+    assert report["summary"]["pages_checked"] == 2
+    assert report["summary"]["matched"] == 2
+    assert any("page=0" in url for url in seen_urls)
+    assert any("page=1" in url for url in seen_urls)
+    records = list_entalmata(db_path, today=date(2026, 7, 19), visible_window_days=15)
+    assert {record.protocol_number for record in records} == {"1720", "1569"}

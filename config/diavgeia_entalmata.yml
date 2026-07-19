@@ -1,9 +1,9 @@
 api:
-  search_url: "https://diavgeia.gov.gr/opendata/search.json"
+  search_url: "https://diavgeia.gov.gr/opendata/search"
   size: 40
-  page: 0
-  sort: "recent"
-  status: "published"
+  start_page: 0
+  max_pages: 8
+  order: "recent"
 
 visible_window_days: 15
 

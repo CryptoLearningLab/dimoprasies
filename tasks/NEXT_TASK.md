@@ -8,8 +8,8 @@ Execute:
 The deadline-evidence dashboard gate is deployed and admin audit re-enrichment
 is implemented. Nationwide search is disabled in production version `0.1.26`.
 Production version `0.1.28` adds the Diavgeia entalmata workflow and fixes
-Greek Diavgeia PDF URL encoding. Local version `0.1.29` fixes PDF-body text
-matching parity with the Windows `.exe`.
+Greek Diavgeia PDF URL encoding. Local version `0.1.30` fixes PDF-body text
+matching parity with the Windows `.exe` and adds paginated Diavgeia scan.
 
 - `dashboard_payload` enriches rows with fetched document evidence before
   active filtering.
@@ -62,15 +62,18 @@ matching parity with the Windows `.exe`.
   downloaded, but the integrated extractor used only `fitz` and returned empty
   text when PyMuPDF was absent. Local `v0.1.29` falls back to the shared
   `pypdf`/OCR extractor and adds PyMuPDF to the deploy dependency group.
+- Follow-up pagination checks found protocol `1569` on `14722` page `1` and
+  protocol `1739` on `50051` page `4`, so the entalmata config now checks up
+  to `8` pages per organization.
 
 ## Instruction
 
 Complete the next gate:
 
-1. Deploy `v0.1.29`.
+1. Deploy `v0.1.30`.
 2. Rerun one bounded `tender-radar entalmata scan` on the droplet.
 3. Confirm PDF-body keyword matches become visible.
-4. Confirm previously downloaded PDFs are reused instead of downloaded again.
+4. Confirm later-page results such as protocol `1569` are included.
 5. Keep the entalmata workflow separate from tender dashboard filtering.
 
 ## Required Tests

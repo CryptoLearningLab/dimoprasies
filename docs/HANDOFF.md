@@ -744,6 +744,10 @@ The system `python` command is not present in the remote environment; use
   (`pypdf` plus OCR fallback). `PyMuPDF` is now included in the `docs` optional
   dependencies so the droplet deploy installs the same primary extractor used
   by the desktop script.
+- Local `v0.1.30` adds paginated Diavgeia entalmata scan support. The
+  production config uses `/opendata/search` with `order=recent`, starts from
+  page `0`, and checks up to `8` pages per organization while stopping early
+  when a page is entirely outside the 15-day window.
 
 ## Next Work
 
@@ -751,6 +755,5 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Deploy `v0.1.29`, rerun `tender-radar entalmata scan` on the droplet and
-confirm PDF-body keyword matches such as `ΛΑΤΩ` or `ΓΚΟΛΙΟΠΟΥΛΟΣ` become
-`VISIBLE`.
+Deploy `v0.1.30`, rerun `tender-radar entalmata scan` on the droplet and
+confirm later-page PDF-body matches such as protocol `1569` become `VISIBLE`.
