@@ -46,7 +46,9 @@ Do not change scraping/status logic. Do not mark candidates as verified active.
 ## Data and Interfaces
 
 - `config/locations.yml` remains the source of local geography.
-- `/api/dashboard?scope=focus|all` returns list data.
+- `/api/dashboard?scope=focus` returns list data. The former `all` scope was
+  removed after the redesign because nationwide discovery needs a separate
+  safe product gate.
 - `/api/document-preview?eshidis_id=...` returns basic document attachments.
 - `/api/document-file?attachment_id=...` serves a downloaded local file only.
 

@@ -712,6 +712,14 @@ The system `python` command is not present in the remote environment; use
 - Production deploy on commit `7400b6a` passed: package version `0.1.25`,
   homepage `v0.1.25`, admin audit `hidden_total 86`, hidden rows expose ISO
   `audit_at`, and repeated audit loads kept `first_seen_at` stable.
+- Restore tag `restore-v0.1.25-before-disable-nationwide` points to commit
+  `a29a175`, the last verified production state before disabling nationwide
+  search.
+- The UI now displays version `v0.1.26` locally. Nationwide search is disabled:
+  the All-Greece checkbox was removed, dashboard/AI/enrichment/email flows are
+  locked to `focus`, CLI scope choices are restricted to `focus`, and search
+  templates default to `nationwide: false`. Nationwide support is deferred to a
+  future isolated ESHIDIS-only design.
 
 ## Next Work
 

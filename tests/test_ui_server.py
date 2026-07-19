@@ -68,7 +68,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.25" in INDEX_HTML
+    assert "v0.1.26" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -77,6 +77,13 @@ def test_ui_exposes_source_polling_audit() -> None:
     assert "/api/source-polling" in APP_JS
     assert "renderSourcePolling" in APP_JS
     assert "refreshRuntimeViews" in APP_JS
+
+
+def test_nationwide_scope_is_disabled_in_ui_and_api() -> None:
+    assert "allGreeceToggle" not in INDEX_HTML
+    assert "allGreeceToggle" not in APP_JS
+    assert "Λήψη έργων από όλη την Ελλάδα" not in INDEX_HTML
+    assert ui_server.dashboard_scope("all") == "focus"
 
 
 def test_ui_exposes_email_alert_button() -> None:

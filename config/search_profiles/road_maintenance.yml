@@ -5,7 +5,7 @@ profile:
     Παράδειγμα profile για έργα συντήρησης οδικού δικτύου.
 
 scope:
-  nationwide: true
+  nationwide: false
   active_only: true
 
 document_types:

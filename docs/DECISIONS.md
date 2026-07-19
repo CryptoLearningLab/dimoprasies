@@ -695,3 +695,21 @@ Tender Radar account roles are intentionally bounded to `admin`, `tester` and
 panel permissions. The admin role update flow accepts email or displayed
 SQLite user id, and protects the system from removing the final enabled admin
 or demoting the currently active admin session.
+
+## D-062 - Nationwide search is disabled until it has a safe separate design
+**Status:** Accepted
+
+The daily Tender Radar product is a local-interest workflow. The former
+All-Greece UI scope is disabled because it shared discovery reports, source
+fingerprints, dashboard state and enrichment paths with the local workflow.
+That could cause excessive KIMDIS/authority candidates, expensive document
+fetch/OCR/AI work, and confusing state after switching back to the local scope.
+
+Until a separate nationwide design is approved, user-facing dashboard,
+AI triage, enrichment, scheduled alert and CLI scope paths are restricted to
+`focus`. New search profile templates default to `nationwide: false`.
+
+Future nationwide support must be implemented as a separate product gate with
+mode-aware state, ESHIDIS-only discovery by default, no automatic non-ESHIDIS
+fetch/OCR/AI, explicit resource limits, and separate audit/reporting so it
+cannot pollute or slow the local daily workflow.

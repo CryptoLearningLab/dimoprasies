@@ -65,11 +65,12 @@ human-friendly UI should compose these mechanisms instead of replacing them.
 
 ## UI Layer
 
-- `/api/dashboard?scope=focus|all`
+- `/api/dashboard?scope=focus`
   - Combines discovery report rows and SQLite tender metadata.
   - Focus scope uses `config/locations.yml`.
-  - All-Greece scope shows all known/discovered rows but does not claim
-    national completeness.
+  - Nationwide scope is disabled intentionally until it is redesigned with
+    separate state, ESHIDIS-only discovery, and no automatic document/OCR/AI
+    processing.
 - `/api/document-preview?eshidis_id=...`
   - Lists known latest attachments.
   - Highlights declaration, technical description and budget when present.

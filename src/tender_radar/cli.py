@@ -75,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
         "scheduled-run",
         help="Run bounded poll, AI triage, enrichment and email alert sequence.",
     )
-    scheduled_run.add_argument("--scope", choices=["focus", "all"], default="focus")
+    scheduled_run.add_argument("--scope", choices=["focus"], default="focus")
     scheduled_run.add_argument("--sort", choices=["deadline_asc", "budget_desc"], default="deadline_asc")
     scheduled_run.add_argument("--limit", type=int, default=100, help="Bounded ESHIDIS discovery limit.")
     scheduled_run.add_argument("--ai-batch-size", type=int, default=20)
@@ -226,7 +226,7 @@ def build_parser() -> argparse.ArgumentParser:
         "ai-triage-report",
         help="Run advisory OpenAI triage over the current dashboard discovery rows.",
     )
-    ai_triage.add_argument("--scope", choices=["focus", "all"], default="focus", help="Dashboard scope to triage.")
+    ai_triage.add_argument("--scope", choices=["focus"], default="focus", help="Dashboard scope to triage.")
     ai_triage.add_argument("--sort", choices=["deadline_asc", "budget_desc"], default="deadline_asc")
     ai_triage.add_argument("--model", default=None, help="OpenAI model; defaults to OPENAI_MODEL or gpt-4.1-mini.")
     ai_triage.add_argument("--batch-size", type=int, default=20, help="Rows per OpenAI request.")

@@ -4,7 +4,7 @@ search_request:
   description: ""
 
   scope:
-    nationwide: true
+    nationwide: false
     active_only: true
     regions: []
     regional_units: []

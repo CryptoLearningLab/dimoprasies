@@ -2970,6 +2970,35 @@ production deploy smoke on commit 7400b6a:
   repeated admin_audit_payload calls keep first_seen_at stable
 ```
 
+### UI v0.1.26 disable nationwide search
+
+- Created and pushed restore tag `restore-v0.1.25-before-disable-nationwide`
+  at commit `a29a175`, the last verified production state before disabling
+  nationwide search.
+- Removed the user-facing All-Greece checkbox from the dashboard.
+- Locked UI dashboard, AI triage, enrichment and email alert requests to
+  `scope=focus`.
+- Locked server dashboard scope normalization to `focus`, so manual
+  `scope=all` requests no longer expose all known rows.
+- Restricted CLI scheduled run and AI triage scope choices to `focus`.
+- Changed search request/profile defaults from `nationwide: true` to
+  `nationwide: false`.
+- Recorded decision D-062: nationwide search is a future separate product gate,
+  not an active workflow.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_nationwide_scope_is_disabled_in_ui_and_api tests/test_ui_server.py::test_ui_shows_current_version_badge -q
+# 2 passed in 0.86s
+
+.venv/bin/python -m py_compile src/tender_radar/cli.py src/tender_radar/ui_server.py tests/test_ui_server.py
+# passed
+
+.venv/bin/python -m pytest -q
+# 209 passed in 16.23s
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

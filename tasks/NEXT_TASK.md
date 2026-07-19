@@ -40,6 +40,9 @@ is implemented locally in UI package version `0.1.25`.
   audit timestamp in the admin panel, with source epoch timestamps normalized
   to ISO UTC. Deterministic audit rows persist first-hidden timestamps in
   SQLite `admin_hidden_events`.
+- Nationwide search is disabled in the user-facing product. It remains a
+  future expansion only, after the local workflow is stable and a separate
+  ESHIDIS-only/mode-aware design is approved.
 
 ## Instruction
 
@@ -64,3 +67,9 @@ Complete the next gate:
 2. Update `docs/HANDOFF.md` if production/deployment state changes.
 3. Update this file with the next single executable gate.
 4. Do not run full discovery unless explicitly requested.
+
+## Future Backlog
+
+- Design a separate nationwide ESHIDIS-only search mode with isolated state,
+  explicit limits, no automatic KIMDIS/authority fetch, no automatic OCR/AI,
+  and separate audit/reporting.

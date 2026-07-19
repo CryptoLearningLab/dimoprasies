@@ -1039,7 +1039,7 @@ def merge_kimdis_connected_acts_result(official_id: str, result: dict[str, Any])
 
 
 def run_ai_triage(*, scope: str = "focus", sort: str = "deadline_asc", batch_size: int = 20) -> dict[str, Any]:
-    safe_scope = scope if scope in {"focus", "all"} else "focus"
+    safe_scope = dashboard_scope(scope)
     safe_sort = sort if sort in {"deadline_asc", "budget_desc"} else "deadline_asc"
     safe_batch_size = max(1, min(int(batch_size), 50))
     result = run_cli_command(
@@ -1573,7 +1573,7 @@ def run_candidate_enrichment(*, scope: str = "focus", limit: int = 50, max_secon
                 "remaining_targets": max(0, len(targets) - len(results)),
             },
             "results": results,
-            "dashboard": dashboard_payload(scope=scope if scope in {"focus", "all"} else "focus"),
+            "dashboard": dashboard_payload(scope=dashboard_scope(scope)),
         }
     finally:
         ENRICHMENT_LOCK.release()
@@ -1696,7 +1696,7 @@ def run_auto_document_fetch(
 
 
 def candidate_enrichment_targets(*, scope: str = "focus", limit: int = 50) -> tuple[list[dict[str, str]], int]:
-    dashboard = dashboard_payload(scope=scope if scope in {"focus", "all"} else "focus")
+    dashboard = dashboard_payload(scope=dashboard_scope(scope))
     attempts = candidate_enrichment_attempts()
     canonical_ids = canonical_eshidis_ids_in_rows(merged_tender_rows())
     targets: list[dict[str, str]] = []
@@ -3252,7 +3252,7 @@ def dashboard_payload(
     *,
     apply_triage: bool = True,
 ) -> dict[str, Any]:
-    all_greece = scope == "all"
+    safe_scope = dashboard_scope(scope)
     profile = location_focus_profile()
     overrides = triage_overrides_by_key()
     force_keep_keys = {key for key, item in overrides.items() if item.get("action") == "FORCE_KEEP"}
@@ -3271,10 +3271,10 @@ def dashboard_payload(
     ]
     triage_hidden = [row for row in active_rows if row.get("ai_triage_hidden")]
     triage_visible_rows = [row for row in active_rows if not row.get("ai_triage_hidden")]
-    visible_rows = triage_visible_rows if all_greece else [row for row in triage_visible_rows if row["interest_match"]]
+    visible_rows = [row for row in triage_visible_rows if row["interest_match"]]
     visible_rows = sort_dashboard_rows(visible_rows, sort=sort)
     return {
-        "scope": "all" if all_greece else "focus",
+        "scope": safe_scope,
         "sort": sort if sort in {"deadline_asc", "budget_desc"} else "deadline_asc",
         "profile": profile,
         "summary": {
@@ -3295,6 +3295,10 @@ def dashboard_payload(
             "Discovery rows remain candidates until official detail/status verification."
         ),
     }
+
+
+def dashboard_scope(scope: str | None) -> str:
+    return "focus"
 
 
 def suppress_linked_eshidis_duplicates(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -5378,10 +5382,6 @@ INDEX_HTML = f"""<!doctype html>
           <p class="mutedLine">Η γρήγορη αναζήτηση είναι bounded: έως 100 ενεργές γραμμές ΕΣΗΔΗΣ και 20 σελίδες ΚΗΜΔΗΣ ανά οικογένεια εγγράφων.</p>
           <p id="discoverySafetyText" class="mutedLine">Δεν υπάρχει ακόμα καταγεγραμμένο discovery watermark σε αυτό το runtime.</p>
         </div>
-        <label class="switchLine">
-          <input id="allGreeceToggle" type="checkbox">
-          <span>Λήψη έργων από όλη την Ελλάδα</span>
-        </label>
         <div class="toolbar inlineToolbar">
           <label>Βάθος ΕΣΗΔΗΣ <input id="limitInput" type="number" min="1" max="500" value="100"></label>
           <label>Ταξινόμηση
@@ -6538,9 +6538,8 @@ function fillSelect(id, values) {
 }
 
 async function loadDashboard() {
-  const scope = $('allGreeceToggle').checked ? 'all' : 'focus';
   const sort = $('sortSelect').value || 'deadline_asc';
-  const payload = await api(`/api/dashboard?scope=${scope}&sort=${sort}`);
+  const payload = await api(`/api/dashboard?scope=focus&sort=${sort}`);
   state.dashboard = payload;
   renderDashboard(payload);
 }
@@ -6841,14 +6840,12 @@ function renderDashboard(payload) {
   $('visibleTenderCount').textContent = payload.summary.visible || 0;
   $('focusTenderCount').textContent = payload.summary.focus_matches || 0;
   const municipalityText = (payload.profile.municipalities || []).join(', ');
-  $('scopeText').textContent = payload.scope === 'all'
-    ? 'Προβολή όλων των γνωστών/discovered έργων. Η πληρότητα παραμένει μετρήσιμη, όχι δεδομένη.'
-    : `Προεπιλογή τοπικού ενδιαφέροντος: ${municipalityText}`;
+  $('scopeText').textContent = `Προεπιλογή τοπικού ενδιαφέροντος: ${municipalityText}`;
   renderDiscoverySafety(payload.discovery_run);
   const rows = $('tenderRows');
   rows.innerHTML = '';
   if (!payload.tenders.length) {
-    rows.innerHTML = '<tr><td colspan="7" class="emptyState">Δεν υπάρχουν ακόμα έργα για αυτό το φίλτρο. Δοκίμασε νέα αναζήτηση ΕΣΗΔΗΣ ή ενεργοποίησε όλη την Ελλάδα.</td></tr>';
+    rows.innerHTML = '<tr><td colspan="7" class="emptyState">Δεν υπάρχουν ακόμα έργα για την τοπική περιοχή ενδιαφέροντος. Δοκίμασε νέα αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ.</td></tr>';
     resetPreview();
     return;
   }
@@ -7113,11 +7110,10 @@ async function runAction(path, body, label) {
 }
 
 async function startAiTriageThenEnrichment() {
-  const scope = $('allGreeceToggle').checked ? 'all' : 'focus';
   const sort = $('sortSelect').value || 'deadline_asc';
   const initial = await api('/api/ai-triage', {
     method: 'POST',
-    body: JSON.stringify({ scope, sort, batch_size: 20 }),
+    body: JSON.stringify({ scope: 'focus', sort, batch_size: 20 }),
   });
   if (!initial.job_id) return;
   $('statusText').textContent = 'AI έλεγχος έργων σε εξέλιξη';
@@ -7132,10 +7128,9 @@ async function startAiTriageThenEnrichment() {
 }
 
 async function startCandidateEnrichment() {
-  const scope = $('allGreeceToggle').checked ? 'all' : 'focus';
   const initial = await api('/api/enrich-candidates', {
     method: 'POST',
-    body: JSON.stringify({ scope, limit: 50 }),
+    body: JSON.stringify({ scope: 'focus', limit: 50 }),
   });
   if (!initial.job_id) return;
   $('statusText').textContent = 'Αυτόματος έλεγχος μη-ΕΣΗΔΗΣ έργων σε εξέλιξη';
@@ -7317,7 +7312,6 @@ $('loginPasswordInput').addEventListener('keydown', (event) => {
   if (event.key === 'Enter') adminLogin().catch((error) => { $('loginStatus').textContent = String(error); });
 });
 $('refreshBtn').addEventListener('click', refresh);
-$('allGreeceToggle').addEventListener('change', () => loadDashboard().catch((error) => { $('statusText').textContent = String(error); }));
 $('sortSelect').addEventListener('change', () => loadDashboard().catch((error) => { $('statusText').textContent = String(error); }));
 $('discoverBtn').addEventListener('click', () => {
   const backfill = $('backfillToggle').checked;
@@ -7328,9 +7322,8 @@ $('discoverBtn').addEventListener('click', () => {
   );
 });
 $('emailAlertsBtn').addEventListener('click', () => {
-  const scope = $('allGreeceToggle').checked ? 'all' : 'focus';
   const sort = $('sortSelect').value || 'deadline_asc';
-  runAction('/api/email-alerts', { scope, sort, dry_run: false }, 'Αποστολή email για νέα έργα...');
+  runAction('/api/email-alerts', { scope: 'focus', sort, dry_run: false }, 'Αποστολή email για νέα έργα...');
 });
 $('fetchBtn').addEventListener('click', () => runAction('/api/fetch-resource', { eshidis_id: selectedId() }, 'Fetching official detail...'));
 $('downloadBtn').addEventListener('click', () => runAction('/api/download-all', { eshidis_id: selectedId() }, 'Downloading attachments...'));
