@@ -790,6 +790,12 @@ The system `python` command is not present in the remote environment; use
   independent `entalmata_email` notification de-duplication per recipient. It
   also tightens password setup/reset links from 24 hours to a 60-minute
   one-time window after successful password setup.
+- Production deploy on commit `53ae937` passed. The droplet reports runtime
+  version `0.1.35`, `tender-radar-ui.service` and
+  `tender-radar-scheduled.timer` are active, and the homepage contains
+  `v0.1.35`. A real email-alert stage sent the 5 visible entalmata to all four
+  configured recipients and recorded 20 `entalmata_email` notifications; a
+  follow-up dry-run reports `new_entalmata_count 0`.
 
 ## Next Work
 

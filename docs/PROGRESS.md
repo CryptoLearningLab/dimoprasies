@@ -3402,6 +3402,30 @@ Verification so far:
 # 225 passed in 19.70s
 ```
 
+Production deploy smoke on commit `53ae937` passed:
+
+```text
+package/runtime version: 0.1.35
+tender-radar-ui.service: active
+tender-radar-scheduled.timer: active
+local UI smoke: homepage contains v0.1.35
+email dry-run before entalmata send:
+  candidate_rows 11
+  entalmata_candidate_rows 5
+  new_count 0
+  new_entalmata_count 5
+  skipped_already_sent 11
+  entalmata_skipped_already_sent 0
+real entalmata email alert stage:
+  sent_emails 4
+  sent notification rows 20
+email dry-run after entalmata send:
+  new_count 0
+  new_entalmata_count 0
+  skipped_already_sent 11
+  entalmata_skipped_already_sent 5
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:
