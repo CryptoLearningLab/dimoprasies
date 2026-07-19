@@ -594,3 +594,8 @@ model. Deterministic ESHIDIS ids found in document text are merged into the row
 before AI classification, and later enrichment uses those ids to fetch the
 official ESHIDIS folder directly instead of reprocessing the original
 municipal/authority/KIMDIS source.
+
+Cached AI triage rows are reused only when their `triage_signature` still
+matches the current dashboard metadata and bounded document evidence. If a row
+gets new fetched/OCR text or changed identifiers, it becomes pending for one
+fresh AI pass; unchanged rows keep skipping OpenAI.

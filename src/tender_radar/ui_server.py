@@ -965,16 +965,20 @@ def run_ai_triage(*, scope: str = "focus", sort: str = "deadline_asc", batch_siz
 def run_incremental_ai_triage(*, scope: str = "focus", sort: str = "deadline_asc", batch_size: int = 20) -> dict[str, Any]:
     dashboard = dashboard_payload(scope=scope, sort=sort, apply_triage=False)
     rows = [row for row in dashboard.get("tenders") or [] if isinstance(row, dict)]
-    current_keys = {str(row.get("row_key") or "") for row in rows if row.get("row_key")}
     existing_report = load_ai_triage_report_payload()
     existing_rows = [row for row in existing_report.get("rows") or [] if isinstance(row, dict)]
     existing_by_key = {str(row.get("row_key") or ""): row for row in existing_rows if row.get("row_key")}
-    pending_rows = [
-        row_with_document_evidence(row)
-        for row in rows
-        if str(row.get("row_key") or "") not in existing_by_key
-    ]
-    retained_rows = [row for key, row in existing_by_key.items() if key in current_keys]
+    enriched_rows = [row_with_document_evidence(row) for row in rows]
+    enriched_by_key = {str(row.get("row_key") or ""): row for row in enriched_rows if row.get("row_key")}
+    pending_rows = []
+    retained_rows = []
+    for row_key, row in enriched_by_key.items():
+        signature = ai_triage_signature(row)
+        existing = existing_by_key.get(row_key)
+        if existing and existing.get("triage_signature") == signature:
+            retained_rows.append(existing)
+        else:
+            pending_rows.append({**row, "triage_signature": signature})
 
     if not pending_rows:
         return {
@@ -993,7 +997,15 @@ def run_incremental_ai_triage(*, scope: str = "focus", sort: str = "deadline_asc
         batch_size=max(1, min(int(batch_size), 50)),
         timeout_seconds=90,
     )
-    merged_rows = retained_rows + [row for row in new_report.get("rows") or [] if isinstance(row, dict)]
+    pending_by_key = {str(row.get("row_key") or ""): row for row in pending_rows if row.get("row_key")}
+    new_rows = []
+    for row in new_report.get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        row_key = str(row.get("row_key") or "")
+        prepared = pending_by_key.get(row_key, {})
+        new_rows.append({**prepared, **row, "triage_signature": prepared.get("triage_signature") or row.get("triage_signature")})
+    merged_rows = retained_rows + new_rows
     merged_report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "model": new_report.get("model") or existing_report.get("model"),
@@ -1036,6 +1048,24 @@ def row_with_document_evidence(row: dict[str, Any]) -> dict[str, Any]:
         "document_evidence_count": len(documents),
         "linked_eshidis_ids": linked_ids,
     }
+
+
+def ai_triage_signature(row: dict[str, Any]) -> str:
+    stable = {
+        "row_key": row.get("row_key"),
+        "display_id": row.get("display_id"),
+        "official_id": row.get("official_id"),
+        "source_label": row.get("source_label"),
+        "title": row.get("title"),
+        "authority_name": row.get("authority_name"),
+        "deadline": row.get("current_deadline_at") or row.get("submission_deadline"),
+        "budget": row.get("budget_with_vat") or row.get("budget"),
+        "official_url": row.get("official_url"),
+        "attachment_urls": row.get("attachment_urls") or [],
+        "linked_eshidis_ids": row.get("linked_eshidis_ids") or [],
+        "document_evidence": row.get("document_evidence") or [],
+    }
+    return hashlib.sha256(json.dumps(stable, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def document_evidence_for_row(row: dict[str, Any], *, row_key: str) -> list[dict[str, Any]]:

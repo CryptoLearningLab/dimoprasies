@@ -708,12 +708,14 @@ def test_scheduled_poll_and_alert_writes_audit_reports(tmp_path, monkeypatch) ->
 def test_scheduled_poll_skips_ai_when_all_rows_already_triaged(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "work/reports").mkdir(parents=True)
+    dashboard_row = {"row_key": "AUTHORITY:AUTH-1", "title": "Δημοτική οδοποιία"}
     (tmp_path / "work/reports/ai_triage_report.json").write_text(
         json.dumps(
             {
                 "rows": [
                     {
                         "row_key": "AUTHORITY:AUTH-1",
+                        "triage_signature": ui_server.ai_triage_signature(dashboard_row),
                         "ai": {
                             "decision": "KEEP_ACTIVE_TENDER",
                             "keep_for_daily_review": True,
@@ -734,7 +736,7 @@ def test_scheduled_poll_skips_ai_when_all_rows_already_triaged(tmp_path, monkeyp
         "dashboard_payload",
         lambda scope="focus", sort="deadline_asc", apply_triage=True: {
             "summary": {"visible": 1},
-            "tenders": [{"row_key": "AUTHORITY:AUTH-1", "title": "Δημοτική οδοποιία"}],
+            "tenders": [dashboard_row],
         },
     )
     monkeypatch.setattr(ui_server, "ai_triage_report_status", lambda: {"exists": True, "ok": True})
@@ -750,6 +752,72 @@ def test_scheduled_poll_skips_ai_when_all_rows_already_triaged(tmp_path, monkeyp
     assert result["skipped"] is True
     assert result["skip_reason"] == "NO_PENDING_AI_TRIAGE_ROWS"
     assert result["summary"]["kept_total"] == 1
+
+
+def test_incremental_ai_triage_rechecks_stale_cached_rows(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "work/reports/ai_triage_report.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "row_key": "AUTHORITY:AUTH-1",
+                        "triage_signature": "old-signature",
+                        "ai": {
+                            "decision": "DROP_NOT_PUBLIC_WORKS",
+                            "keep_for_daily_review": False,
+                            "confidence": 0.8,
+                            "reason": "old cached result",
+                            "eshidis_id_candidates": [],
+                        },
+                    }
+                ],
+                "summary": {"errors": 0},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "dashboard_payload",
+        lambda scope="focus", sort="deadline_asc", apply_triage=True: {
+            "summary": {"visible": 1},
+            "tenders": [{"row_key": "AUTHORITY:AUTH-1", "title": "Δημοτική οδοποιία"}],
+        },
+    )
+    monkeypatch.setattr(ui_server, "ai_triage_report_status", lambda: {"exists": True, "ok": True})
+    captured = {}
+
+    def fake_build_report(rows, **kwargs):
+        captured["rows"] = rows
+        return {
+            "model": "fake",
+            "rows": [
+                {
+                    "row_key": "AUTHORITY:AUTH-1",
+                    "ai": {
+                        "decision": "KEEP_ACTIVE_TENDER",
+                        "keep_for_daily_review": True,
+                        "confidence": 0.9,
+                        "reason": "fresh row was rechecked",
+                        "eshidis_id_candidates": [],
+                    },
+                }
+            ],
+            "errors": [],
+            "safety_note": "test",
+        }
+
+    monkeypatch.setattr("tender_radar.ai_triage.build_ai_triage_report", fake_build_report)
+
+    result = ui_server.run_incremental_ai_triage(scope="focus", sort="deadline_asc", batch_size=5)
+
+    assert result["ok"] is True
+    assert result["skipped"] is False
+    assert result["pending_rows"] == 1
+    assert captured["rows"][0]["triage_signature"] != "old-signature"
 
 
 def test_incremental_ai_triage_includes_fetched_ocr_document_text(tmp_path, monkeypatch) -> None:

@@ -2371,23 +2371,25 @@ Implemented behavior:
   refetching a municipal/authority/KIMDIS source row. That means the next
   enrichment step hits `resources/search/{id}` directly when the id is known.
 - Already-triaged unchanged rows still skip OpenAI.
+- Cached AI rows now carry a `triage_signature` over the current dashboard row
+  and fetched/OCR document evidence. A cached decision is reused only when the
+  signature still matches, so newly fetched or newly OCR-extracted documents
+  force one fresh AI pass instead of preserving stale hidden/kept results.
 
 Verification:
 
 ```bash
-.venv/bin/python -m pytest tests/test_ui_server.py::test_scheduled_poll_skips_ai_when_all_rows_already_triaged tests/test_ui_server.py::test_incremental_ai_triage_includes_fetched_ocr_document_text tests/test_ui_server.py::test_candidate_enrichment_uses_ai_eshidis_id_before_refetching_authority tests/test_ai_triage.py
-.venv/bin/python -m pytest
 .venv/bin/python -m py_compile src/tender_radar/ui_server.py src/tender_radar/ai_triage.py
-.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_incremental_ai_triage_includes_fetched_ocr_document_text tests/test_ui_server.py::test_candidate_enrichment_uses_ai_eshidis_id_before_refetching_authority tests/test_ai_triage.py
+.venv/bin/python -m pytest tests/test_ui_server.py::test_scheduled_poll_skips_ai_when_all_rows_already_triaged tests/test_ui_server.py::test_incremental_ai_triage_rechecks_stale_cached_rows tests/test_ui_server.py::test_incremental_ai_triage_includes_fetched_ocr_document_text tests/test_ui_server.py::test_candidate_enrichment_uses_ai_eshidis_id_before_refetching_authority tests/test_ai_triage.py
+.venv/bin/python -m pytest
 ```
 
 Results:
 
 ```text
-targeted AI/document triage tests: 7 passed
 py_compile: passed
-targeted version/AI tests after version bump: 7 passed
-full test suite after version bump: 174 passed
+targeted AI/document triage tests: 8 passed
+full test suite after signature cache invalidation: 175 passed
 ```
 
 ## Handoff Discipline
