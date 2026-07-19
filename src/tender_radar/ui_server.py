@@ -694,6 +694,13 @@ def run_selected_fetch(identifier: str) -> dict[str, Any]:
                 "dashboard": dashboard_payload(scope="focus"),
             }
         eshidis_result = run_official_eshidis_fetch(linked_ids)
+        persist_verified_links_for_selected_fetch(
+            source_row_key=f"KIMDIS:{identifier}",
+            source_identifier=identifier,
+            source_label="ΚΗΜΔΗΣ",
+            linked_ids=linked_ids,
+            eshidis_fetch=eshidis_result,
+        )
         return {
             "ok": kimdis_result.get("ok") is not False and eshidis_result.get("ok") is not False,
             "kimdis_fetch": kimdis_result,
@@ -1440,6 +1447,45 @@ def persist_verified_eshidis_links_for_enrichment(target: dict[str, str], result
                         eshidis_fetch.get("steps") if isinstance(eshidis_fetch, dict) else result.get("steps")
                     )
                     or []
+                    if isinstance(step, dict)
+                ],
+            },
+        )
+        verified_ids.append(eshidis_id)
+    return verified_ids
+
+
+def persist_verified_links_for_selected_fetch(
+    *,
+    source_row_key: str,
+    source_identifier: str,
+    source_label: str,
+    linked_ids: list[str],
+    eshidis_fetch: dict[str, Any],
+) -> list[str]:
+    if not linked_ids or eshidis_fetch.get("ok") is False:
+        return []
+    verified_at = utc_now_iso()
+    verified_ids: list[str] = []
+    for eshidis_id in sorted({str(value).strip() for value in linked_ids if str(value).strip().isdigit()}):
+        upsert_verified_tender_link(
+            runtime_db_path(),
+            source_row_key=source_row_key,
+            source_identifier=source_identifier,
+            source_label=source_label,
+            source_url=None,
+            target_eshidis_id=eshidis_id,
+            verification_status="VERIFIED_ESHIDIS_RESOURCE",
+            verified_at=verified_at,
+            source_signature=None,
+            evidence={
+                "verification": "manual_selected_fetch",
+                "source_identifier": source_identifier,
+                "linked_eshidis_ids": linked_ids,
+                "official_fetch_ok": eshidis_fetch.get("ok") is not False,
+                "steps": [
+                    {"name": step.get("name"), "returncode": step.get("returncode")}
+                    for step in eshidis_fetch.get("steps", [])
                     if isinstance(step, dict)
                 ],
             },

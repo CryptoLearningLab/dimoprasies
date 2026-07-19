@@ -654,6 +654,8 @@ The system `python` command is not present in the remote environment; use
   `work/derived/kimdis_open_proc_documents.json`, and then runs the normal
   official `pwgopendata` fetch for any discovered id. Live no-discovery smoke
   found `26PROC019367864 -> 221566` and `26PROC019417347 -> 221691`.
+  Manual selected fetch also persists `verified_tender_links` after the
+  official ESHIDIS fetch succeeds.
 
 ## Next Work
 

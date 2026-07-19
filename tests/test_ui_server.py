@@ -1767,6 +1767,25 @@ def test_selected_kimdis_fetch_chains_linked_eshidis_download(monkeypatch) -> No
     assert captured["steps"][0]["args"] == ["sources", "fetch-resource", "221473", "--allow-insecure-tls"]
 
 
+def test_selected_kimdis_fetch_persists_verified_link(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(ui_server, "run_kimdis_fetch", lambda official_id: {"ok": True, "official_id": official_id})
+    monkeypatch.setattr(ui_server, "kimdis_linked_eshidis_ids", lambda official_id: ["221473"])
+    monkeypatch.setattr(ui_server, "dashboard_payload", lambda scope="focus": {"scope": scope, "summary": {}})
+
+    def fake_run_cli_steps(steps, *, dashboard_scope=None):
+        return {"ok": True, "steps": [{"name": step["name"], "returncode": 0} for step in steps], "dashboard": {}}
+
+    monkeypatch.setattr(ui_server, "run_cli_steps", fake_run_cli_steps)
+
+    result = run_selected_fetch("26PROC019417347")
+    links = ui_server.list_verified_tender_links(ui_server.runtime_db_path(), source_row_key="KIMDIS:26PROC019417347")
+
+    assert result["ok"] is True
+    assert links[0].target_eshidis_id == "221473"
+    assert links[0].evidence["verification"] == "manual_selected_fetch"
+
+
 def test_selected_kimdis_fetch_uses_connected_acts_when_document_has_no_link(monkeypatch) -> None:
     linked_calls = {"count": 0}
 

@@ -2631,6 +2631,10 @@ local dashboard smoke without full discovery:
 - Connected-acts findings are merged into
   `work/derived/kimdis_open_proc_documents.json`; deduplication still requires
   official ESHIDIS evidence and does not use title-only matching.
+- Manual selected fetch for KIMDIS now persists `verified_tender_links` after a
+  successful official ESHIDIS fetch, so user-triggered verification updates
+  dashboard/dedup state immediately instead of waiting for background
+  enrichment.
 
 Verification:
 
@@ -2648,8 +2652,8 @@ Results:
 
 ```text
 py_compile: passed
-focused connected/KIMDIS/UI tests: 110 passed
-full test suite: 190 passed
+focused connected/KIMDIS/UI tests: 111 passed
+full test suite: 191 passed
 live KIMDIS Open Data smoke without full discovery:
   26PROC019367864 -> chain FETCHED, linked ESHIDIS 221566, 3 attachments, 0 errors
   26PROC019417347 -> chain FETCHED, linked ESHIDIS 221691, 3 attachments, 0 errors

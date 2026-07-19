@@ -22,7 +22,8 @@ The KIMDIS connected-acts gate is implemented locally in UI package version
 - Focused local tests passed:
   `tests/test_kimdis_connected_acts.py`,
   `tests/test_kimdis_fetch.py`,
-  `tests/test_ui_server.py` -> `110 passed`.
+  `tests/test_ui_server.py` -> `111 passed`.
+- Full local test suite passed: `191 passed`.
 - Live source smoke without full discovery found:
   - `26PROC019367864 -> 221566`
   - `26PROC019417347 -> 221691`
