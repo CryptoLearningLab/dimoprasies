@@ -2247,6 +2247,33 @@ py_compile: passed
 full test suite: 168 passed
 ```
 
+Live droplet deployment/smoke:
+
+```bash
+gh run watch 29668034720 --repo CryptoLearningLab/dimoprasies --exit-status
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'cd /root/workspace/dimoprasies && git rev-parse --short HEAD && curl -s -L --max-time 30 https://165.227.143.152.sslip.io/ | grep -o "v0.1.11" | head -1 && systemctl is-active tender-radar-ui.service && systemctl is-active caddy.service && systemctl is-enabled tender-radar-scheduled.timer && systemctl is-active tender-radar-scheduled.timer'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'apt-get update && apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-ell'
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 'cd /root/workspace/dimoprasies && .venv/bin/python -c "import shutil; from tender_radar.documents import needs_ocr; print({\"pdftoppm\": bool(shutil.which(\"pdftoppm\")), \"tesseract\": bool(shutil.which(\"tesseract\")), \"needs_ocr_empty\": needs_ocr(\"NO_TEXT_FOUND\", None), \"needs_ocr_short\": needs_ocr(\"TEXT_EXTRACTED\", \"λίγο\")})"'
+```
+
+Results:
+
+```text
+GitHub Actions deploy 29668034720: success
+droplet HEAD: 839dfde
+live UI version: v0.1.11
+tender-radar-ui.service: active
+caddy.service: active
+tender-radar-scheduled.timer: enabled, active
+droplet OCR tools: pdftoppm true, tesseract true
+needs_ocr_empty: true
+needs_ocr_short: true
+existing PDF smoke:
+  4. ΑΝΑΛΗΨΗ ΥΠΟΧΡΕΩΣΗΣ.pdf -> TEXT_EXTRACTED_WITH_OCR, OCR_TEXT_EXTRACTED, 3528 chars
+  ΤΟΙΧΟΙ (signed).pdf -> TEXT_EXTRACTED_WITH_OCR, OCR_TEXT_EXTRACTED, 4109 chars
+  11.1 41.4 ΕΓΚΡΙΤΙΚΗ ΑΠΟΦΑΣΗ ΜΕΛΕΤΗΣ...pdf -> TEXT_EXTRACTED, NOT_NEEDED, 5927 chars
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

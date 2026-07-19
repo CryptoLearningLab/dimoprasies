@@ -578,7 +578,9 @@ The system `python` command is not present in the remote environment; use
   bounded OCR fallback: strong embedded text skips OCR, weak/empty extraction
   attempts `pdftoppm` + `tesseract` when available, and missing OCR tooling is
   recorded as non-fatal provenance. SQLite `documents` includes `ocr_status`
-  and `ocr_error`.
+  and `ocr_error`. The DigitalOcean droplet has `poppler-utils`,
+  `tesseract-ocr` and `tesseract-ocr-ell` installed; production smoke extracted
+  OCR text from existing downloaded PDFs.
 
 ## Next Work
 
