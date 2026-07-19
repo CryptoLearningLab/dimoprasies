@@ -6,7 +6,7 @@ Execute:
 ## Current Input
 
 The deadline-evidence dashboard gate is deployed and admin audit re-enrichment
-is implemented locally in UI package version `0.1.21`.
+is implemented locally in UI package version `0.1.22`.
 
 - `dashboard_payload` enriches rows with fetched document evidence before
   active filtering.
@@ -30,6 +30,8 @@ is implemented locally in UI package version `0.1.21`.
 - The Μεσολόγγι gymnasium authority row now maps as candidate duplicate to
   ESHIDIS `221624` in local smoke.
 - Admin hidden rows are mobile responsive via `data-label` card layout.
+- Admin users now expose/display SQLite `id` and use a mobile-card responsive
+  layout.
 
 ## Instruction
 

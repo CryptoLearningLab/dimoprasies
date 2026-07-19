@@ -68,7 +68,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.21" in INDEX_HTML
+    assert "v0.1.22" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -191,8 +191,28 @@ def test_admin_invite_user_creates_user_role(tmp_path, monkeypatch) -> None:
     assert "https://example.test/password-setup?token=invite-token" in sent[0]
     assert completed == {"email": "worker@example.test", "role": "user"}
     assert user is not None
+    assert user.id >= 1
     assert user.role == "user"
     assert ui_server.verify_admin_user_password(email="worker@example.test", password="long-secure-password") is False
+
+
+def test_admin_users_payload_exposes_user_id(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    monkeypatch.setattr(ui_server, "runtime_db_path", lambda: db_path)
+
+    ui_server.upsert_admin_user(db_path, email="owner@example.test", role="admin", enabled=True)
+    payload = ui_server.admin_users_payload()
+
+    assert payload["users"][0]["id"] >= 1
+    assert payload["users"][0]["email"] == "owner@example.test"
+
+
+def test_admin_users_ui_has_id_and_mobile_labels() -> None:
+    assert "<th>ID</th>" in INDEX_HTML
+    assert "adminUsersTableWrap" in INDEX_HTML
+    assert 'data-label="ID"' in APP_JS
+    assert "userIdBadge" in APP_JS
+    assert ".adminUsersTable" in STYLES_CSS
 
 
 def test_report_json_content_type_includes_utf8_charset() -> None:

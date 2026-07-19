@@ -676,3 +676,12 @@ dashboard and remain available through audit/review paths. This avoids showing
 expired authority rows or candidates whose publication date was mistaken for a
 submission deadline. The parser must keep provenance for document-derived
 deadlines, including document name, URL/source URL, matched text and snippet.
+
+## D-060 - Admin user id display uses SQLite rowid
+**Status:** Accepted
+
+The admin panel displays each user with the existing SQLite `rowid` from the
+`admin_users` table. We do not add a parallel UUID/user-id column until there
+is a concrete cross-system identity requirement. This keeps the current login
+database simple while giving the admin screen a stable local identifier for
+support and audit discussions.

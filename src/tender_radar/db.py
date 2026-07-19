@@ -116,6 +116,7 @@ class VerifiedTenderLink:
 
 @dataclass(frozen=True)
 class AdminUser:
+    id: int
     email: str
     role: str
     password_hash: str | None
@@ -526,7 +527,7 @@ def get_admin_user(db_path: Path, email: str) -> AdminUser | None:
     try:
         row = connection.execute(
             """
-            SELECT email, role, password_hash, enabled, invited_at, accepted_at,
+            SELECT rowid, email, role, password_hash, enabled, invited_at, accepted_at,
                    password_set_at, last_login_at
             FROM admin_users
             WHERE email = ?
@@ -544,7 +545,7 @@ def list_admin_users(db_path: Path) -> list[AdminUser]:
     try:
         rows = connection.execute(
             """
-            SELECT email, role, password_hash, enabled, invited_at, accepted_at,
+            SELECT rowid, email, role, password_hash, enabled, invited_at, accepted_at,
                    password_set_at, last_login_at
             FROM admin_users
             ORDER BY role, email
@@ -1555,14 +1556,15 @@ def _verified_tender_link_from_row(row: sqlite3.Row | tuple[object, ...]) -> Ver
 
 def _admin_user_from_row(row: sqlite3.Row | tuple[object, ...]) -> AdminUser:
     return AdminUser(
-        email=str(row[0]),
-        role=str(row[1]),
-        password_hash=str(row[2]) if row[2] is not None else None,
-        enabled=bool(row[3]),
-        invited_at=str(row[4]) if row[4] is not None else None,
-        accepted_at=str(row[5]) if row[5] is not None else None,
-        password_set_at=str(row[6]) if row[6] is not None else None,
-        last_login_at=str(row[7]) if row[7] is not None else None,
+        id=int(row[0]),
+        email=str(row[1]),
+        role=str(row[2]),
+        password_hash=str(row[3]) if row[3] is not None else None,
+        enabled=bool(row[4]),
+        invited_at=str(row[5]) if row[5] is not None else None,
+        accepted_at=str(row[6]) if row[6] is not None else None,
+        password_set_at=str(row[7]) if row[7] is not None else None,
+        last_login_at=str(row[8]) if row[8] is not None else None,
     )
 
 

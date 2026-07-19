@@ -3910,6 +3910,7 @@ def admin_users_payload() -> dict[str, Any]:
     for user in list_admin_users(runtime_db_path()):
         users.append(
             {
+                "id": user.id,
                 "email": user.email,
                 "role": user.role,
                 "enabled": user.enabled,
@@ -5445,10 +5446,11 @@ INDEX_HTML = f"""<!doctype html>
         </div>
         <details class="adminUsersBox">
           <summary>Χρήστες</summary>
-          <div class="tableWrap">
-            <table class="adminTable">
+          <div class="tableWrap adminTableWrap adminUsersTableWrap">
+            <table class="adminTable adminUsersTable">
               <thead>
                 <tr>
+                  <th>ID</th>
                   <th>Email</th>
                   <th>Ρόλος</th>
                   <th>Password</th>
@@ -5787,6 +5789,27 @@ textarea {
 .adminTable td:nth-child(4),
 .adminTable td:nth-child(5) {
   white-space: normal;
+}
+.adminUsersTable {
+  min-width: 760px;
+}
+.userIdBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef2f6;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 850;
+}
+.adminUserEmail {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-weight: 800;
 }
 .sourceAudit {
   background: var(--panel);
@@ -6449,16 +6472,17 @@ async function loadAdminUsers() {
   tbody.innerHTML = '';
   const users = payload.users || [];
   if (!users.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="emptyState">Δεν υπάρχουν χρήστες.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="emptyState">Δεν υπάρχουν χρήστες.</td></tr>';
     return;
   }
   for (const user of users) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${escapeHtml(user.email || '')}</td>
-      <td><span class="statusChip unchanged">${escapeHtml(user.role || '')}</span></td>
-      <td>${user.password_set ? 'Ορισμένο' : 'Σε πρόσκληση'}</td>
-      <td>${escapeHtml(user.last_login_at || '')}</td>
+      <td data-label="ID"><span class="userIdBadge">#${escapeHtml(user.id || '')}</span></td>
+      <td data-label="Email"><span class="adminUserEmail">${escapeHtml(user.email || '')}</span></td>
+      <td data-label="Ρόλος"><span class="statusChip unchanged">${escapeHtml(user.role || '')}</span></td>
+      <td data-label="Password">${user.password_set ? 'Ορισμένο' : 'Σε πρόσκληση'}</td>
+      <td data-label="Τελευταία σύνδεση">${escapeHtml(user.last_login_at || '')}</td>
     `;
     tbody.appendChild(tr);
   }

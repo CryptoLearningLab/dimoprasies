@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "public-works-tender-radar"
-version = "0.1.21"
+version = "0.1.22"
 description = "Public works tender monitoring scaffold for Greek public tenders."
 readme = "README.md"
 requires-python = ">=3.11"

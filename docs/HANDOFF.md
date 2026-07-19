@@ -684,6 +684,9 @@ The system `python` command is not present in the remote environment; use
   homepage `v0.1.21`, `duplicate_candidates 1`, `missing_deadline 60`,
   and the Μεσολόγγι authority row is `DUPLICATE_CANDIDATE` for ESHIDIS
   `221624` with score `0.9`.
+- The UI now displays version `v0.1.22`. The admin users API exposes the
+  SQLite `rowid` as `id`, and the admin users table shows `ID`, email, role,
+  password state and last login in a mobile-card responsive layout.
 
 ## Next Work
 

@@ -2823,6 +2823,31 @@ production deploy smoke on commit 50a0c13:
   signals title_overlap 1.00, authority_match
 ```
 
+### UI v0.1.22 admin users polish
+
+- Bumped the application version from `0.1.21` to `0.1.22`.
+- The admin users API now exposes the existing SQLite row id for every admin
+  user as `id`.
+- The admin users table now includes an `ID` column and uses the same
+  mobile-card `data-label` responsive pattern as the audit table, so email,
+  role, password state and last login are readable on narrow screens.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_admin_invite_user_creates_user_role tests/test_ui_server.py::test_admin_users_payload_exposes_user_id tests/test_ui_server.py::test_admin_users_ui_has_id_and_mobile_labels -q
+.venv/bin/python -m py_compile src/tender_radar/db.py src/tender_radar/ui_server.py
+.venv/bin/python -m pytest -q
+```
+
+Results:
+
+```text
+targeted admin users/version tests: 4 passed
+py_compile: passed
+full test suite: 200 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:
