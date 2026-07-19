@@ -2713,6 +2713,19 @@ local no-discovery dashboard smoke:
   unknown_visible []
   expired_visible []
   document-derived deadline visible rows 4
+production deploy smoke on commit 281ff78:
+  package version 0.1.19
+  homepage contains v0.1.19
+  unauthenticated dashboard API returned 401
+  production no-discovery dashboard smoke:
+    total_known 113
+    visible 12
+    expired_hidden 74
+    duplicate_hidden 9
+    triage_hidden 2
+    unknown_visible []
+    expired_visible []
+    document-derived deadline visible rows 4
 ```
 
 ## Handoff Discipline

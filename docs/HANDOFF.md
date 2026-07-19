@@ -662,6 +662,10 @@ The system `python` command is not present in the remote environment; use
   source fields, linked official ESHIDIS rows or fetched document evidence.
   Unknown-deadline candidates are kept out of the front page and belong in
   audit/review until their deadline is verified.
+- Production deploy on commit `281ff78` passed: package version `0.1.19`,
+  homepage `v0.1.19`, unauthenticated dashboard `401`, and no-discovery
+  dashboard smoke reported `visible 12`, `unknown_visible []`,
+  `expired_visible []`, `expired_hidden 74`, `duplicate_hidden 9`.
 
 ## Next Work
 
@@ -669,6 +673,5 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Run full verification/deploy for `v0.1.19`, then smoke the live droplet without
-full discovery and confirm the front page has zero visible rows without a
-verified/parseable future deadline.
+Run the next scheduled/incremental poll without full discovery and inspect the
+admin/audit data for rows hidden only because deadline evidence is missing.
