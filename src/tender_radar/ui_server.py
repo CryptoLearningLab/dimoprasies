@@ -10,6 +10,7 @@ import json
 import mimetypes
 import os
 import re
+import secrets
 import smtplib
 import sqlite3
 import subprocess
@@ -33,10 +34,14 @@ from tender_radar.db import (
     get_source_document,
     get_source_state,
     ignored_tender_keys as ignored_tender_keys_from_db,
+    list_tender_dismissals,
     list_source_states,
     notification_already_sent,
     record_source_run,
     record_notification_sent,
+    remove_tender_dismissal,
+    triage_overrides_by_key as db_triage_overrides_by_key,
+    upsert_triage_override,
     upsert_source_document,
     upsert_source_state,
 )
@@ -66,6 +71,10 @@ COMMAND_LOCK = threading.Lock()
 ENRICHMENT_LOCK = threading.Lock()
 JOBS_LOCK = threading.Lock()
 JOBS: dict[str, dict[str, Any]] = {}
+ADMIN_SESSIONS_LOCK = threading.Lock()
+ADMIN_SESSIONS: set[str] = set()
+ADMIN_LOGIN_CODES_LOCK = threading.Lock()
+ADMIN_LOGIN_CODES: dict[str, dict[str, Any]] = {}
 
 
 def runtime_db_path() -> Path:
@@ -129,6 +138,12 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/source-polling":
             self._send_json(source_polling_payload())
+            return
+        if parsed.path == "/api/admin/audit":
+            if not self._admin_authenticated():
+                self._send_json({"ok": False, "authenticated": False, **admin_status_payload()}, status=401)
+                return
+            self._send_json(admin_audit_payload())
             return
         if parsed.path == "/api/document-preview":
             query = parse_qs(parsed.query)
@@ -261,6 +276,26 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 row_key = require_row_key(payload)
                 self._send_json(dismiss_tender(row_key))
                 return
+            if parsed.path == "/api/admin/login":
+                self._admin_login(payload)
+                return
+            if parsed.path == "/api/admin/request-code":
+                self._send_json(request_admin_login_code(payload))
+                return
+            if parsed.path == "/api/admin/verify-code":
+                self._admin_verify_code(payload)
+                return
+            if parsed.path == "/api/admin/logout":
+                self._admin_logout()
+                return
+            if parsed.path == "/api/admin/restore":
+                if not self._admin_authenticated():
+                    self._send_json({"ok": False, "error": "Admin login required."}, status=401)
+                    return
+                row_key = require_row_key(payload)
+                reason = str(payload.get("reason") or "").strip() or None
+                self._send_json(restore_admin_row(row_key=row_key, reason=reason))
+                return
             if parsed.path == "/api/fetch-kimdis-open-proc":
                 official_id = str(payload.get("official_id") or "").strip() or None
                 self._send_json(start_job("fetch-kimdis-open-proc", run_kimdis_fetch, official_id=official_id), status=202)
@@ -355,13 +390,69 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length)
         return json.loads(raw.decode("utf-8"))
 
-    def _send_json(self, payload: dict[str, Any], status: int = 200) -> None:
+    def _send_json(self, payload: dict[str, Any], status: int = 200, extra_headers: dict[str, str] | None = None) -> None:
         body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        for key, value in (extra_headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def _admin_login(self, payload: dict[str, Any]) -> dict[str, Any]:
+        password = admin_password()
+        if not password:
+            raise ValueError("Admin password is not configured.")
+        submitted = str(payload.get("password") or "")
+        if not secrets.compare_digest(submitted, password):
+            raise ValueError("Invalid admin password.")
+        token = secrets.token_urlsafe(32)
+        with ADMIN_SESSIONS_LOCK:
+            ADMIN_SESSIONS.add(token)
+        body = {"ok": True, "authenticated": True, "admin": admin_status_payload()}
+        cookie = f"tr_admin_session={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=43200"
+        self._send_json(body, extra_headers={"Set-Cookie": cookie})
+        return {}
+
+    def _admin_verify_code(self, payload: dict[str, Any]) -> dict[str, Any]:
+        email = str(payload.get("email") or "").strip().lower()
+        code = str(payload.get("code") or "").strip()
+        if not verify_admin_login_code(email=email, code=code):
+            raise ValueError("Invalid or expired admin code.")
+        token = secrets.token_urlsafe(32)
+        with ADMIN_SESSIONS_LOCK:
+            ADMIN_SESSIONS.add(token)
+        body = {"ok": True, "authenticated": True, "admin": admin_status_payload()}
+        cookie = f"tr_admin_session={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=43200"
+        self._send_json(body, extra_headers={"Set-Cookie": cookie})
+        return {}
+
+    def _admin_logout(self) -> dict[str, Any]:
+        token = self._admin_session_token()
+        if token:
+            with ADMIN_SESSIONS_LOCK:
+                ADMIN_SESSIONS.discard(token)
+        body = {"ok": True, "authenticated": False}
+        self._send_json(body, extra_headers={"Set-Cookie": "tr_admin_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"})
+        return {}
+
+    def _admin_session_token(self) -> str | None:
+        cookie = self.headers.get("Cookie") or ""
+        for part in cookie.split(";"):
+            if "=" not in part:
+                continue
+            key, value = part.strip().split("=", 1)
+            if key == "tr_admin_session" and value:
+                return value
+        return None
+
+    def _admin_authenticated(self) -> bool:
+        token = self._admin_session_token()
+        if not token:
+            return False
+        with ADMIN_SESSIONS_LOCK:
+            return token in ADMIN_SESSIONS
 
     def _send_html(self, html: str) -> None:
         self._send_text(html, "text/html; charset=utf-8")
@@ -2489,11 +2580,13 @@ def dashboard_payload(
 ) -> dict[str, Any]:
     all_greece = scope == "all"
     profile = location_focus_profile()
-    ignored = ignored_tender_keys()
+    overrides = triage_overrides_by_key()
+    force_keep_keys = {key for key, item in overrides.items() if item.get("action") == "FORCE_KEEP"}
+    ignored = ignored_tender_keys() - force_keep_keys
     triage = ai_triage_by_row_key() if apply_triage else {}
     rows = merged_tender_rows()
     rows = [row for row in rows if str(row.get("row_key") or row.get("eshidis_id") or row.get("display_id") or "") not in ignored]
-    rows = [attach_ai_triage(row, triage) for row in rows]
+    rows = [attach_ai_triage(row, triage, overrides=overrides) for row in rows]
     canonical_rows, duplicate_hidden_rows = suppress_linked_eshidis_duplicates(rows)
     active_rows = [row for row in canonical_rows if dashboard_row_is_active(row, as_of=as_of)]
     triage_hidden = [row for row in active_rows if row.get("ai_triage_hidden")]
@@ -2701,12 +2794,32 @@ def ai_triage_by_row_key() -> dict[str, dict[str, Any]]:
     return triage
 
 
-def attach_ai_triage(row: dict[str, Any], triage: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def row_key_for_tender(row: dict[str, Any]) -> str:
+    return str(row.get("row_key") or row.get("eshidis_id") or row.get("display_id") or "")
+
+
+def triage_overrides_by_key() -> dict[str, dict[str, object]]:
+    try:
+        return db_triage_overrides_by_key(runtime_db_path())
+    except (OSError, sqlite3.Error):
+        return {}
+
+
+def attach_ai_triage(
+    row: dict[str, Any],
+    triage: dict[str, dict[str, Any]],
+    *,
+    overrides: dict[str, dict[str, object]] | None = None,
+) -> dict[str, Any]:
     row_key = str(row.get("row_key") or row.get("eshidis_id") or row.get("display_id") or "")
     ai = triage.get(row_key)
+    override = (overrides or {}).get(row_key)
+    override_action = str((override or {}).get("action") or "")
     if not ai:
-        return {**row, "ai_triage": None, "ai_triage_hidden": False}
+        return {**row, "ai_triage": None, "ai_triage_hidden": False, "triage_override": override}
     keep = bool(ai.get("keep_for_daily_review"))
+    if override_action == "FORCE_KEEP":
+        keep = True
     return {
         **row,
         "ai_triage": {
@@ -2716,6 +2829,7 @@ def attach_ai_triage(row: dict[str, Any], triage: dict[str, dict[str, Any]]) -> 
             "eshidis_id_candidates": ai.get("eshidis_id_candidates") or [],
         },
         "ai_triage_hidden": not keep,
+        "triage_override": override,
     }
 
 
@@ -2756,6 +2870,197 @@ def dismiss_tender(row_key: str) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"ok": True, "row_key": row_key, "ignored": len(existing), "dashboard": dashboard_payload(scope="focus")}
+
+
+def remove_legacy_ignored_tender(row_key: str) -> None:
+    path = ignored_tenders_path()
+    if not path.exists():
+        return
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    existing = [item for item in payload.get("ignored") or [] if isinstance(item, dict) and item.get("row_key") != row_key]
+    payload = {"updated_at": utc_now_iso(), "ignored": existing}
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def restore_admin_row(*, row_key: str, reason: str | None = None) -> dict[str, Any]:
+    remove_tender_dismissal(runtime_db_path(), row_key=row_key)
+    remove_legacy_ignored_tender(row_key)
+    upsert_triage_override(
+        runtime_db_path(),
+        row_key=row_key,
+        action="FORCE_KEEP",
+        reason=reason,
+        metadata={"source": "admin_panel"},
+    )
+    return {"ok": True, "row_key": row_key, "dashboard": dashboard_payload(scope="focus"), "admin": admin_audit_payload()}
+
+
+def admin_password() -> str | None:
+    env = load_local_env()
+    value = (
+        os.environ.get("TENDER_RADAR_ADMIN_PASSWORD")
+        or os.environ.get("ADMIN_PASSWORD")
+        or env.get("TENDER_RADAR_ADMIN_PASSWORD")
+        or env.get("ADMIN_PASSWORD")
+    )
+    return value or None
+
+
+def admin_login_email() -> str | None:
+    env = load_local_env()
+    value = (
+        os.environ.get("TENDER_RADAR_ADMIN_EMAIL")
+        or os.environ.get("ADMIN_EMAIL")
+        or env.get("TENDER_RADAR_ADMIN_EMAIL")
+        or env.get("ADMIN_EMAIL")
+        or email_alert_recipient()
+    )
+    return value.strip().lower() if value else None
+
+
+def admin_status_payload() -> dict[str, Any]:
+    return {"admin_enabled": bool(admin_password() or admin_login_email()), "email_login_enabled": bool(admin_login_email())}
+
+
+def request_admin_login_code(payload: dict[str, Any]) -> dict[str, Any]:
+    requested_email = str(payload.get("email") or "").strip().lower()
+    allowed_email = admin_login_email()
+    if not allowed_email:
+        raise ValueError("Admin email login is not configured.")
+    if requested_email != allowed_email:
+        raise ValueError("This email is not allowed for admin login.")
+    code = f"{secrets.randbelow(900000) + 100000}"
+    with ADMIN_LOGIN_CODES_LOCK:
+        ADMIN_LOGIN_CODES[requested_email] = {"code": code, "expires_at": time.time() + 600}
+    send_email_alert(
+        requested_email,
+        "Tender Radar admin login code",
+        f"Ο κωδικός σύνδεσης Tender Radar είναι: {code}\nΙσχύει για 10 λεπτά.",
+        f"<p>Ο κωδικός σύνδεσης Tender Radar είναι:</p><h2>{code}</h2><p>Ισχύει για 10 λεπτά.</p>",
+    )
+    return {"ok": True, "sent": True, "email": requested_email}
+
+
+def verify_admin_login_code(*, email: str, code: str) -> bool:
+    if not email or not code:
+        return False
+    with ADMIN_LOGIN_CODES_LOCK:
+        record = ADMIN_LOGIN_CODES.get(email)
+        if not record:
+            return False
+        if time.time() > float(record.get("expires_at") or 0):
+            ADMIN_LOGIN_CODES.pop(email, None)
+            return False
+        if not secrets.compare_digest(str(record.get("code") or ""), code):
+            return False
+        ADMIN_LOGIN_CODES.pop(email, None)
+    return True
+
+
+def admin_audit_payload() -> dict[str, Any]:
+    overrides = triage_overrides_by_key()
+    force_keep_keys = {key for key, item in overrides.items() if item.get("action") == "FORCE_KEEP"}
+    ignored_keys = ignored_tender_keys() - force_keep_keys
+    triage = ai_triage_by_row_key()
+    rows = [attach_ai_triage(row, triage, overrides=overrides) for row in merged_tender_rows()]
+    row_by_key = {row_key_for_tender(row): row for row in rows if row_key_for_tender(row)}
+
+    dismissed_rows = []
+    for item in list_tender_dismissals(runtime_db_path()):
+        row_key = str(item.get("row_key") or "")
+        if row_key in force_keep_keys:
+            continue
+        row = row_by_key.get(row_key, {})
+        dismissed_rows.append(
+            admin_hidden_row(
+                row or item,
+                category="DISMISSED",
+                reason=str(item.get("reason") or "Χειροκίνητη επιλογή: Δεν με ενδιαφέρει"),
+                restorable=True,
+            )
+        )
+
+    triage_hidden_rows = [
+        admin_hidden_row(
+            row,
+            category="AI_HIDDEN",
+            reason=str(((row.get("ai_triage") or {}).get("reason")) or "AI triage marked this row as not for daily review."),
+            restorable=True,
+        )
+        for row in rows
+        if row_key_for_tender(row) not in ignored_keys and row.get("ai_triage_hidden")
+    ]
+
+    active_source_rows = [row for row in rows if row_key_for_tender(row) not in ignored_keys]
+    canonical_rows, duplicate_rows = suppress_linked_eshidis_duplicates(active_source_rows)
+    expired_rows = [row for row in canonical_rows if not dashboard_row_is_active(row)]
+    duplicate_hidden_rows = [
+        admin_hidden_row(
+            row,
+            category="DUPLICATE",
+            reason=str(row.get("duplicate_reason") or "Κρύφτηκε επειδή υπάρχει canonical ΕΣΗΔΗΣ εγγραφή."),
+            restorable=False,
+        )
+        for row in duplicate_rows
+    ]
+    expired_hidden_rows = [
+        admin_hidden_row(
+            row,
+            category="EXPIRED",
+            reason="Κρύφτηκε επειδή η προθεσμία δεν είναι μεταγενέστερη της σημερινής ημερομηνίας.",
+            restorable=False,
+        )
+        for row in expired_rows
+    ]
+    source_errors = source_polling_payload().get("rows") or []
+    errors = [
+        {
+            "source_id": row.get("source_id"),
+            "name": row.get("name"),
+            "error": row.get("last_error"),
+            "last_checked_at": row.get("last_checked_at"),
+        }
+        for row in source_errors
+        if row.get("last_error")
+    ]
+    hidden_rows = dismissed_rows + triage_hidden_rows + duplicate_hidden_rows + expired_hidden_rows
+    return {
+        "ok": True,
+        "authenticated": True,
+        "summary": {
+            "hidden_total": len(hidden_rows),
+            "dismissed": len(dismissed_rows),
+            "ai_hidden": len(triage_hidden_rows),
+            "duplicates": len(duplicate_hidden_rows),
+            "expired": len(expired_hidden_rows),
+            "source_errors": len(errors),
+            "manual_force_keep": len(force_keep_keys),
+        },
+        "hidden_rows": hidden_rows,
+        "source_errors": errors,
+    }
+
+
+def admin_hidden_row(row: dict[str, Any], *, category: str, reason: str, restorable: bool) -> dict[str, Any]:
+    row_key = row_key_for_tender(row) or str(row.get("row_key") or "")
+    ai = row.get("ai_triage") if isinstance(row.get("ai_triage"), dict) else {}
+    return {
+        "row_key": row_key,
+        "category": category,
+        "restorable": restorable,
+        "display_id": row.get("display_id") or row.get("eshidis_id") or row.get("official_id") or "",
+        "source_label": row.get("source_label") or "",
+        "title": row.get("title") or "",
+        "authority_name": row.get("authority_name") or row.get("authority") or "",
+        "deadline_display": row.get("deadline_display") or row.get("current_deadline_at") or "",
+        "official_url": row.get("official_url") or row.get("source_url") or row.get("attachment_url") or "",
+        "reason": reason,
+        "ai_decision": ai.get("decision"),
+        "ai_confidence": ai.get("confidence"),
+    }
 
 
 def discovery_history_path() -> Path:
@@ -3767,6 +4072,7 @@ INDEX_HTML = f"""<!doctype html>
     <nav>
       <button class="nav active" data-view="overview">Αναζήτηση</button>
       <button class="nav" data-view="rules">Κανόνες</button>
+      <button class="nav" data-view="adminPanel">Admin panel</button>
       <button class="nav" data-view="reports">Αρχεία</button>
     </nav>
   </aside>
@@ -3949,6 +4255,47 @@ INDEX_HTML = f"""<!doctype html>
             <button id="applyRuleBtn">Apply Rule</button>
             <span id="rulesStatus" class="noteText">Load a profile to edit rules.</span>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="adminPanel" class="view">
+      <div class="toolbar adminLoginBox" id="adminLoginBox">
+        <label>Email <input id="adminEmailInput" type="email" autocomplete="email" placeholder="xrgeorg@gmail.com"></label>
+        <button id="adminCodeBtn" class="secondary">Αποστολή κωδικού</button>
+        <label>Κωδικός <input id="adminCodeInput" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6 ψηφία"></label>
+        <button id="adminVerifyCodeBtn">Σύνδεση με κωδικό</button>
+        <label>Admin password <input id="adminPasswordInput" type="password" autocomplete="current-password" placeholder="Password"></label>
+        <button id="adminLoginBtn" class="secondary">Σύνδεση με password</button>
+        <span id="adminLoginStatus" class="noteText">Απαιτείται σύνδεση για audit και επαναφορές.</span>
+      </div>
+      <div id="adminContent" class="adminContent" hidden>
+        <div class="toolbar">
+          <button id="adminRefreshBtn">Ανανέωση admin audit</button>
+          <button id="adminLogoutBtn" class="secondary">Αποσύνδεση</button>
+        </div>
+        <div class="metrics adminMetrics">
+          <div><span id="adminHiddenCount">0</span><small>κρυμμένα συνολικά</small></div>
+          <div><span id="adminAiHiddenCount">0</span><small>AI απόρριψη</small></div>
+          <div><span id="adminDismissedCount">0</span><small>Δεν με ενδιαφέρει</small></div>
+          <div><span id="adminDuplicateCount">0</span><small>διπλότυπα</small></div>
+          <div><span id="adminExpiredCount">0</span><small>ληγμένα</small></div>
+          <div><span id="adminSourceErrorCount">0</span><small>source errors</small></div>
+        </div>
+        <div class="tableWrap adminTableWrap">
+          <table class="adminTable">
+            <thead>
+              <tr>
+                <th>Κατηγορία</th>
+                <th>Α/Α</th>
+                <th>Έργο</th>
+                <th>Φορέας</th>
+                <th>Αιτιολογία</th>
+                <th>Ενέργεια</th>
+              </tr>
+            </thead>
+            <tbody id="adminHiddenRows"></tbody>
+          </table>
         </div>
       </div>
     </section>
@@ -4169,6 +4516,21 @@ textarea {
 }
 .metrics span { display: block; font-size: 24px; font-weight: 750; }
 .metrics small { color: var(--muted); }
+.adminMetrics {
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+}
+.adminTableWrap {
+  margin-top: 14px;
+}
+.adminTable {
+  min-width: 1120px;
+  table-layout: fixed;
+}
+.adminTable td:nth-child(3),
+.adminTable td:nth-child(4),
+.adminTable td:nth-child(5) {
+  white-space: normal;
+}
 .sourceAudit {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -4549,13 +4911,14 @@ h3 {
 @media (max-width: 820px) {
   body { grid-template-columns: 1fr; }
   .sidebar { position: static; }
-  nav { grid-template-columns: repeat(3, 1fr); }
+  nav { grid-template-columns: repeat(4, 1fr); }
   main { padding: 14px; }
   .searchBand,
   .workspace {
     grid-template-columns: 1fr;
   }
-  .metrics { grid-template-columns: 1fr; }
+  .metrics,
+  .adminMetrics { grid-template-columns: 1fr; }
   .rulesGrid,
   .editorGrid {
     grid-template-columns: 1fr;
@@ -4578,6 +4941,7 @@ const state = {
   ruleProfilePath: null,
   evaluationConfig: null,
   selectedRuleId: null,
+  adminAudit: null,
 };
 const $ = (id) => document.getElementById(id);
 
@@ -4586,6 +4950,9 @@ document.querySelectorAll('.nav').forEach((button) => {
     document.querySelectorAll('.nav, .view').forEach((el) => el.classList.remove('active'));
     button.classList.add('active');
     $(button.dataset.view).classList.add('active');
+    if (button.dataset.view === 'adminPanel') {
+      loadAdminAudit().catch(() => {});
+    }
   });
 });
 
@@ -4670,6 +5037,137 @@ async function loadSourcePolling() {
 async function refreshRuntimeViews() {
   await loadDashboard();
   await loadSourcePolling();
+  if (!$('adminContent').hidden) {
+    await loadAdminAudit();
+  }
+}
+
+async function adminApi(path, options = {}) {
+  return api(path, options);
+}
+
+async function adminLogin() {
+  const password = $('adminPasswordInput').value;
+  $('adminLoginStatus').textContent = 'Έλεγχος σύνδεσης...';
+  try {
+    await adminApi('/api/admin/login', { method: 'POST', body: JSON.stringify({ password }) });
+    $('adminPasswordInput').value = '';
+    $('adminLoginStatus').textContent = 'Συνδέθηκε.';
+    await loadAdminAudit();
+  } catch (error) {
+    $('adminLoginStatus').textContent = String(error.message || error);
+  }
+}
+
+async function adminRequestCode() {
+  const email = $('adminEmailInput').value;
+  $('adminLoginStatus').textContent = 'Στέλνω κωδικό σύνδεσης...';
+  try {
+    await adminApi('/api/admin/request-code', { method: 'POST', body: JSON.stringify({ email }) });
+    $('adminLoginStatus').textContent = 'Ο κωδικός στάλθηκε στο email.';
+  } catch (error) {
+    $('adminLoginStatus').textContent = String(error.message || error);
+  }
+}
+
+async function adminVerifyCode() {
+  const email = $('adminEmailInput').value;
+  const code = $('adminCodeInput').value;
+  $('adminLoginStatus').textContent = 'Έλεγχος κωδικού...';
+  try {
+    await adminApi('/api/admin/verify-code', { method: 'POST', body: JSON.stringify({ email, code }) });
+    $('adminCodeInput').value = '';
+    $('adminLoginStatus').textContent = 'Συνδέθηκε.';
+    await loadAdminAudit();
+  } catch (error) {
+    $('adminLoginStatus').textContent = String(error.message || error);
+  }
+}
+
+async function adminLogout() {
+  await adminApi('/api/admin/logout', { method: 'POST', body: JSON.stringify({}) });
+  state.adminAudit = null;
+  $('adminContent').hidden = true;
+  $('adminLoginBox').hidden = false;
+  $('adminLoginStatus').textContent = 'Αποσυνδέθηκε.';
+}
+
+async function loadAdminAudit() {
+  try {
+    const payload = await adminApi('/api/admin/audit');
+    state.adminAudit = payload;
+    $('adminLoginBox').hidden = true;
+    $('adminContent').hidden = false;
+    renderAdminAudit(payload);
+  } catch (error) {
+    $('adminContent').hidden = true;
+    $('adminLoginBox').hidden = false;
+    $('adminLoginStatus').textContent = 'Απαιτείται σύνδεση για audit και επαναφορές.';
+  }
+}
+
+function renderAdminAudit(payload) {
+  const summary = payload.summary || {};
+  $('adminHiddenCount').textContent = summary.hidden_total || 0;
+  $('adminAiHiddenCount').textContent = summary.ai_hidden || 0;
+  $('adminDismissedCount').textContent = summary.dismissed || 0;
+  $('adminDuplicateCount').textContent = summary.duplicates || 0;
+  $('adminExpiredCount').textContent = summary.expired || 0;
+  $('adminSourceErrorCount').textContent = summary.source_errors || 0;
+  const tbody = $('adminHiddenRows');
+  const rows = payload.hidden_rows || [];
+  tbody.innerHTML = '';
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="emptyState">Δεν υπάρχουν κρυμμένα έργα στο τρέχον audit.</td></tr>';
+    return;
+  }
+  for (const row of rows) {
+    const tr = document.createElement('tr');
+    const sourceLink = row.official_url
+      ? `<a class="button secondary tinyButton" href="${escapeHtml(row.official_url)}" target="_blank" rel="noreferrer">Open</a>`
+      : '';
+    const restoreButton = row.restorable
+      ? `<button class="tinyButton restoreHiddenRow" data-key="${escapeHtml(row.row_key)}">Επαναφορά</button>`
+      : '<span class="noteText">Audit only</span>';
+    tr.innerHTML = `
+      <td><span class="statusChip ${adminCategoryClass(row.category)}">${escapeHtml(adminCategoryLabel(row.category))}</span></td>
+      <td><strong>${escapeHtml(row.display_id || '')}</strong><br><span class="noteText">${escapeHtml(row.source_label || '')}</span></td>
+      <td class="tenderTitle">${escapeHtml(row.title || '')}${row.ai_decision ? `<span class="pill">${escapeHtml(row.ai_decision)}</span>` : ''}</td>
+      <td class="authorityCell">${escapeHtml(row.authority_name || '')}</td>
+      <td>${escapeHtml(row.reason || '')}${row.ai_confidence ? `<br><span class="noteText">confidence ${escapeHtml(row.ai_confidence)}</span>` : ''}</td>
+      <td><div class="actionStack">${sourceLink}${restoreButton}</div></td>
+    `;
+    tbody.appendChild(tr);
+  }
+  document.querySelectorAll('.restoreHiddenRow').forEach((button) => {
+    button.addEventListener('click', () => restoreHiddenRow(button.dataset.key));
+  });
+}
+
+function adminCategoryLabel(category) {
+  return {
+    AI_HIDDEN: 'AI',
+    DISMISSED: 'Δεν με ενδιαφέρει',
+    DUPLICATE: 'Διπλότυπο',
+    EXPIRED: 'Ληγμένο',
+  }[category] || category || 'Άγνωστο';
+}
+
+function adminCategoryClass(category) {
+  if (category === 'AI_HIDDEN') return 'waiting';
+  if (category === 'DISMISSED') return 'error';
+  if (category === 'DUPLICATE') return 'unchanged';
+  if (category === 'EXPIRED') return 'changed';
+  return 'waiting';
+}
+
+async function restoreHiddenRow(rowKey) {
+  if (!rowKey) return;
+  const reason = window.prompt('Γιατί επαναφέρεις αυτό το έργο; Αυτό θα χρησιμοποιηθεί ως feedback για τους επόμενους κανόνες.', '');
+  if (reason === null) return;
+  await adminApi('/api/admin/restore', { method: 'POST', body: JSON.stringify({ row_key: rowKey, reason }) });
+  await refreshRuntimeViews();
+  await loadAdminAudit();
 }
 
 function renderSourcePolling(payload) {
@@ -5234,6 +5732,17 @@ $('applyRuleBtn').addEventListener('click', () => {
 });
 $('newRuleBtn').addEventListener('click', newRule);
 $('deleteRuleBtn').addEventListener('click', deleteRule);
+$('adminCodeBtn').addEventListener('click', () => adminRequestCode().catch((error) => { $('adminLoginStatus').textContent = String(error); }));
+$('adminVerifyCodeBtn').addEventListener('click', () => adminVerifyCode().catch((error) => { $('adminLoginStatus').textContent = String(error); }));
+$('adminLoginBtn').addEventListener('click', () => adminLogin().catch((error) => { $('adminLoginStatus').textContent = String(error); }));
+$('adminPasswordInput').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') adminLogin().catch((error) => { $('adminLoginStatus').textContent = String(error); });
+});
+$('adminCodeInput').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') adminVerifyCode().catch((error) => { $('adminLoginStatus').textContent = String(error); });
+});
+$('adminRefreshBtn').addEventListener('click', () => loadAdminAudit().catch((error) => { $('adminLoginStatus').textContent = String(error); }));
+$('adminLogoutBtn').addEventListener('click', () => adminLogout().catch((error) => { $('adminLoginStatus').textContent = String(error); }));
 
 refresh().catch((error) => { $('statusText').textContent = String(error); });
 """

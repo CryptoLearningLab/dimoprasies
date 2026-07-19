@@ -749,6 +749,109 @@ def ignored_tender_keys(db_path: Path) -> set[str]:
     return {str(row[0]) for row in rows}
 
 
+def list_tender_dismissals(db_path: Path) -> list[dict[str, object]]:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        rows = connection.execute(
+            """
+            SELECT row_key, display_id, source_label, title, reason, ignored_at, metadata_json
+            FROM tender_dismissals
+            ORDER BY ignored_at DESC
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+    items: list[dict[str, object]] = []
+    for row in rows:
+        try:
+            metadata = json.loads(row[6] or "{}")
+        except json.JSONDecodeError:
+            metadata = {}
+        items.append(
+            {
+                "row_key": row[0],
+                "display_id": row[1],
+                "source_label": row[2],
+                "title": row[3],
+                "reason": row[4],
+                "ignored_at": row[5],
+                "metadata": metadata,
+            }
+        )
+    return items
+
+
+def remove_tender_dismissal(db_path: Path, *, row_key: str) -> None:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        connection.execute("DELETE FROM tender_dismissals WHERE row_key = ?", (row_key,))
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def upsert_triage_override(
+    db_path: Path,
+    *,
+    row_key: str,
+    action: str,
+    reason: str | None = None,
+    created_at: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> None:
+    initialize(db_path)
+    if not row_key.strip():
+        raise ValueError("row_key is required")
+    created_at = created_at or datetime.now(timezone.utc).isoformat()
+    connection = connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO triage_overrides (
+                row_key, action, reason, created_at, metadata_json
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(row_key) DO UPDATE SET
+                action = excluded.action,
+                reason = excluded.reason,
+                metadata_json = excluded.metadata_json
+            """,
+            (row_key, action, reason, created_at, json.dumps(metadata or {}, ensure_ascii=False)),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def triage_overrides_by_key(db_path: Path) -> dict[str, dict[str, object]]:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        rows = connection.execute(
+            """
+            SELECT row_key, action, reason, created_at, metadata_json
+            FROM triage_overrides
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+    items: dict[str, dict[str, object]] = {}
+    for row in rows:
+        try:
+            metadata = json.loads(row[4] or "{}")
+        except json.JSONDecodeError:
+            metadata = {}
+        items[str(row[0])] = {
+            "row_key": row[0],
+            "action": row[1],
+            "reason": row[2],
+            "created_at": row[3],
+            "metadata": metadata,
+        }
+    return items
+
+
 def record_notification_sent(
     db_path: Path,
     *,
@@ -981,6 +1084,14 @@ def _ensure_runtime_state_tables(connection: sqlite3.Connection) -> None:
             subject TEXT,
             metadata_json TEXT NOT NULL DEFAULT '{}',
             UNIQUE(row_key, channel, recipient)
+        );
+
+        CREATE TABLE IF NOT EXISTS triage_overrides (
+            row_key TEXT PRIMARY KEY,
+            action TEXT NOT NULL,
+            reason TEXT,
+            created_at TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}'
         );
 
         CREATE TABLE IF NOT EXISTS source_documents (

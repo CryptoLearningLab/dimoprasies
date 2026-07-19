@@ -2173,6 +2173,40 @@ tender-radar-scheduled.timer: enabled, active
 scheduled dry-run: ok true, discovery skipped true, AI triage skipped true, auto_document_fetch skipped true, errors 0, warnings 0, elapsed 6.94s
 ```
 
+### UI v0.1.10 admin audit and restore panel
+
+Implemented behavior:
+
+- Bumped the application version from `0.1.9` to `0.1.10`.
+- Added an `Admin panel` tab inside the main UI, not a separate `/admin` route.
+- Added admin login support with email one-time code sent to the configured
+  admin/alert email and password fallback through `TENDER_RADAR_ADMIN_PASSWORD`
+  or `ADMIN_PASSWORD`.
+- Added SQLite `triage_overrides` runtime state for manual AI triage
+  corrections.
+- Added dismissal restore support by deleting from SQLite
+  `tender_dismissals` and the legacy ignored-tenders JSON bridge.
+- The admin audit reports AI-hidden rows, `Δεν με ενδιαφέρει` dismissals,
+  duplicate-hidden rows, expired-hidden rows and source errors.
+- The only restore action in this gate is `Επαναφορά`, scoped to AI-hidden
+  rows and mistakenly dismissed rows. Duplicate and expired rows are audit-only.
+- Restore asks for a reason and stores a `FORCE_KEEP` override.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_exposes_admin_panel tests/test_ui_server.py::test_admin_email_code_flow tests/test_ui_server.py::test_admin_restore_ai_hidden_row_forces_keep tests/test_ui_server.py::test_admin_restore_dismissed_row_removes_ignore tests/test_db.py::test_tender_dismissal_can_be_removed tests/test_db.py::test_triage_overrides_are_keyed_by_row
+.venv/bin/python -m py_compile src/tender_radar/__init__.py src/tender_radar/db.py src/tender_radar/ui_server.py
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+targeted admin/db tests: 6 passed
+full test suite: 165 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

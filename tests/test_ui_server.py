@@ -36,9 +36,30 @@ from tender_radar.ui_server import (
 )
 
 
+def write_patras_authority_fixture(tmp_path: Path, rows: list[dict]) -> None:
+    (tmp_path / "config").mkdir(exist_ok=True)
+    (tmp_path / "work/reports").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Πάτρα", "Πατρών"]
+    nuts: ["EL632"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps({"focus_authority_candidates": rows}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.9" in INDEX_HTML
+    assert "v0.1.10" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -53,6 +74,38 @@ def test_ui_exposes_email_alert_button() -> None:
     assert 'id="emailAlertsBtn"' in INDEX_HTML
     assert "/api/email-alerts" in APP_JS
     assert "Email νέων έργων" in INDEX_HTML
+
+
+def test_ui_exposes_admin_panel() -> None:
+    assert 'data-view="adminPanel"' in INDEX_HTML
+    assert 'id="adminLoginBox"' in INDEX_HTML
+    assert 'id="adminHiddenRows"' in INDEX_HTML
+    assert "/api/admin/request-code" in APP_JS
+    assert "/api/admin/verify-code" in APP_JS
+    assert "/api/admin/audit" in APP_JS
+    assert "/api/admin/restore" in APP_JS
+
+
+def test_admin_email_code_flow(monkeypatch) -> None:
+    sent = {}
+    monkeypatch.setattr(ui_server, "email_alert_recipient", lambda: "owner@example.test")
+    monkeypatch.setattr(
+        ui_server,
+        "send_email_alert",
+        lambda recipient, subject, text_body, html_body: sent.update(
+            {"recipient": recipient, "subject": subject, "text_body": text_body}
+        ),
+    )
+    ui_server.ADMIN_LOGIN_CODES.clear()
+
+    result = ui_server.request_admin_login_code({"email": "owner@example.test"})
+    code = ui_server.ADMIN_LOGIN_CODES["owner@example.test"]["code"]
+
+    assert result["ok"] is True
+    assert sent["recipient"] == "owner@example.test"
+    assert ui_server.verify_admin_login_code(email="owner@example.test", code="000000") is False
+    assert ui_server.verify_admin_login_code(email="owner@example.test", code=code) is True
+    assert "owner@example.test" not in ui_server.ADMIN_LOGIN_CODES
 
 
 def test_report_json_content_type_includes_utf8_charset() -> None:
@@ -2028,6 +2081,90 @@ regions: []
     unfiltered = dashboard_payload(scope="focus", apply_triage=False)
     assert unfiltered["summary"]["visible"] == 2
     assert unfiltered["summary"]["triage_hidden"] == 0
+
+
+def test_admin_restore_ai_hidden_row_forces_keep(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    write_patras_authority_fixture(
+        tmp_path,
+        [
+            {
+                "source": "AUTHORITY",
+                "record_type": "AUTHORITY_WEB",
+                "official_id": "AUTH-drop",
+                "title": "Διακήρυξη έργου Πατρών προς επαναφορά",
+                "authority": "Δήμος Πατρέων",
+                "source_url": "https://e-patras.gr/el/admin",
+                "matched_scopes": ["Δήμος Πατρέων"],
+                "match_notes": [],
+                "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+            }
+        ],
+    )
+    (tmp_path / "work/reports/ai_triage_report.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "row_key": "AUTHORITY:AUTH-drop",
+                        "ai": {
+                            "decision": "DROP_ADMIN",
+                            "confidence": 0.9,
+                            "reason": "διοικητικό",
+                            "eshidis_id_candidates": [],
+                            "keep_for_daily_review": False,
+                        },
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    assert dashboard_payload(scope="focus")["summary"]["visible"] == 0
+    audit = ui_server.admin_audit_payload()
+    assert audit["summary"]["ai_hidden"] == 1
+    assert audit["hidden_rows"][0]["restorable"] is True
+
+    restored = ui_server.restore_admin_row(row_key="AUTHORITY:AUTH-drop", reason="είναι ενεργό έργο")
+
+    assert restored["ok"] is True
+    payload = dashboard_payload(scope="focus")
+    assert payload["summary"]["visible"] == 1
+    assert payload["tenders"][0]["triage_override"]["action"] == "FORCE_KEEP"
+
+
+def test_admin_restore_dismissed_row_removes_ignore(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    write_patras_authority_fixture(
+        tmp_path,
+        [
+            {
+                "source": "AUTHORITY",
+                "record_type": "AUTHORITY_WEB",
+                "official_id": "AUTH-dismissed",
+                "title": "Έργο Δήμου Πατρέων",
+                "authority": "Δήμος Πατρέων",
+                "source_url": "https://e-patras.gr/el/tender",
+                "matched_scopes": ["Δήμος Πατρέων"],
+                "match_notes": [],
+                "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+            }
+        ],
+    )
+    row_key = "AUTHORITY:AUTH-dismissed"
+
+    ui_server.dismiss_tender(row_key)
+    assert dashboard_payload(scope="focus")["summary"]["visible"] == 0
+    assert ui_server.admin_audit_payload()["summary"]["dismissed"] == 1
+
+    ui_server.restore_admin_row(row_key=row_key, reason="κατά λάθος")
+
+    assert dashboard_payload(scope="focus")["summary"]["visible"] == 1
+    assert ui_server.admin_audit_payload()["summary"]["dismissed"] == 0
 
 
 def test_dashboard_hides_cached_authority_landing_pages(tmp_path, monkeypatch) -> None:

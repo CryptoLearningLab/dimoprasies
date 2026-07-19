@@ -8,13 +8,40 @@ from tender_radar.db import (
     import_attachment_download,
     import_eshidis_resource,
     list_source_documents,
+    list_tender_dismissals,
     notification_already_sent,
     record_notification_sent,
     record_source_run,
+    remove_tender_dismissal,
+    triage_overrides_by_key,
     upsert_source_document,
     upsert_source_state,
+    upsert_triage_override,
 )
 from tender_radar.sources.eshidis import EshidisAttachmentListing, EshidisTenderDetails
+
+
+def test_tender_dismissal_can_be_removed(tmp_path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+
+    dismiss_tender(db_path, row_key="AUTHORITY:AUTH-1", title="Κρυμμένο έργο")
+    assert ignored_tender_keys(db_path) == {"AUTHORITY:AUTH-1"}
+    assert list_tender_dismissals(db_path)[0]["title"] == "Κρυμμένο έργο"
+
+    remove_tender_dismissal(db_path, row_key="AUTHORITY:AUTH-1")
+
+    assert ignored_tender_keys(db_path) == set()
+    assert list_tender_dismissals(db_path) == []
+
+
+def test_triage_overrides_are_keyed_by_row(tmp_path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+
+    upsert_triage_override(db_path, row_key="AUTHORITY:AUTH-1", action="FORCE_KEEP", reason="είναι έργο")
+
+    override = triage_overrides_by_key(db_path)["AUTHORITY:AUTH-1"]
+    assert override["action"] == "FORCE_KEEP"
+    assert override["reason"] == "είναι έργο"
 
 
 def test_import_eshidis_resource_persists_tender_and_attachments(tmp_path) -> None:

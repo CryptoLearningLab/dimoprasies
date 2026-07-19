@@ -19,6 +19,9 @@ The document fetcher gate is complete for authority/municipal/regional rows:
   for new/changed rows without waiting for a manual `Fetch` click. If discovery
   is skipped as unchanged, scheduled auto-fetch is skipped too. Manual `Fetch`
   remains available as retry/admin control.
+- the UI has an `Admin panel` tab for auditing hidden rows and restoring AI
+  false drops or accidental `Δεν με ενδιαφέρει` dismissals. Restores are stored
+  as SQLite `triage_overrides` feedback.
 
 The next product gate is text extraction/OCR. Existing document analysis can
 extract embedded text from supported PDFs and documents, but scanned PDFs or

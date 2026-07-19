@@ -526,3 +526,19 @@ blocking the whole cron run.
 Per-target auto-fetch failures are warnings for the scheduled run, not fatal
 errors. Discovery, AI triage and email delivery failures can still fail the
 scheduled run.
+
+## D-051 - Admin corrections are explicit runtime overrides
+**Status:** Accepted
+
+AI triage decisions are reused across runs, so manual corrections are stored
+as explicit runtime state instead of silently editing generated reports. The
+admin panel writes `FORCE_KEEP` records to SQLite `triage_overrides` when a
+user restores an AI-hidden row and records the user's reason as feedback.
+
+Rows hidden by `Δεν με ενδιαφέρει` are restored by removing their dismissal
+state from SQLite `tender_dismissals` and the legacy ignored-tenders JSON
+bridge. Duplicate and expired rows remain audit-only in the first admin gate.
+
+Admin access is inside the main UI as an `Admin panel` tab. Login supports
+email one-time codes to the configured admin/alert email, with optional
+password fallback through runtime environment variables.

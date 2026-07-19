@@ -567,6 +567,13 @@ The system `python` command is not present in the remote environment; use
   `20` second budget and records `stopped_by_time_budget` rather than blocking
   the whole cron run. Individual auto-fetch failures are reported as warnings,
   not fatal scheduled errors.
+- The UI now displays version `v0.1.10` and includes an `Admin panel` tab.
+  Admin login supports one-time email codes to the configured admin/alert
+  email and optional password fallback via runtime env. The panel audits
+  AI-hidden, dismissed, duplicate, expired and source-error rows. Restore is
+  intentionally limited to AI-hidden rows and mistaken `Δεν με ενδιαφέρει`
+  dismissals; it writes `FORCE_KEEP` to SQLite `triage_overrides` and removes
+  dismissal state.
 
 ## Next Work
 
