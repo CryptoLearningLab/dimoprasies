@@ -3268,6 +3268,22 @@ Verification:
 # 219 passed in 16.24s
 ```
 
+Production deploy smoke on commit `e24fe76` passed:
+
+```text
+package version 0.1.32
+service active
+reverse_search query Ναυπάκτου:
+  ok true
+  active_rows_searched 11
+  matches 1
+  first 221566
+reverse_search query οδοποιία:
+  ok true
+  active_rows_searched 11
+  matches 0
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

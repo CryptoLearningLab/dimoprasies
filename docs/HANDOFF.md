@@ -760,11 +760,13 @@ The system `python` command is not present in the remote environment; use
   data was outside the 15-day window, kept `5` visible rows, rejected `109`,
   reported `errors 0` and `archived 0`. Project titles are now extracted without
   the previous IBAN/table noise.
-- Local `v0.1.32` scaffolds the `Αντίστροφη αναζήτηση` tab as a fast read-only
-  Mode B contract. `/api/reverse-search` searches currently visible active
-  dashboard rows plus already available document evidence/extracted ESHIDIS
-  text. It does not trigger discovery, fetch, OCR, AI triage or enrichment.
-  Full local suite passed with `219 passed`.
+- Production `v0.1.32` on commit `e24fe76` scaffolds the
+  `Αντίστροφη αναζήτηση` tab as a fast read-only Mode B contract.
+  `/api/reverse-search` searches currently visible active dashboard rows plus
+  already available document evidence/extracted ESHIDIS text. It does not
+  trigger discovery, fetch, OCR, AI triage or enrichment. Full local suite
+  passed with `219 passed`; production smoke found `221566` for query
+  `Ναυπάκτου` across `11` active rows.
 
 ## Next Work
 
