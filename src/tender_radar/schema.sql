@@ -213,3 +213,28 @@ CREATE TABLE IF NOT EXISTS notification_log (
     metadata_json TEXT NOT NULL DEFAULT '{}',
     UNIQUE(row_key, channel, recipient)
 );
+
+CREATE TABLE IF NOT EXISTS diavgeia_entalmata (
+    ada TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    org_name TEXT,
+    subject TEXT NOT NULL,
+    protocol_number TEXT,
+    issue_date TEXT,
+    published_at TEXT,
+    document_url TEXT,
+    local_path TEXT,
+    archive_path TEXT,
+    status TEXT NOT NULL DEFAULT 'VISIBLE',
+    matched_keywords_json TEXT NOT NULL DEFAULT '[]',
+    text_sample TEXT,
+    fetched_at TEXT,
+    archived_at TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_diavgeia_entalmata_status_issue
+ON diavgeia_entalmata(status, issue_date);
+
+CREATE INDEX IF NOT EXISTS idx_diavgeia_entalmata_org
+ON diavgeia_entalmata(org_id);

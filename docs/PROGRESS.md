@@ -3009,6 +3009,43 @@ dashboard_payload(scope="all") -> scope focus
 live focus visible/focus_matches: 11 / 14
 ```
 
+### UI v0.1.27 Diavgeia entalmata tab
+
+- Confirmed the existing NAS desktop utility source is available under
+  `/mnt/synology/Files/Files/1. ΔΗΜΟΣΙΑ ΕΡΓΑ/1. Diavgeia_Entalmata_exe_NEW`.
+  The `.env` was not opened. The Python source scans Diavgeia organizations
+  `14722` and `50051`, downloads decision PDFs and keeps matches for configured
+  contractor keywords.
+- Ported the workflow into Tender Radar as a first-class backend module,
+  `tender_radar.entalmata`, instead of embedding the Windows `.exe`.
+- Added `config/diavgeia_entalmata.yml` with the Diavgeia endpoint, two
+  configured regional organizations, a 15-day visible window and the current
+  keyword list.
+- Added SQLite table `diavgeia_entalmata`. Recent keyword matches remain
+  `VISIBLE`; old visible rows move to `work/download_audit/diavgeia_entalmata/old`
+  and become `ARCHIVED`; non-matches are retained as `REJECTED` evidence rather
+  than deleted.
+- Added CLI command `tender-radar entalmata scan`.
+- Replaced the former `Αρχεία` navigation tab with `Εντάλματα`, including
+  a responsive card list, summary metrics and buttons for refresh/manual scan.
+- Bumped the application version from `0.1.26` to `0.1.27`.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/entalmata.py src/tender_radar/ui_server.py src/tender_radar/cli.py src/tender_radar/config.py
+# passed
+
+.venv/bin/python -m pytest tests/test_entalmata.py tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_ui_exposes_entalmata_tab tests/test_config.py -q
+# 5 passed in 1.87s
+
+.venv/bin/python -m pytest tests/test_entalmata.py tests/test_cli.py::CliTests::test_entalmata_scan_parser_has_safe_defaults tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_ui_exposes_entalmata_tab tests/test_config.py -q
+# 6 passed in 0.89s
+
+.venv/bin/python -m tender_radar config validate
+# all repository configs ok, including config/diavgeia_entalmata.yml
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

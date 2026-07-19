@@ -723,6 +723,13 @@ The system `python` command is not present in the remote environment; use
 - Production deploy on commit `f89f811` passed: package version `0.1.26`,
   homepage `v0.1.26`, no `allGreeceToggle` in HTML/JS, and live
   `dashboard_payload(scope="all")` normalizes to `focus`.
+- The UI now displays version `v0.1.27` locally. The former `Αρχεία` tab is
+  replaced by `Εντάλματα`, backed by `tender_radar.entalmata`,
+  `config/diavgeia_entalmata.yml`, CLI command `tender-radar entalmata scan`
+  and SQLite table `diavgeia_entalmata`. It scans configured Diavgeia
+  organizations, downloads decision PDFs, keeps keyword matches visible for a
+  15-day window and archives older visible files under
+  `work/download_audit/diavgeia_entalmata/old`.
 
 ## Next Work
 
@@ -730,6 +737,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Run the next scheduled/incremental poll without full discovery and then review
-the admin audit `NO_DEADLINE_EVIDENCE` rows that still do not have a duplicate
-candidate, document evidence or parsed deadline.
+Deploy `v0.1.27` to the droplet, smoke the authenticated `Εντάλματα` tab, then
+run one bounded Diavgeia entalmata scan and confirm recent keyword matches are
+visible while old rows archive.

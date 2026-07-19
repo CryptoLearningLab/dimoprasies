@@ -44,6 +44,18 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.dry_run)
         self.assertEqual(10, args.limit)
 
+    def test_entalmata_scan_parser_has_safe_defaults(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["entalmata", "scan"])
+
+        self.assertEqual("entalmata", args.command)
+        self.assertEqual("scan", args.entalmata_command)
+        self.assertEqual("config/diavgeia_entalmata.yml", args.config)
+        self.assertEqual("data/tender_radar.sqlite", args.db)
+        self.assertEqual("work/download_audit/diavgeia_entalmata", args.download_dir)
+        self.assertEqual("work/reports/diavgeia_entalmata_latest.json", args.report)
+
     def test_sources_help_lists_live_fetch_commands(self) -> None:
         output = StringIO()
         with redirect_stdout(output):

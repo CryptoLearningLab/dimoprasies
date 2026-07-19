@@ -69,6 +69,7 @@ from tender_radar.discovery_watermark import (
     utc_now_iso,
 )
 from tender_radar.documents import analyze_document
+from tender_radar.entalmata import list_entalmata, scan_entalmata
 from tender_radar.evaluation import normalize_evaluation_config, save_evaluation_config
 from tender_radar.ai_triage import AI_TRIAGE_PROMPT_VERSION
 from tender_radar.sources.expanded_report import classify_public_works_candidate_dict
@@ -165,6 +166,9 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/source-polling":
             self._send_json(source_polling_payload())
+            return
+        if parsed.path == "/api/entalmata":
+            self._send_json(entalmata_payload())
             return
         if parsed.path == "/api/admin/audit":
             if not self._admin_authenticated():
@@ -319,6 +323,9 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 dry_run = bool(payload.get("dry_run", False))
                 recipient = str(payload.get("recipient") or "").strip() or None
                 self._send_json(start_job("email-alerts", run_email_alerts, scope=scope, sort=sort, recipient=recipient, dry_run=dry_run), status=202)
+                return
+            if parsed.path == "/api/entalmata/scan":
+                self._send_json(start_job("entalmata-scan", run_entalmata_scan), status=202)
                 return
             if parsed.path == "/api/dismiss-tender":
                 row_key = require_row_key(payload)
@@ -607,6 +614,25 @@ def run_cli_command(args: list[str]) -> dict[str, Any]:
         return result
     except subprocess.TimeoutExpired as exc:
         return {"ok": False, "error": f"Command timed out: {exc!r}", "command": " ".join(args)}
+    finally:
+        COMMAND_LOCK.release()
+
+
+def run_entalmata_scan() -> dict[str, Any]:
+    if not COMMAND_LOCK.acquire(blocking=False):
+        return {"ok": False, "error": "Another command is already running. Wait for it to finish."}
+    try:
+        report = scan_entalmata(
+            db_path=runtime_db_path(),
+            config_path=REPO_ROOT / "config/diavgeia_entalmata.yml",
+            download_dir=REPO_ROOT / "work/download_audit/diavgeia_entalmata",
+        )
+        report_path = REPO_ROOT / "work/reports/diavgeia_entalmata_latest.json"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        report["report_path"] = str(report_path)
+        report["entalmata"] = entalmata_payload()
+        return report
     finally:
         COMMAND_LOCK.release()
 
@@ -2324,6 +2350,34 @@ def run_email_alerts(
     payload["sent"] = len(payload["new_rows"])
     payload["sent_at"] = sent_at
     return payload
+
+
+def entalmata_payload() -> dict[str, Any]:
+    config_path = REPO_ROOT / "config/diavgeia_entalmata.yml"
+    data = load_config(config_path)
+    visible_days = int(data.get("visible_window_days") or 15)
+    records = list_entalmata(runtime_db_path(), visible_window_days=visible_days)
+    report_path = REPO_ROOT / "work/reports/diavgeia_entalmata_latest.json"
+    latest_report = None
+    if report_path.exists():
+        try:
+            latest_report = json.loads(report_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            latest_report = None
+    return {
+        "ok": True,
+        "visible_window_days": visible_days,
+        "organizations": data.get("organizations") or [],
+        "keywords": data.get("keywords") or [],
+        "summary": {
+            "visible": len(records),
+            "configured_organizations": len(data.get("organizations") or []),
+            "keywords": len(data.get("keywords") or []),
+            "last_scan_at": (latest_report or {}).get("generated_at") or (latest_report or {}).get("cutoff_date"),
+            "last_scan_summary": (latest_report or {}).get("summary"),
+        },
+        "records": [record.to_dict() for record in records],
+    }
 
 
 def run_scheduled_poll_and_alert(
@@ -5357,7 +5411,7 @@ INDEX_HTML = f"""<!doctype html>
       <button class="nav active" data-view="overview">Αναζήτηση</button>
       <button class="nav" data-view="rules">Κανόνες</button>
       <button id="adminNavBtn" class="nav" data-view="adminPanel">Admin panel</button>
-      <button class="nav" data-view="reports">Αρχεία</button>
+      <button class="nav" data-view="entalmata">Εντάλματα</button>
     </nav>
   </aside>
   <main>
@@ -5624,12 +5678,24 @@ INDEX_HTML = f"""<!doctype html>
       </div>
     </section>
 
-    <section id="reports" class="view">
-      <div class="toolbar">
-        <a class="button" href="/api/report?path=candidates.md" target="_blank">Open Candidates Markdown</a>
-        <a class="button secondary" href="/api/report?path=candidates.json" target="_blank">Open Candidates JSON</a>
+    <section id="entalmata" class="view">
+      <div class="searchBand">
+        <div>
+          <p class="eyebrow">Διαύγεια</p>
+          <h3>Εντάλματα τελευταίων 15 ημερών</h3>
+          <p class="mutedLine">Σαρώνει τους ρυθμισμένους φορείς Διαύγειας και κρατά αποφάσεις που περιέχουν τις λέξεις-κλειδιά ενδιαφέροντος.</p>
+        </div>
+        <div class="toolbar inlineToolbar">
+          <button id="entalmataScanBtn">Νέα αναζήτηση ενταλμάτων</button>
+          <button id="entalmataRefreshBtn" class="secondary">Ανανέωση λίστας</button>
+        </div>
       </div>
-      <p class="note">Οι υποψήφιοι μένουν candidate-only μέχρι να γίνει fetch του επίσημου detail resource.</p>
+      <div class="metrics">
+        <div><span id="entalmataVisibleCount">0</span><small>εντάλματα 15ημέρου</small></div>
+        <div><span id="entalmataOrgCount">0</span><small>φορείς</small></div>
+        <div><span id="entalmataKeywordCount">0</span><small>λέξεις-κλειδιά</small></div>
+      </div>
+      <div id="entalmataRows" class="entalmataGrid"></div>
     </section>
   </main>
   </div>
@@ -6165,6 +6231,52 @@ td:nth-child(2) { white-space: nowrap; color: var(--muted); font-weight: 700; }
   gap: 8px;
   margin-top: 10px;
 }
+.entalmataGrid {
+  display: grid;
+  gap: 12px;
+}
+.entalmaCard {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.entalmaHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+.entalmaSubject {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.35;
+}
+.entalmaMeta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.entalmaMeta span {
+  display: grid;
+  gap: 2px;
+  color: var(--text);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.entalmaMeta small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.entalmaKeywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .commandLog {
   margin-top: 14px;
   background: var(--panel);
@@ -6366,6 +6478,11 @@ h3 {
   .workspace {
     display: block;
   }
+  .entalmaHeader,
+  .entalmaMeta {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
   .tableWrap {
     overflow: visible;
     border: 0;
@@ -6447,6 +6564,7 @@ const state = {
   evaluationConfig: null,
   selectedRuleId: null,
   adminAudit: null,
+  entalmata: null,
   session: null,
 };
 const $ = (id) => document.getElementById(id);
@@ -6458,6 +6576,9 @@ document.querySelectorAll('.nav').forEach((button) => {
     $(button.dataset.view).classList.add('active');
     if (button.dataset.view === 'adminPanel') {
       loadAdminAudit().catch(() => {});
+    }
+    if (button.dataset.view === 'entalmata') {
+      loadEntalmata().catch((error) => { $('statusText').textContent = String(error); });
     }
   });
 });
@@ -6521,6 +6642,7 @@ async function refresh() {
   fillSelect('ruleProfileSelect', state.evaluationProfiles);
   await loadDashboard();
   await loadSourcePolling();
+  await loadEntalmata();
   if (!state.evaluationConfig && $('ruleProfileSelect').value) {
     await loadRules();
   }
@@ -6550,9 +6672,54 @@ async function loadSourcePolling() {
   renderSourcePolling(payload);
 }
 
+async function loadEntalmata() {
+  const payload = await api('/api/entalmata');
+  state.entalmata = payload;
+  renderEntalmata(payload);
+}
+
+function renderEntalmata(payload) {
+  const summary = payload.summary || {};
+  $('entalmataVisibleCount').textContent = summary.visible || 0;
+  $('entalmataOrgCount').textContent = summary.configured_organizations || 0;
+  $('entalmataKeywordCount').textContent = summary.keywords || 0;
+  const container = $('entalmataRows');
+  container.innerHTML = '';
+  const records = payload.records || [];
+  if (!records.length) {
+    container.innerHTML = '<div class="emptyState">Δεν υπάρχουν ακόμα εντάλματα στο τελευταίο 15ήμερο. Πάτα νέα αναζήτηση για σάρωση Διαύγειας.</div>';
+    return;
+  }
+  for (const item of records) {
+    const card = document.createElement('article');
+    card.className = 'entalmaCard';
+    const keywords = (item.matched_keywords || [])
+      .map((keyword) => `<span class="pill">${escapeHtml(keyword)}</span>`)
+      .join('');
+    card.innerHTML = `
+      <div class="entalmaHeader">
+        <div>
+          <p class="eyebrow">ΑΔΑ ${escapeHtml(item.ada || '')}</p>
+          <h3 class="entalmaSubject">${escapeHtml(item.subject || '')}</h3>
+        </div>
+        ${item.document_url ? `<a class="button tinyButton" href="${escapeHtml(item.document_url)}" target="_blank" rel="noreferrer">Open</a>` : ''}
+      </div>
+      <div class="entalmaMeta">
+        <span><small>Φορέας</small>${escapeHtml(item.org_name || item.org_id || '')}</span>
+        <span><small>Ημερομηνία</small>${escapeHtml(item.issue_date || '')}</span>
+        <span><small>Πρωτόκολλο</small>${escapeHtml(item.protocol_number || '')}</span>
+      </div>
+      <div class="entalmaKeywords">${keywords || '<span class="pill">χωρίς keyword</span>'}</div>
+      ${item.text_sample ? `<p class="noteText">${escapeHtml(item.text_sample)}</p>` : ''}
+    `;
+    container.appendChild(card);
+  }
+}
+
 async function refreshRuntimeViews() {
   await loadDashboard();
   await loadSourcePolling();
+  await loadEntalmata();
   if (!$('adminContent').hidden) {
     await loadAdminAudit();
   }
@@ -7343,6 +7510,8 @@ $('setupPasswordBtn').addEventListener('click', () => setupPassword().catch((err
 $('inviteUserBtn').addEventListener('click', () => inviteUser().catch((error) => { $('inviteStatus').textContent = String(error); }));
 $('updateUserRoleBtn').addEventListener('click', () => updateUserRole().catch((error) => { $('roleUpdateStatus').textContent = String(error); }));
 $('adminRefreshBtn').addEventListener('click', () => loadAdminAudit().catch(() => {}));
+$('entalmataRefreshBtn').addEventListener('click', () => loadEntalmata().catch((error) => { $('statusText').textContent = String(error); }));
+$('entalmataScanBtn').addEventListener('click', () => runAction('/api/entalmata/scan', {}, 'Σάρωση Διαύγειας για εντάλματα...'));
 $('appLogoutBtn').addEventListener('click', () => adminLogout().catch((error) => { $('loginStatus').textContent = String(error); }));
 $('appLogoutTopBtn').addEventListener('click', () => adminLogout().catch((error) => { $('loginStatus').textContent = String(error); }));
 

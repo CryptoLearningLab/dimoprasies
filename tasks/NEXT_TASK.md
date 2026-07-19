@@ -1,12 +1,13 @@
 # NEXT TASK
 
 Execute:
-`Audit rows hidden for missing deadline evidence`
+`Deploy and smoke Diavgeia entalmata tab`
 
 ## Current Input
 
 The deadline-evidence dashboard gate is deployed and admin audit re-enrichment
-is implemented locally in UI package version `0.1.25`.
+is implemented. Nationwide search is disabled in production version `0.1.26`.
+Local version `0.1.27` adds the Diavgeia entalmata workflow.
 
 - `dashboard_payload` enriches rows with fetched document evidence before
   active filtering.
@@ -43,23 +44,32 @@ is implemented locally in UI package version `0.1.25`.
 - Nationwide search is disabled in the user-facing product. It remains a
   future expansion only, after the local workflow is stable and a separate
   ESHIDIS-only/mode-aware design is approved.
+- The former `Αρχεία` tab is replaced locally by `Εντάλματα`.
+- `config/diavgeia_entalmata.yml` configures the Diavgeia search endpoint,
+  organizations `14722` and `50051`, the 15-day visible window and keyword
+  matching.
+- `tender-radar entalmata scan` stores matches in SQLite table
+  `diavgeia_entalmata`, downloads evidence under
+  `work/download_audit/diavgeia_entalmata`, and archives old visible files
+  under `work/download_audit/diavgeia_entalmata/old`.
 
 ## Instruction
 
 Complete the next gate:
 
-1. Do not run full discovery.
-2. Run an incremental/scheduled dry-run only.
-3. Confirm the front page still has zero visible unknown-deadline rows.
-4. Review remaining `NO_DEADLINE_EVIDENCE` rows that are not
-   `DUPLICATE_CANDIDATE`.
-5. Report how many need document fetch/OCR versus deeper source/title search.
+1. Deploy `v0.1.27` to the droplet.
+2. Smoke the authenticated UI and confirm the header shows `v0.1.27`.
+3. Confirm the `Εντάλματα` tab loads with summary metrics.
+4. Run one bounded Diavgeia entalmata scan.
+5. Confirm recent keyword matches are visible and rows outside the 15-day
+   window are archived or hidden.
 
 ## Required Tests
 
-- Focused UI/admin audit tests.
-- No-discovery dashboard smoke.
-- Incremental scheduled dry-run, not full discovery.
+- `tests/test_entalmata.py`.
+- `tests/test_ui_server.py::test_ui_exposes_entalmata_tab`.
+- `tests/test_cli.py::CliTests::test_entalmata_scan_parser_has_safe_defaults`.
+- Full test suite before production deploy.
 
 ## Required Closeout
 
@@ -73,3 +83,5 @@ Complete the next gate:
 - Design a separate nationwide ESHIDIS-only search mode with isolated state,
   explicit limits, no automatic KIMDIS/authority fetch, no automatic OCR/AI,
   and separate audit/reporting.
+- Decide whether Diavgeia entalmata need their own email alerts after the first
+  live scan confirms data quality.

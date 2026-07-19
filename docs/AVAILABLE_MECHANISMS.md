@@ -62,6 +62,14 @@ human-friendly UI should compose these mechanisms instead of replacing them.
   - Checks official deadline, latest attachment names and document signals.
   - Does not mutate `tenders.status`.
   - Does not emit `VERIFIED_ACTIVE`.
+- `entalmata scan`
+  - Scans configured Diavgeia organizations from
+    `config/diavgeia_entalmata.yml`.
+  - Downloads decision PDFs under `work/download_audit/diavgeia_entalmata`.
+  - Keeps only configured keyword matches visible for the configured recent
+    window, currently 15 days.
+  - Archives old visible files under `work/download_audit/diavgeia_entalmata/old`.
+  - Stores all state in SQLite table `diavgeia_entalmata`.
 
 ## UI Layer
 
@@ -84,6 +92,12 @@ human-friendly UI should compose these mechanisms instead of replacing them.
     authority/scope evidence.
 - `/api/kimdis-document-file?official_id=...`
   - Serves a fetched KIMDIS local file only if it exists under `work/`.
+- `/api/entalmata`
+  - Returns the current recent Diavgeia entalmata list and summary metrics from
+    SQLite.
+- `/api/entalmata/scan`
+  - Starts a background Diavgeia entalmata scan using the configured
+    organizations and keyword list.
 
 ## Current Presentation Rules
 

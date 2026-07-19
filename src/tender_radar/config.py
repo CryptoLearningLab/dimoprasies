@@ -39,6 +39,7 @@ def validate_repository_configs(root: Path | None = None) -> list[ValidationResu
         repo / "config" / "sources.yml",
         repo / "config" / "deduplication.yml",
         repo / "config" / "document_types.yml",
+        repo / "config" / "diavgeia_entalmata.yml",
         repo / "config" / "search_request.template.yml",
         *sorted((repo / "config" / "search_profiles").glob("*.yml")),
         *sorted((repo / "config" / "evaluation_profiles").glob("*.yml")),
@@ -110,6 +111,21 @@ def _validate_shape(path: Path, data: Any) -> None:
             aliases = value.get("aliases")
             if not isinstance(aliases, list):
                 raise ConfigValidationError(f"{key}.aliases must be a list")
+    elif name == "diavgeia_entalmata.yml":
+        _require(data, "api", dict)
+        _require(data, "organizations", list)
+        _require(data, "keywords", list)
+        window_days = data.get("visible_window_days", 15)
+        if not isinstance(window_days, int) or window_days < 1:
+            raise ConfigValidationError("visible_window_days must be a positive integer")
+        for item in data["organizations"]:
+            if not isinstance(item, dict):
+                raise ConfigValidationError("organizations entries must be mappings")
+            for key in ("id", "name"):
+                if key not in item:
+                    raise ConfigValidationError(f"organization missing required key: {key}")
+        if not all(isinstance(item, str) and item.strip() for item in data["keywords"]):
+            raise ConfigValidationError("keywords must contain non-empty strings")
     elif name == "search_request.template.yml":
         request = _require(data, "search_request", dict)
         for key in ("scope", "document_types", "terms", "matching", "status", "output"):

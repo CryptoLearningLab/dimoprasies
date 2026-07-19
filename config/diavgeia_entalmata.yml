@@ -1,0 +1,22 @@
+api:
+  search_url: "https://diavgeia.gov.gr/opendata/search.json"
+  size: 40
+  page: 0
+  sort: "recent"
+  status: "published"
+
+visible_window_days: 15
+
+organizations:
+  - id: "14722"
+    name: "Περιφέρεια Στερεάς Ελλάδας"
+  - id: "50051"
+    name: "Περιφέρεια Δυτικής Ελλάδας"
+
+keywords:
+  - "ΓΕΩΡΓΑΚΟΠΟΥΛΟΙ"
+  - "ΛΙΑΡΟΣ"
+  - "ΣΑΚΕΛΛΑΡΗΣ"
+  - "ΛΑΤΩ"
+  - "ΔΡΟΚΑΤ"
+  - "ΓΚΟΛΙΟΠΟΥΛΟΣ"

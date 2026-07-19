@@ -68,7 +68,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.26" in INDEX_HTML
+    assert "v0.1.27" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -77,6 +77,15 @@ def test_ui_exposes_source_polling_audit() -> None:
     assert "/api/source-polling" in APP_JS
     assert "renderSourcePolling" in APP_JS
     assert "refreshRuntimeViews" in APP_JS
+
+
+def test_ui_exposes_entalmata_tab() -> None:
+    assert 'data-view="entalmata"' in INDEX_HTML
+    assert "Εντάλματα τελευταίων 15 ημερών" in INDEX_HTML
+    assert 'id="entalmataRows"' in INDEX_HTML
+    assert "/api/entalmata" in APP_JS
+    assert "/api/entalmata/scan" in APP_JS
+    assert "renderEntalmata" in APP_JS
 
 
 def test_nationwide_scope_is_disabled_in_ui_and_api() -> None:

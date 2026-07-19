@@ -146,6 +146,17 @@ def build_parser() -> argparse.ArgumentParser:
     status_verify.add_argument("--report", default=None, help="JSON report output path.")
     status_verify.add_argument("--markdown-report", default=None, help="Markdown report output path.")
 
+    entalmata_parser = subparsers.add_parser("entalmata", help="Diavgeia warrant/payment decision commands.")
+    entalmata_sub = entalmata_parser.add_subparsers(dest="entalmata_command")
+    entalmata_scan = entalmata_sub.add_parser(
+        "scan",
+        help="Scan Diavgeia decisions for configured warrant keywords and keep the recent window.",
+    )
+    entalmata_scan.add_argument("--config", default="config/diavgeia_entalmata.yml", help="Entalmata YAML config path.")
+    entalmata_scan.add_argument("--db", default="data/tender_radar.sqlite", help="SQLite database path.")
+    entalmata_scan.add_argument("--download-dir", default="work/download_audit/diavgeia_entalmata", help="PDF storage path.")
+    entalmata_scan.add_argument("--report", default="work/reports/diavgeia_entalmata_latest.json", help="JSON report output path.")
+
     sources_parser = subparsers.add_parser("sources", help="Source audit commands.")
     sources_sub = sources_parser.add_subparsers(dest="sources_command")
     sources_health = sources_sub.add_parser("health", help="Run source health checks.")
@@ -413,6 +424,8 @@ def main(argv: list[str] | None = None) -> int:
         return _evaluate_run(args)
     if args.command == "status" and args.status_command == "verify":
         return _status_verify(args)
+    if args.command == "entalmata" and args.entalmata_command == "scan":
+        return _entalmata_scan(args)
     if args.command == "sources" and args.sources_command == "health":
         return _sources_health(args.allow_insecure_tls)
     if args.command == "sources" and args.sources_command == "audit-whitelist":
@@ -811,6 +824,21 @@ def _status_verify(args: argparse.Namespace) -> int:
     }
     _emit_json(output)
     return 0
+
+
+def _entalmata_scan(args: argparse.Namespace) -> int:
+    from tender_radar.entalmata import scan_entalmata
+
+    report = scan_entalmata(
+        db_path=Path(args.db),
+        config_path=Path(args.config),
+        download_dir=Path(args.download_dir),
+    )
+    report_path = Path(args.report)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    _emit_json({"report_path": str(report_path), "summary": report.get("summary"), "errors": report.get("errors")})
+    return 0 if report.get("ok") else 1
 
 
 def _sources_import_resource_audit(audit_json: Path, db_path: Path) -> int:

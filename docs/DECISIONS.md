@@ -713,3 +713,20 @@ Future nationwide support must be implemented as a separate product gate with
 mode-aware state, ESHIDIS-only discovery by default, no automatic non-ESHIDIS
 fetch/OCR/AI, explicit resource limits, and separate audit/reporting so it
 cannot pollute or slow the local daily workflow.
+
+## D-063 - Diavgeia entalmata are a separate SQLite workflow
+**Status:** Accepted
+
+The Diavgeia payment-warrant/decision utility is integrated as a backend
+workflow, not by embedding the Windows `.exe`. Configuration lives in
+`config/diavgeia_entalmata.yml`; state lives in SQLite table
+`diavgeia_entalmata`; downloaded evidence lives under
+`work/download_audit/diavgeia_entalmata`.
+
+The user-facing `Αρχεία` tab is replaced by `Εντάλματα`. It shows only
+keyword-matched decisions from the configured recent window, currently 15 days.
+Older visible decisions are archived to an `old` folder and marked
+`ARCHIVED`; rejected non-matches remain as retained audit evidence, not as
+front-page items. This workflow is independent of public-works tender discovery
+and must not affect tender dashboard filtering, ESHIDIS/KIMDIS deduplication or
+daily email alerts until a separate product gate is approved.
