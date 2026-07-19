@@ -666,6 +666,9 @@ The system `python` command is not present in the remote environment; use
   homepage `v0.1.19`, unauthenticated dashboard `401`, and no-discovery
   dashboard smoke reported `visible 12`, `unknown_visible []`,
   `expired_visible []`, `expired_hidden 74`, `duplicate_hidden 9`.
+- The UI now displays version `v0.1.20`. Admin audit separates
+  `NO_DEADLINE_EVIDENCE` from real `EXPIRED` rows and includes the parsed
+  expired deadline in the reason.
 
 ## Next Work
 
@@ -673,5 +676,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Run the next scheduled/incremental poll without full discovery and inspect the
-admin/audit data for rows hidden only because deadline evidence is missing.
+Run the next scheduled/incremental poll without full discovery and use the
+admin audit `NO_DEADLINE_EVIDENCE` bucket to decide which rows need additional
+document fetch/OCR.

@@ -68,7 +68,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.19" in INDEX_HTML
+    assert "v0.1.20" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:
@@ -1671,6 +1671,63 @@ def test_dashboard_uses_document_deadline_evidence_for_missing_deadline() -> Non
     }
 
     assert ui_server.dashboard_row_is_active(row, as_of=date(2026, 7, 19))
+
+
+def test_admin_audit_separates_missing_deadline_from_expired(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Πάτρα", "Πατρών"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps(
+            {
+                "focus_authority_candidates": [
+                    {
+                        "source": "AUTHORITY",
+                        "record_type": "AUTHORITY_WEB",
+                        "official_id": "AUTH-no-date",
+                        "title": "Διακήρυξη έργου χωρίς προθεσμία",
+                        "authority": "Δήμος Πατρέων",
+                        "source_url": "https://example.test/no-date",
+                        "matched_scopes": ["Δήμος Πατρέων"],
+                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                    },
+                    {
+                        "source": "AUTHORITY",
+                        "record_type": "AUTHORITY_WEB",
+                        "official_id": "AUTH-expired",
+                        "title": "Ληγμένο έργο Πατρέων",
+                        "authority": "Δήμος Πατρέων",
+                        "source_url": "https://example.test/expired",
+                        "submission_deadline": "2026-01-10T10:00:00",
+                        "matched_scopes": ["Δήμος Πατρέων"],
+                        "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+                    },
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    audit = ui_server.admin_audit_payload()
+
+    assert audit["summary"]["missing_deadline"] == 1
+    assert audit["summary"]["expired"] == 1
+    by_category = {row["category"]: row for row in audit["hidden_rows"]}
+    assert "NO_DEADLINE_EVIDENCE" in by_category
+    assert "δεν βρέθηκε parseable καταληκτική ημερομηνία" in by_category["NO_DEADLINE_EVIDENCE"]["reason"]
+    assert "10-01-2026 10:00" in by_category["EXPIRED"]["reason"]
 
 
 def test_dashboard_exposes_local_kimdis_preview_and_download(tmp_path, monkeypatch) -> None:

@@ -5,8 +5,8 @@ Execute:
 
 ## Current Input
 
-The deadline-evidence dashboard gate is deployed in UI package version
-`0.1.19`.
+The deadline-evidence dashboard gate is deployed and the admin audit split is
+implemented locally in UI package version `0.1.20`.
 
 - `dashboard_payload` enriches rows with fetched document evidence before
   active filtering.
@@ -23,6 +23,8 @@ The deadline-evidence dashboard gate is deployed in UI package version
   - unauthenticated dashboard API returns `401`;
   - no-discovery dashboard reports `visible 12`, `unknown_visible []`,
     `expired_visible []`, `expired_hidden 74`.
+- Admin audit now separates `NO_DEADLINE_EVIDENCE` from real `EXPIRED` rows.
+- Focused admin/UI tests passed: `93 passed`.
 
 ## Instruction
 

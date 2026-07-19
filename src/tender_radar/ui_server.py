@@ -3929,6 +3929,7 @@ def admin_audit_payload() -> dict[str, Any]:
     ignored_keys = ignored_tender_keys() - force_keep_keys
     triage = ai_triage_by_row_key()
     rows = [attach_ai_triage(row, triage, overrides=overrides) for row in merged_tender_rows()]
+    rows = [row_with_document_evidence(row) for row in rows]
     row_by_key = {row_key_for_tender(row): row for row in rows if row_key_for_tender(row)}
 
     dismissed_rows = []
@@ -3960,7 +3961,7 @@ def admin_audit_payload() -> dict[str, Any]:
     active_source_rows = [row for row in rows if row_key_for_tender(row) not in ignored_keys]
     canonical_rows, duplicate_rows = suppress_linked_eshidis_duplicates(active_source_rows)
     official_deadlines = official_eshidis_deadlines_by_id(canonical_rows)
-    expired_rows = [row for row in canonical_rows if not dashboard_row_is_active(row, official_deadlines=official_deadlines)]
+    inactive_rows = [row for row in canonical_rows if not dashboard_row_is_active(row, official_deadlines=official_deadlines)]
     duplicate_hidden_rows = [
         admin_hidden_row(
             row,
@@ -3970,15 +3971,32 @@ def admin_audit_payload() -> dict[str, Any]:
         )
         for row in duplicate_rows
     ]
-    expired_hidden_rows = [
-        admin_hidden_row(
-            row,
-            category="EXPIRED",
-            reason="Κρύφτηκε επειδή η προθεσμία δεν είναι μεταγενέστερη της σημερινής ημερομηνίας.",
-            restorable=False,
-        )
-        for row in expired_rows
-    ]
+    expired_hidden_rows = []
+    missing_deadline_rows = []
+    for row in inactive_rows:
+        raw_deadline = row.get("current_deadline_at") or row.get("submission_deadline") or (row.get("deadline_evidence") or {}).get("deadline_at")
+        if raw_deadline and deadline_date(str(raw_deadline)):
+            expired_hidden_rows.append(
+                admin_hidden_row(
+                    row,
+                    category="EXPIRED",
+                    reason=f"Κρύφτηκε επειδή η προθεσμία υποβολής ({deadline_display(str(raw_deadline))}) δεν είναι μεταγενέστερη της σημερινής ημερομηνίας.",
+                    restorable=False,
+                )
+            )
+        else:
+            document_count = int(row.get("document_evidence_count") or 0)
+            missing_deadline_rows.append(
+                admin_hidden_row(
+                    row,
+                    category="NO_DEADLINE_EVIDENCE",
+                    reason=(
+                        f"Κρύφτηκε επειδή δεν βρέθηκε parseable καταληκτική ημερομηνία υποβολής προσφορών. "
+                        f"Fetched/OCR έγγραφα που ελέγχθηκαν: {document_count}."
+                    ),
+                    restorable=False,
+                )
+            )
     source_errors = source_polling_payload().get("rows") or []
     errors = [
         {
@@ -3990,7 +4008,7 @@ def admin_audit_payload() -> dict[str, Any]:
         for row in source_errors
         if row.get("last_error")
     ]
-    hidden_rows = dismissed_rows + triage_hidden_rows + duplicate_hidden_rows + expired_hidden_rows
+    hidden_rows = dismissed_rows + triage_hidden_rows + duplicate_hidden_rows + expired_hidden_rows + missing_deadline_rows
     return {
         "ok": True,
         "authenticated": True,
@@ -4000,6 +4018,7 @@ def admin_audit_payload() -> dict[str, Any]:
             "ai_hidden": len(triage_hidden_rows),
             "duplicates": len(duplicate_hidden_rows),
             "expired": len(expired_hidden_rows),
+            "missing_deadline": len(missing_deadline_rows),
             "source_errors": len(errors),
             "manual_force_keep": len(force_keep_keys),
         },

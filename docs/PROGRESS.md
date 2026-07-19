@@ -2728,6 +2728,35 @@ production deploy smoke on commit 281ff78:
     document-derived deadline visible rows 4
 ```
 
+### UI v0.1.20 hidden-deadline audit split
+
+- Bumped the application version from `0.1.19` to `0.1.20`.
+- Admin audit now enriches rows with the same fetched document evidence used by
+  the dashboard.
+- Hidden rows with no parseable submission deadline are reported separately as
+  `NO_DEADLINE_EVIDENCE` instead of being folded into generic `EXPIRED`.
+- Expired rows now include the parsed deadline in their audit reason.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_admin_audit_separates_missing_deadline_from_expired tests/test_ui_server.py -q
+```
+
+Results:
+
+```text
+focused admin/UI tests: 93 passed
+py_compile: passed
+full test suite: 196 passed
+local admin audit smoke:
+  hidden_total 125
+  ai_hidden 50
+  duplicates 8
+  expired 3
+  missing_deadline 64
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:
