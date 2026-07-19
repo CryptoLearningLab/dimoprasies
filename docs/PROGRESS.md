@@ -3046,6 +3046,34 @@ Verification:
 # all repository configs ok, including config/diavgeia_entalmata.yml
 ```
 
+Production deploy of commit `3d01a34` reached the droplet and smoke showed
+package `0.1.27`, homepage `v0.1.27`, the `Εντάλματα` tab present and
+`/api/entalmata` payload ok with `2` configured organizations and `6`
+keywords. A first live bounded entalmata scan checked `80` Diavgeia decisions
+but failed all PDF downloads because Diavgeia document URLs can contain Greek
+characters that `urllib` refuses unless percent-encoded.
+
+### UI v0.1.28 Diavgeia Greek URL encoding fix
+
+- Added `safe_request_url()` to percent-encode non-ASCII path/query/fragment
+  parts before creating `urllib.request.Request`.
+- Reused the helper for both JSON and PDF fetches.
+- Added regression coverage for a Diavgeia URL with Greek path/query text.
+- Bumped the application version from `0.1.27` to `0.1.28`.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_entalmata.py tests/test_cli.py::CliTests::test_entalmata_scan_parser_has_safe_defaults tests/test_ui_server.py::test_ui_shows_current_version_badge tests/test_ui_server.py::test_ui_exposes_entalmata_tab tests/test_config.py -q
+# 7 passed in 0.95s
+
+.venv/bin/python -m py_compile src/tender_radar/entalmata.py
+# passed
+
+.venv/bin/python -m pytest -q
+# 214 passed in 17.25s
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

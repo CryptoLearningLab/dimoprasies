@@ -68,7 +68,7 @@ regions: []
 
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
-    assert "v0.1.27" in INDEX_HTML
+    assert "v0.1.28" in INDEX_HTML
 
 
 def test_ui_exposes_source_polling_audit() -> None:

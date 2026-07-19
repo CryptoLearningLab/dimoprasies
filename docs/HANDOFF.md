@@ -730,6 +730,10 @@ The system `python` command is not present in the remote environment; use
   organizations, downloads decision PDFs, keeps keyword matches visible for a
   15-day window and archives older visible files under
   `work/download_audit/diavgeia_entalmata/old`.
+- Live scan after the `v0.1.27` deploy exposed a Diavgeia PDF download issue:
+  Greek characters in `documentUrl` paths triggered `urllib` ASCII encoding
+  errors. Local `v0.1.28` adds percent-encoding via `safe_request_url()` and
+  regression coverage for Greek Diavgeia URLs.
 
 ## Next Work
 
@@ -737,6 +741,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Deploy `v0.1.27` to the droplet, smoke the authenticated `Εντάλματα` tab, then
-run one bounded Diavgeia entalmata scan and confirm recent keyword matches are
-visible while old rows archive.
+Deploy `v0.1.28` to the droplet, smoke the `Εντάλματα` tab, then rerun one
+bounded Diavgeia entalmata scan and confirm PDF downloads no longer fail on
+Greek URLs.

@@ -4,7 +4,7 @@ from datetime import date
 import json
 import sqlite3
 
-from tender_radar.entalmata import list_entalmata, scan_entalmata
+from tender_radar.entalmata import list_entalmata, safe_request_url, scan_entalmata
 
 
 def write_config(path) -> None:
@@ -137,3 +137,12 @@ def test_scan_entalmata_archives_visible_rows_that_leave_window(tmp_path) -> Non
         ).fetchone()
     assert row[0] == "ARCHIVED"
     assert row[1].endswith("old/12_2026.pdf")
+
+
+def test_safe_request_url_percent_encodes_greek_paths() -> None:
+    url = "https://diavgeia.gov.gr/doc/Ψ123Ω-ΑΒΓ?filename=Απόφαση.pdf"
+
+    encoded = safe_request_url(url)
+
+    assert encoded.startswith("https://diavgeia.gov.gr/doc/%CE%A8")
+    assert "%CE%91%CF%80%CF%8C%CF%86%CE%B1%CF%83%CE%B7.pdf" in encoded

@@ -7,7 +7,8 @@ Execute:
 
 The deadline-evidence dashboard gate is deployed and admin audit re-enrichment
 is implemented. Nationwide search is disabled in production version `0.1.26`.
-Local version `0.1.27` adds the Diavgeia entalmata workflow.
+Local version `0.1.28` adds the Diavgeia entalmata workflow and fixes Greek
+Diavgeia PDF URL encoding.
 
 - `dashboard_payload` enriches rows with fetched document evidence before
   active filtering.
@@ -57,8 +58,8 @@ Local version `0.1.27` adds the Diavgeia entalmata workflow.
 
 Complete the next gate:
 
-1. Deploy `v0.1.27` to the droplet.
-2. Smoke the authenticated UI and confirm the header shows `v0.1.27`.
+1. Deploy `v0.1.28` to the droplet.
+2. Smoke the authenticated UI and confirm the header shows `v0.1.28`.
 3. Confirm the `Εντάλματα` tab loads with summary metrics.
 4. Run one bounded Diavgeia entalmata scan.
 5. Confirm recent keyword matches are visible and rows outside the 15-day

@@ -10,7 +10,7 @@ import sqlite3
 import unicodedata
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from tender_radar.config import load_config
@@ -314,15 +314,28 @@ def archive_old_entalmata(db_path: Path, archive_dir: Path, cutoff: date) -> int
 
 
 def fetch_json(url: str) -> dict[str, Any]:
-    request = Request(url, headers={"Accept": "application/json", "User-Agent": "TenderRadar/0.1 entalmata"})
+    request = Request(safe_request_url(url), headers={"Accept": "application/json", "User-Agent": "TenderRadar/0.1 entalmata"})
     with urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
 def fetch_bytes(url: str) -> bytes:
-    request = Request(url, headers={"User-Agent": "TenderRadar/0.1 entalmata"})
+    request = Request(safe_request_url(url), headers={"User-Agent": "TenderRadar/0.1 entalmata"})
     with urlopen(request, timeout=30) as response:
         return response.read()
+
+
+def safe_request_url(url: str) -> str:
+    parts = urlsplit(url)
+    return urlunsplit(
+        (
+            parts.scheme,
+            parts.netloc,
+            quote(parts.path, safe="/%"),
+            quote(parts.query, safe="=&%/:;+?,@"),
+            quote(parts.fragment, safe="=&%/:;+?,@"),
+        )
+    )
 
 
 def extract_pdf_text(path: Path) -> str:
