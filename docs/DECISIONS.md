@@ -599,3 +599,17 @@ Cached AI triage rows are reused only when their `triage_signature` still
 matches the current dashboard metadata and bounded document evidence. If a row
 gets new fetched/OCR text or changed identifiers, it becomes pending for one
 fresh AI pass; unchanged rows keep skipping OpenAI.
+
+## D-056 - Prompt changes invalidate AI triage cache
+**Status:** Accepted
+
+The AI triage cache signature includes an explicit `AI_TRIAGE_PROMPT_VERSION`.
+When the classifier prompt is tightened from observed production failures, the
+affected rows are rechecked once instead of silently reusing stale decisions.
+
+The classifier prompt is strict about common false keeps observed in production:
+technical-consultant services, standalone studies, direct assignments, supplies
+even when they include installation or commissioning, vehicle/machinery repairs,
+transport services, Μη.Μ.Ε.Δ. drawings, awards, contracts and administrative
+approvals are excluded unless the row is clearly an active open public-works
+tender with a future submission deadline.

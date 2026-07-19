@@ -597,6 +597,19 @@ The system `python` command is not present in the remote environment; use
   OCR provenance and deterministic ESHIDIS ids. When AI/OCR evidence exposes a
   linked ESHIDIS id, candidate enrichment prefers that id and fetches the
   official ESHIDIS folder directly instead of refetching the source row.
+- AI triage cache reuse is keyed by a `triage_signature` over dashboard row
+  metadata, fetched/OCR document evidence and `AI_TRIAGE_PROMPT_VERSION`.
+  Newly fetched/OCR documents or prompt changes force one fresh AI pass;
+  unchanged rows skip OpenAI on the next identical run.
+- Production smoke on `v0.1.14` commit `8079a1b` confirmed:
+  - first signature run classified 77 rows in 74.07s;
+  - second unchanged run skipped AI in 3.48s;
+  - report contained 10 rows with document evidence and 11 rows with linked
+    ESHIDIS evidence.
+- The live report exposed concrete false keeps for technical-consultant
+  services, direct assignments and supply/installation rows. The AI prompt was
+  tightened and versioned so these prompt changes invalidate stale cached
+  decisions.
 
 ## Next Work
 
@@ -604,6 +617,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Run production smoke on the fetched/OCR AI classifier path, inspect the
-resulting hidden/kept rows, then tighten the classifier prompt only from
-observed failures.
+Deploy the tightened AI prompt/signature update, rerun production AI triage
+without full discovery, inspect kept/dropped/link results and then proceed to
+the ESHIDIS verifier/dedup persistence gate.

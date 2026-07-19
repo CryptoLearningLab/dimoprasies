@@ -1,7 +1,7 @@
 # NEXT TASK
 
 Execute:
-`Production-smoke fetched/OCR AI classifier results`
+`Deploy tightened AI classifier and verify official ESHIDIS linking`
 
 ## Current Input
 
@@ -27,32 +27,39 @@ The document fetcher and first OCR fallback gates are complete:
   available, and only `admin` role sessions can access audit/restore/invite
   controls.
 
-The AI classifier now consumes fetched/OCR document evidence for pending rows.
-The next product gate is to run a production smoke, inspect exactly what the AI
-kept/dropped and tighten only observed prompt/classifier failures.
+The AI classifier consumes fetched/OCR document evidence for pending rows.
+Production smoke confirmed that signature-based caching works: the first run
+after adding signatures classified 77 rows, and the second unchanged run skipped
+AI in a few seconds. The live report exposed concrete false keeps for
+technical-consultant services, direct assignments and supply/installation rows;
+the prompt was tightened and `AI_TRIAGE_PROMPT_VERSION` was added to the cache
+signature.
 
 ## Instruction
 
 Implement the next small gate:
 
-1. Deploy `v0.1.14`.
-2. Run one live AI triage/enrichment smoke on the droplet without forcing full
-   discovery.
-3. Inspect `work/reports/ai_triage_report.json` and the dashboard summary.
-4. List rows kept, dropped and linked to ESHIDIS by the new document evidence.
-5. Record any concrete false keep/drop with provenance.
-6. Only if there is a concrete failure, tighten the prompt/classifier and add a
-   focused regression test.
+1. Deploy the tightened prompt/signature update.
+2. Rerun live AI triage on the droplet without forcing full discovery.
+3. Confirm the prompt-version change invalidates old cached decisions once.
+4. Confirm the next unchanged run skips AI again.
+5. Inspect `work/reports/ai_triage_report.json` for remaining false keeps or
+   false drops.
+6. Run candidate enrichment for linked ESHIDIS ids with a time budget and list
+   which ids verified or failed.
+7. If linked ESHIDIS candidates verify successfully, prepare the next persistence
+   gate for storing official ESHIDIS replacements/dedup relations in SQLite.
 
 ## Required Closeout
 
 1. Run droplet AI triage/enrichment smoke and record elapsed time.
 2. Confirm unchanged sources do not trigger full discovery.
-3. Confirm document evidence appears for changed/pending rows where local
+3. Confirm prompt-version invalidation and unchanged-row skip both work.
+4. Confirm document evidence appears for changed/pending rows where local
    fetched/OCR text exists.
-4. Report changed files and verification commands.
-5. Update `docs/PROGRESS.md`.
-6. Update `docs/DECISIONS.md` only if a real decision was made.
-7. Update this file with the next single executable gate.
-8. Update `docs/HANDOFF.md` if project state or next gate changed.
-9. Commit and push tracked changes to GitHub unless explicitly told not to.
+5. Report changed files and verification commands.
+6. Update `docs/PROGRESS.md`.
+7. Update `docs/DECISIONS.md` only if a real decision was made.
+8. Update this file with the next single executable gate.
+9. Update `docs/HANDOFF.md` if project state or next gate changed.
+10. Commit and push tracked changes to GitHub unless explicitly told not to.

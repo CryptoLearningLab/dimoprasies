@@ -820,6 +820,15 @@ def test_incremental_ai_triage_rechecks_stale_cached_rows(tmp_path, monkeypatch)
     assert captured["rows"][0]["triage_signature"] != "old-signature"
 
 
+def test_ai_triage_signature_includes_prompt_version(monkeypatch) -> None:
+    row = {"row_key": "AUTHORITY:AUTH-1", "title": "Δημοτική οδοποιία"}
+    original = ui_server.ai_triage_signature(row)
+
+    monkeypatch.setattr(ui_server, "AI_TRIAGE_PROMPT_VERSION", "next-prompt-version")
+
+    assert ui_server.ai_triage_signature(row) != original
+
+
 def test_incremental_ai_triage_includes_fetched_ocr_document_text(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "work/reports").mkdir(parents=True)

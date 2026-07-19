@@ -2392,6 +2392,68 @@ targeted AI/document triage tests: 8 passed
 full test suite after signature cache invalidation: 175 passed
 ```
 
+### Production smoke fetched/OCR AI classifier
+
+Implemented behavior after live smoke:
+
+- The AI triage cache signature now includes `AI_TRIAGE_PROMPT_VERSION`.
+  Prompt changes therefore invalidate cached decisions once, while unchanged
+  rows still skip OpenAI on the next identical run.
+- Tightened the AI prompt from observed live false-keeps: technical-consultant
+  services, standalone studies, direct assignments (`Απευθείας Ανάθεση` /
+  άρθρο 118), supplies even with installation/commissioning, vehicle/machinery
+  repairs, transport services, Μη.Μ.Ε.Δ. drawings, signed contracts, awards
+  and administrative approvals must not be parked as
+  `REVIEW_TENDER_CANDIDATE` when they are clearly excluded.
+
+Production smoke before prompt tightening:
+
+```text
+droplet commit: 8079a1b
+live package version: 0.1.14
+tender-radar-ui.service: active
+caddy.service: active
+HTTPS /: 200 text/html; charset=utf-8
+HTTPS /api/dashboard without login: 401 application/json; charset=utf-8
+incremental AI triage first run: ok true, skipped false, pending_rows 77,
+  retained_rows 0, elapsed 74.07s
+incremental AI triage second unchanged run: ok true, skipped true,
+  skip_reason NO_PENDING_AI_TRIAGE_ROWS, elapsed 3.48s
+AI report: total 77, kept 26, dropped 51, with_document_evidence 10,
+  with_linked_eshidis 11
+candidate enrichment smoke: attempted 4 of 5 targets within 30s budget,
+  skipped_previously_attempted 9, stopped_by_time_budget true,
+  one failed ESHIDIS lookup for candidate 470011
+```
+
+Observed concrete classifier gaps from the live report:
+
+- `AUTH-371a3333be4025ca`: technical-consultant services for Patras school
+  energy-upgrade tender documents was retained as `REVIEW_TENDER_CANDIDATE`.
+- `AUTH-57f303393ebd0ce3`: technical/scientific consultant services for
+  tender-document drafting was retained as `REVIEW_TENDER_CANDIDATE`.
+- `AUTH-78c18fb8b4c656e7`: direct-assignment article 118 fire-protection
+  systems repair/maintenance was retained as `REVIEW_TENDER_CANDIDATE`.
+- `AUTH-af4e5f93b5324404`: supply/installation/commissioning telecontrol
+  procurement was retained as `REVIEW_TENDER_CANDIDATE` and produced an
+  ESHIDIS candidate `470011`, which failed the official fetch smoke.
+
+Verification after prompt tightening:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ai_triage.py src/tender_radar/ui_server.py
+.venv/bin/python -m pytest tests/test_ai_triage.py tests/test_ui_server.py::test_scheduled_poll_skips_ai_when_all_rows_already_triaged tests/test_ui_server.py::test_incremental_ai_triage_rechecks_stale_cached_rows tests/test_ui_server.py::test_ai_triage_signature_includes_prompt_version tests/test_ui_server.py::test_incremental_ai_triage_includes_fetched_ocr_document_text tests/test_ui_server.py::test_candidate_enrichment_uses_ai_eshidis_id_before_refetching_authority
+.venv/bin/python -m pytest
+```
+
+Results:
+
+```text
+py_compile: passed
+targeted prompt/signature/OCR tests: 10 passed
+full test suite after prompt tightening: 177 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

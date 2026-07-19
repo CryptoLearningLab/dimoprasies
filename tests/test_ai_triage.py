@@ -4,6 +4,7 @@ from unittest.mock import patch
 from tender_radar.ai_triage import (
     build_ai_triage_report,
     deterministic_signals,
+    _prompt_text,
     render_ai_triage_markdown,
 )
 
@@ -75,6 +76,22 @@ def test_ai_triage_rejects_seven_digit_eshidis_hints() -> None:
         report = build_ai_triage_report(rows, batch_size=10)
 
     assert report["rows"][0]["ai"]["eshidis_id_candidates"] == ["221744"]
+
+
+def test_ai_triage_prompt_excludes_observed_non_works_false_keeps() -> None:
+    prompt = _prompt_text(
+        [
+            {
+                "row_key": "AUTH-1",
+                "title": "Πρόσκληση υπηρεσιών τεχνικού συμβούλου με απευθείας ανάθεση άρθρο 118",
+            }
+        ]
+    )
+
+    assert "technical-consultant services" in prompt
+    assert "direct assignments" in prompt
+    assert "supplies even with installation" in prompt
+    assert "Do not use REVIEW_TENDER_CANDIDATE" in prompt
 
 
 def test_ai_triage_markdown_contains_summary() -> None:

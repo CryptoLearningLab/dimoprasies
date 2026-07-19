@@ -63,6 +63,7 @@ from tender_radar.discovery_watermark import (
 )
 from tender_radar.documents import analyze_document
 from tender_radar.evaluation import normalize_evaluation_config, save_evaluation_config
+from tender_radar.ai_triage import AI_TRIAGE_PROMPT_VERSION
 from tender_radar.sources.expanded_report import classify_public_works_candidate_dict
 from tender_radar.sources.kimdis_fetch import extract_eshidis_ids_from_text
 
@@ -1052,6 +1053,7 @@ def row_with_document_evidence(row: dict[str, Any]) -> dict[str, Any]:
 
 def ai_triage_signature(row: dict[str, Any]) -> str:
     stable = {
+        "ai_triage_prompt_version": AI_TRIAGE_PROMPT_VERSION,
         "row_key": row.get("row_key"),
         "display_id": row.get("display_id"),
         "official_id": row.get("official_id"),

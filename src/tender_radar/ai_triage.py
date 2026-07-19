@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 
 
 DEFAULT_MODEL = "gpt-4.1-mini"
+AI_TRIAGE_PROMPT_VERSION = "2026-07-19-strict-non-works-v1"
 RESPONSES_URL = "https://api.openai.com/v1/responses"
 
 KEEP_DECISIONS = {"KEEP_ACTIVE_TENDER", "REVIEW_TENDER_CANDIDATE", "EARLY_SIGNAL"}
@@ -391,6 +392,12 @@ def _prompt_text(batch: list[dict[str, Any]]) -> str:
         "pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/<id>, publicworks.eprocurement.gov.gr, "
         "Α/Α Διαγωνισμού near ESHIDIS/eprocurement wording, ΟΠΣ ΕΣΗΔΗΣ, Α/Α ΕΣΗΔΗΣ, and economic offer forms "
         "(ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ) where Α/Α ΣΥΣΤΗΜΑΤΟΣ is likely the ESHIDIS number.\n"
+        "Be strict about non-works rows: technical-consultant services, standalone studies, direct assignments "
+        "(Απευθείας Ανάθεση / άρθρο 118), supplies even with installation or commissioning, vehicle/machinery "
+        "repairs, transport services, Μη.Μ.Ε.Δ. drawings, signed contracts, awards and administrative approvals "
+        "must be DROP_OUT_OF_SCOPE_SUPPLY_SERVICE or DROP_ADMIN unless the row is an active open construction/"
+        "public-works tender with a future submission deadline. Do not use REVIEW_TENDER_CANDIDATE as a parking "
+        "state for clearly excluded services, supplies, studies or already-awarded/direct-assignment acts.\n"
         "Use document_evidence before listing metadata when present. It contains extracted/OCR text snippets from "
         "downloaded PDFs/DOCX/ZIP contents plus extraction_status and ocr_status; weak or failed OCR is not proof "
         "against the tender, it only means evidence may be incomplete.\n"
