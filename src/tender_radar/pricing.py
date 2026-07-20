@@ -327,12 +327,7 @@ def _ocr_pdf_for_budget(path: Path, *, max_pages: int = 12) -> str | None:
 def parse_budget_rows_from_text(text: str) -> list[PricingBudgetRow]:
     unit_price_before_quantity = _unit_price_before_quantity(text)
     at_unit_prices = _extract_at_unit_prices(text)
-    table_text = _complete_budget_lines_with_at_unit_prices(
-        text,
-        at_unit_prices,
-        unit_price_before_quantity=unit_price_before_quantity,
-    )
-    table_rows = _parse_budget_table_lines(table_text, unit_price_before_quantity=unit_price_before_quantity)
+    table_rows = _parse_budget_table_lines(text, unit_price_before_quantity=unit_price_before_quantity)
     if table_rows:
         table_rows = _apply_at_unit_prices_from_text(
             text,
