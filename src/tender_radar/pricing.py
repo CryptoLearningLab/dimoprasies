@@ -637,7 +637,7 @@ def _pricing_budget_router_documents(
     try:
         rows = connection.execute(
             """
-            SELECT id, document_name, document_type, local_path, text_path
+            SELECT id, document_name, document_type, local_path, text_path, text_sample
             FROM pricing_documents
             WHERE eshidis_id = ?
               AND (text_path IS NOT NULL OR local_path IS NOT NULL)
@@ -647,10 +647,22 @@ def _pricing_budget_router_documents(
         ).fetchall()
     finally:
         connection.close()
-    candidates = [_pricing_budget_router_document_summary(row, max_pages=max_pages_per_document) for row in rows]
+    shortlisted = sorted(
+        rows,
+        key=lambda row: -_pricing_router_light_document_score(row),
+    )[: max(max_documents * 2, max_documents)]
+    candidates = [_pricing_budget_router_document_summary(row, max_pages=max_pages_per_document) for row in shortlisted]
     candidates = [candidate for candidate in candidates if candidate["score"] > 0]
     candidates.sort(key=lambda item: (-int(item["score"]), str(item["document_name"])))
     return candidates[:max_documents]
+
+
+def _pricing_router_light_document_score(row: sqlite3.Row) -> int:
+    document_name = str(row["document_name"] or "")
+    document_type = str(row["document_type"] or "")
+    text_sample = str(row["text_sample"] or "")
+    keyword_hits = _pricing_router_keyword_hits(" ".join([document_name, document_type, text_sample]))
+    return _pricing_router_document_score(document_name, document_type, keyword_hits, [])
 
 
 def _pricing_budget_router_document_summary(row: sqlite3.Row, *, max_pages: int) -> dict[str, Any]:
@@ -661,7 +673,7 @@ def _pricing_budget_router_document_summary(row: sqlite3.Row, *, max_pages: int)
     full_text = ""
     if text_path:
         try:
-            full_text = text_path.read_text(encoding="utf-8", errors="ignore")
+            full_text = text_path.read_text(encoding="utf-8", errors="ignore")[:120_000]
         except OSError:
             full_text = ""
     pages = _pricing_budget_router_page_snippets(local_path, full_text=full_text, max_pages=max_pages)
