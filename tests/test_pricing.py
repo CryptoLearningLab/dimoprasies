@@ -282,6 +282,33 @@ def test_parse_budget_rows_handles_split_backslash_articles_and_special_units() 
     assert rows[1].amount == 3000
 
 
+def test_parse_budget_rows_handles_article_suffix_continuation_without_revision_column() -> None:
+    text = """
+      8 Επιστρώσεις με ΝΑΟΔΟ ΟΔΟΝ 2922 16 m2 490,00 35,00 17.150,00
+        προκατασκευασμένους Ν\\Β52.ΣΧ6
+      13 Τσιμεντόπλακες όδευσης ΝΑΟΙΚ 13 Μ2 22,00 28,50 627,00
+        τυφλών. Με τετράγωνες 73.16.1.ΣΧ
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert [row.row_number for row in rows] == [16, 13]
+    assert rows[0].article_code == "ΝΑΟΔΟ Ν\\Β52.ΣΧ6"
+    assert "Επιστρώσεις με προκατασκευασμένους" in rows[0].description
+    assert rows[0].revision_codes == ["ΟΔΟΝ-2922"]
+    assert rows[0].unit == "m2"
+    assert rows[0].quantity == 490
+    assert rows[0].unit_price == 35
+    assert rows[0].amount == 17150
+    assert rows[1].article_code == "ΝΑΟΙΚ 73.16.1.ΣΧ"
+    assert "Τσιμεντόπλακες όδευσης τυφλών" in rows[1].description
+    assert rows[1].revision_codes == []
+    assert rows[1].unit == "Μ2"
+    assert rows[1].quantity == 22
+    assert rows[1].unit_price == 28.5
+    assert rows[1].amount == 627
+
+
 def test_parse_budget_rows_handles_decimal_at_layout_with_suffix_articles() -> None:
     text = """
        1 Μεταφορές με αυτοκίνητο δια    ΝΑΟΙΚ          ΟΙΚ 1136      1.01     ton.k    900,00               0,35      315,00

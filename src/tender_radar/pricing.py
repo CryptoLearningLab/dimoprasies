@@ -480,13 +480,14 @@ def _expand_table_row_numeric_tail(tokens: list[str], next_lines: list[str]) -> 
 
 
 def _split_structured_table_prefix(tokens: list[str], *, next_line: str = "") -> tuple[int, str, list[str], list[str], bool] | None:
-    if len(tokens) < 5 or not (tokens[-1].isdigit() or _is_decimal_at_token(tokens[-1])):
+    if len(tokens) < 3 or not (tokens[-1].isdigit() or _is_decimal_at_token(tokens[-1])):
         return None
     row_number = int(tokens[-1]) if tokens[-1].isdigit() else 0
     work_tokens = tokens[:-1]
+    split_continuation = _split_article_prefix_from_next_line(work_tokens, next_line)
     article_index = _find_structured_article_index(work_tokens)
     if article_index is None:
-        split_article = _split_article_from_next_line(work_tokens, next_line)
+        split_article = split_continuation or _split_article_from_next_line(work_tokens, next_line)
         if split_article is None:
             return None
         article_code, description_tokens, revision_tokens = split_article
@@ -495,10 +496,13 @@ def _split_structured_table_prefix(tokens: list[str], *, next_line: str = "") ->
     description_tokens = work_tokens[:article_index]
     revision_tokens = work_tokens[article_index + 2 :]
     if not description_tokens or not revision_tokens:
-        split_article = _split_article_from_next_line(work_tokens, next_line)
+        split_article = split_continuation or _split_article_from_next_line(work_tokens, next_line)
         if split_article is None:
             return None
         article_code, description_tokens, revision_tokens = split_article
+        return row_number, article_code, description_tokens, revision_tokens, True
+    if split_continuation is not None and not re.search(r"\d", article_code):
+        article_code, description_tokens, revision_tokens = split_continuation
         return row_number, article_code, description_tokens, revision_tokens, True
     return row_number, article_code, description_tokens, revision_tokens, False
 
@@ -660,6 +664,31 @@ def _split_article_from_next_line(tokens: list[str], next_line: str) -> tuple[st
         if description_tokens and revision_tokens:
             return article_code, description_tokens, revision_tokens
     return None
+
+
+def _split_article_prefix_from_next_line(tokens: list[str], next_line: str) -> tuple[str, list[str], list[str]] | None:
+    next_tokens = _clean_text(next_line).split()
+    if not next_tokens:
+        return None
+    suffix_index = _find_article_suffix_index(next_tokens)
+    if suffix_index is None:
+        return None
+    prefix_index = next(
+        (
+            index
+            for index, token in enumerate(tokens)
+            if strip_accents(tokens[index]).upper().rstrip(".") in ARTICLE_CODE_PREFIXES
+        ),
+        None,
+    )
+    if prefix_index is None:
+        return None
+    description_tokens = [*tokens[:prefix_index], *next_tokens[:suffix_index]]
+    if not description_tokens:
+        return None
+    article_code = f"{tokens[prefix_index]} {next_tokens[suffix_index]}"
+    revision_tokens = tokens[prefix_index + 1 :]
+    return article_code, description_tokens, revision_tokens
 
 
 def _find_article_suffix_index(tokens: list[str]) -> int | None:
