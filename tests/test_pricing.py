@@ -348,10 +348,13 @@ def test_ai_pricing_rows_require_document_total_match() -> None:
     assert rejected == []
     mismatch = _validate_ai_budget_rows_against_text_total(rows, "Σύνολο Κόστους Εργασιών Σ1: 900,00 Π1:")
     ok = _validate_ai_budget_rows_against_text_total(rows, "Σύνολο Κόστους Εργασιών Σ1: 1.000,00 Π1:")
+    no_reference = _validate_ai_budget_rows_against_text_total(rows, "ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ χωρίς καθαρό σύνολο")
 
     assert mismatch["ok"] is False
     assert mismatch["status"] == "MISMATCH"
     assert ok["ok"] is True
+    assert no_reference["ok"] is False
+    assert no_reference["status"] == "NO_REFERENCE_TOTAL_FOUND"
 
 
 def test_parse_budget_rows_handles_sparse_ocr_table_with_missing_unit_prices() -> None:

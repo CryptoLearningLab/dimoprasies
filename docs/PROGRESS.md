@@ -3947,10 +3947,12 @@ tender-radar pricing reprocess-existing --use-ai-fallback --ai-fallback-mode alw
 The fallback does not promote projects to complete by itself. OpenAI returns
 candidate budget rows as strict JSON, then the local parser normalizes them into
 `PricingBudgetRow` objects and rejects any row where `quantity * unit_price`
-does not reconcile to `amount`. AI-extracted rows are also rejected for that
-document when their sum conflicts with an official subtotal found in the same
-text. Project completion still requires the existing merged-budget audit and
-official document-total validation to pass.
+does not reconcile to `amount`. AI-extracted rows are also rejected unless
+their sum matches an official subtotal found in the same extracted text. This
+deliberately rejects AI rows from OCR text that has no parseable subtotal, even
+if each individual row is arithmetically valid. Project completion still
+requires the existing merged-budget audit and official document-total validation
+to pass.
 
 Evidence:
 

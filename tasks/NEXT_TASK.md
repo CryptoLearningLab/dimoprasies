@@ -6,7 +6,7 @@ Execute:
 ## Current Input
 
 The independent reverse-pricing workflow is moving to runtime version
-`0.1.39` and remains disconnected from cron.
+`0.1.40` and remains disconnected from cron.
 
 Production deploy on commit `6a88b18` made pricing completion strict and added
 a download-free repair command:
@@ -76,8 +76,8 @@ Latest generic repairs:
   partial parsed state, but it remains `NEEDS_REVIEW` because the parsed total
   does not reconcile with the official offer total.
 - optional OpenAI fallback has been added for OCR-damaged pricing documents.
-  It is only row extraction support; local arithmetic and document-total
-  validation remain mandatory.
+  It is only row extraction support; local arithmetic and same-document
+  subtotal validation remain mandatory.
 
 ## Instruction
 
@@ -100,7 +100,7 @@ source subtotal.
 
 Suggested next gate:
 
-1. Deploy `v0.1.39` and run focused droplet pricing tests.
+1. Deploy `v0.1.40` and run focused droplet pricing tests.
 2. Run:
    `tender-radar pricing reprocess-existing --eshidis-id 221452 --eshidis-id 221006 --use-ai-fallback --report ...`
 3. Inspect whether AI produced locally arithmetic-valid rows.

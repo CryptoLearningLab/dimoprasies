@@ -530,7 +530,7 @@ def _validate_ai_budget_rows_against_text_total(rows: list[PricingBudgetRow], te
         return {"ok": None, "status": "NO_ROWS", "amount_total": amount_total}
     candidates = extract_budget_total_candidates(text)
     if not candidates:
-        return {"ok": None, "status": "NO_REFERENCE_TOTAL_FOUND", "amount_total": amount_total}
+        return {"ok": False, "status": "NO_REFERENCE_TOTAL_FOUND", "amount_total": amount_total}
     ranked = sorted(
         candidates,
         key=lambda candidate: (
