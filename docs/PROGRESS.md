@@ -4063,6 +4063,33 @@ The project remains `NEEDS_REVIEW` with `17` merged rows and no trusted
 reference monetary total. This is expected: the router integration is now safe,
 but `220675` still needs classification/parser work before it can become `OK`.
 
+### Local v0.1.41 reverse-pricing budget route guard
+
+- The runtime/UI version was bumped from `0.1.40` to `0.1.41`.
+- Reverse-pricing now treats standalone official ESHIDIS budget/pro-measurement
+  attachments as first-class router candidates. Files named with
+  `ΠΡΟΜΕΤΡΗΣΗ`/`ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ` receive explicit priority over nested ZIP/study
+  summaries, and the AI budget-router prompt now carries local/text
+  availability plus extraction-quality hints.
+- Pricing ingestion with `keep_heavy_files=False` now preserves official
+  standalone budget/pro-measurement PDFs instead of deleting them immediately.
+  Other downloaded heavy files may still be cleaned up.
+- When cleanup deletes a non-preserved heavy file, SQLite clears
+  `pricing_documents.local_path` and records `heavy_file_deleted_at`, avoiding
+  stale paths that point to files no longer on disk.
+- ZIP extraction now repairs common legacy Greek filename encodings before
+  indexing extracted child PDFs.
+
+Evidence:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/pricing.py tests/test_pricing.py
+# passed
+
+.venv/bin/python -m pytest tests/test_pricing.py
+# 49 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

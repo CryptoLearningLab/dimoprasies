@@ -1002,3 +1002,22 @@ the command must fall back to full deterministic reprocess for that project.
 
 This lets AI reduce search space and identify hard document layouts without
 allowing a bad route to degrade the pricing database.
+
+## D-084 - Official standalone ESHIDIS budget attachments outrank archive summaries
+**Status:** Accepted
+
+In reverse-pricing, a standalone official ESHIDIS attachment whose name
+contains `ΠΡΟΜΕΤΡΗΣΗ`, `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ` or both is stronger routing evidence
+than a nested PDF inside a ZIP/study bundle that contains a `ΣΥΝΟΠΤΙΚΟΣ
+ΠΡΟΫΠΟΛΟΓΙΣΜΟΣ` table.
+
+The UI may still run pricing ingestion with heavy-file cleanup enabled, but
+official standalone budget/pro-measurement attachments must be preserved until
+extraction and validation have had a chance to use the original PDF. If a
+non-preserved file is deleted after text extraction, SQLite must clear
+`pricing_documents.local_path` and record `heavy_file_deleted_at`; stale paths
+must not make the system believe a deleted PDF is available.
+
+ZIP extraction must repair common legacy Greek filename encodings before
+indexing child documents, so router prompts and provenance do not receive
+mojibake paths as primary document evidence.

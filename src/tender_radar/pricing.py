@@ -10,7 +10,7 @@ import sqlite3
 import subprocess
 import unicodedata
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -654,7 +654,13 @@ def _pricing_budget_router_documents(
     )[: max(max_documents * 2, max_documents)]
     candidates = [_pricing_budget_router_document_summary(row, max_pages=max_pages_per_document) for row in shortlisted]
     candidates = [candidate for candidate in candidates if candidate["score"] > 0]
-    candidates.sort(key=lambda item: (-int(item["score"]), str(item["document_name"])))
+    candidates.sort(
+        key=lambda item: (
+            -int(item.get("official_budget_priority") or 0),
+            -int(item["score"]),
+            str(item["document_name"]),
+        )
+    )
     return candidates[:max_documents]
 
 
@@ -664,6 +670,26 @@ def _pricing_router_light_document_score(row: sqlite3.Row) -> int:
     text_sample = str(row["text_sample"] or "")
     keyword_hits = _pricing_router_keyword_hits(" ".join([document_name, document_type, text_sample]))
     return _pricing_router_document_score(document_name, document_type, keyword_hits, [])
+
+
+def _is_standalone_pricing_document_name(document_name: str) -> bool:
+    normalized = document_name.replace("\\", "/")
+    return "/" not in normalized
+
+
+def _official_budget_document_priority(document_name: str, document_type: str | None = None) -> int:
+    if not _is_standalone_pricing_document_name(document_name):
+        return 0
+    normalized = strip_accents(f"{document_name} {document_type or ''}").upper()
+    if "ΟΙΚΟΝΟΜΙΚ" in normalized and "ΠΡΟΣΦΟΡ" in normalized:
+        return 0
+    if "ΠΡΟΜΕΤΡΗΣ" in normalized and "ΠΡΟΥΠΟΛΟΓ" in normalized:
+        return 90
+    if "ΠΡΟΥΠΟΛΟΓ" in normalized:
+        return 80
+    if "ΠΡΟΜΕΤΡΗΣ" in normalized:
+        return 70
+    return 0
 
 
 def _pricing_budget_router_document_summary(row: sqlite3.Row, *, max_pages: int) -> dict[str, Any]:
@@ -684,10 +710,14 @@ def _pricing_budget_router_document_summary(row: sqlite3.Row, *, max_pages: int)
         "document_id": int(row["id"]),
         "document_name": document_name,
         "document_type": document_type,
+        "official_budget_priority": _official_budget_document_priority(document_name, document_type),
         "score": score,
         "keyword_hits": keyword_hits,
         "local_path": str(local_path) if local_path else None,
         "text_path": str(text_path) if text_path else None,
+        "local_file_available": local_path is not None,
+        "text_file_available": text_path is not None,
+        "extraction_quality": "HAS_BUDGET_SNIPPETS" if pages else "NO_BUDGET_SNIPPETS",
         "candidate_pages": pages,
     }
 
@@ -780,7 +810,11 @@ def _pricing_router_text_score(text: str) -> int:
 
 def _pricing_router_document_score(document_name: str, document_type: str, keyword_hits: list[str], pages: list[dict[str, Any]]) -> int:
     normalized_name = strip_accents(f"{document_name} {document_type}").upper()
-    score = len(keyword_hits) + sum(int(page.get("score") or 0) for page in pages[:2])
+    score = (
+        _official_budget_document_priority(document_name, document_type)
+        + len(keyword_hits)
+        + sum(int(page.get("score") or 0) for page in pages[:2])
+    )
     if "ΠΡΟΥΠΟΛΟΓΙΣ" in normalized_name:
         score += 15
     if "ΟΙΚΟΝΟΜΙΚ" in normalized_name and "ΠΡΟΣΦΟΡ" in normalized_name:
@@ -811,6 +845,10 @@ def _pricing_budget_router_prompt(*, eshidis_id: str, documents: list[dict[str, 
                 "document_id": document["document_id"],
                 "document_name": document["document_name"],
                 "document_type": document["document_type"],
+                "official_budget_priority": document.get("official_budget_priority"),
+                "local_file_available": document.get("local_file_available"),
+                "text_file_available": document.get("text_file_available"),
+                "extraction_quality": document.get("extraction_quality"),
                 "keyword_hits": document["keyword_hits"],
                 "candidate_pages": [
                     {
@@ -825,6 +863,8 @@ def _pricing_budget_router_prompt(*, eshidis_id: str, documents: list[dict[str, 
     return (
         "Εντόπισε το αρχείο και το εύρος σελίδων που περιέχουν τον πλήρη αναλυτικό προϋπολογισμό δημόσιου έργου.\n"
         "Δεν θέλουμε τιμολόγιο χωρίς ποσότητες, τεχνική περιγραφή, σχέδια, συνοπτική προμέτρηση, πίνακα ομάδων ή απλή οικονομική προσφορά αν δεν έχει όλες τις αναλυτικές γραμμές.\n"
+        "Αν υπάρχει standalone επίσημο συνημμένο ΕΣΗΔΗΣ με όνομα που περιέχει ΠΡΟΜΕΤΡΗΣΗ ή ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ, έχει προτεραιότητα έναντι αρχείου μέσα σε ZIP/μελέτη.\n"
+        "Μην επιλέξεις nested συνοπτικό προϋπολογισμό από ZIP όταν υπάρχει standalone επίσημος προϋπολογισμός, εκτός αν το standalone έγγραφο φαίνεται ρητά ότι δεν περιέχει αναλυτικές γραμμές.\n"
         "Προτίμησε πίνακα με Α/Α ή Α.Τ., άρθρο, περιγραφή, άρθρα αναθεώρησης, μονάδα, ποσότητα, τιμή μονάδας, δαπάνη.\n"
         "Αν ένα έγγραφο δείχνει μόνο σύνολα ομάδων ή λίγες γραμμές και άλλο έγγραφο δείχνει πολλές αναλυτικές γραμμές άρθρων, διάλεξε το δεύτερο.\n"
         "Αν ο προϋπολογισμός είναι μέσα σε ενιαίο PDF μελέτης/διακήρυξης, δώσε page_start/page_end ή line hints.\n"
@@ -2416,6 +2456,31 @@ def upsert_pricing_document(
         connection.close()
 
 
+def mark_pricing_document_heavy_file_deleted(
+    db_path: Path,
+    *,
+    eshidis_id: str,
+    document_name: str,
+) -> None:
+    ensure_pricing_tables(db_path)
+    now = datetime.now(timezone.utc).isoformat()
+    connection = connect(db_path)
+    try:
+        connection.execute(
+            """
+            UPDATE pricing_documents
+            SET local_path = NULL,
+                heavy_file_deleted_at = ?
+            WHERE eshidis_id = ?
+              AND document_name = ?
+            """,
+            (now, eshidis_id, document_name),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def upsert_pricing_budget_rows(
     db_path: Path,
     *,
@@ -3587,6 +3652,7 @@ def ingest_pricing_eshidis_project(
         if download_payload:
             downloaded += 1
         local_path = Path(str(downloaded_file["path"]))
+        preserve_local_file = keep_heavy_files or _official_budget_document_priority(filename) > 0
         if not force and _pricing_document_is_indexed(db_path, eshidis_id=eshidis_id, document_name=filename):
             skipped_indexed += 1
             indexed = {
@@ -3608,22 +3674,25 @@ def ingest_pricing_eshidis_project(
                 row_index=row_index,
                 text_dir=text_dir,
                 archive_dir=archive_dir,
-                keep_heavy_files=keep_heavy_files,
+                keep_heavy_files=preserve_local_file,
                 metadata={"download_audit_path": str(download_audit_path), "size_bytes": downloaded_file.get("size_bytes")},
                 force=force,
             )
         rows_inserted = int(indexed.get("rows_upserted") or 0)
         rows_total += rows_inserted
-        if not keep_heavy_files and download_payload:
+        if not preserve_local_file and download_payload:
             try:
                 local_path.unlink()
+                mark_pricing_document_heavy_file_deleted(db_path, eshidis_id=eshidis_id, document_name=filename)
                 cleanup_deleted += 1
             except FileNotFoundError:
+                mark_pricing_document_heavy_file_deleted(db_path, eshidis_id=eshidis_id, document_name=filename)
                 pass
         doc_report.update(
             {
                 "download_status": "downloaded" if download_payload else "skipped_existing",
-                "local_path": str(local_path) if keep_heavy_files else None,
+                "local_path": str(local_path) if preserve_local_file else None,
+                "heavy_file_preserved": preserve_local_file,
                 "size_bytes": downloaded_file.get("size_bytes"),
                 "sha256": downloaded_file.get("sha256"),
                 "document_type": indexed.get("document_type"),
@@ -4074,8 +4143,7 @@ def _extract_pricing_archive(path: Path, destination: Path, *, force: bool = Fal
         return {"status": "ARCHIVE_SKIPPED_EXISTING", "directory": destination, "files": existing_files, "error": None}
     try:
         if suffix == ".zip":
-            with zipfile.ZipFile(path) as archive:
-                archive.extractall(destination)
+            _extract_zip_with_greek_filename_repair(path, destination)
         else:
             unar = shutil.which("unar")
             if not unar:
@@ -4098,6 +4166,56 @@ def _extract_pricing_archive(path: Path, destination: Path, *, force: bool = Fal
         return {"status": "ARCHIVE_EXTRACTION_FAILED", "directory": destination, "files": [], "error": repr(exc)}
     files = [item for item in sorted(destination.rglob("*")) if item.is_file() and item.suffix.lower() in {".pdf", ".xml", ".txt", ".zip", ".rar"}]
     return {"status": "ARCHIVE_EXTRACTED", "directory": destination, "files": files, "error": None}
+
+
+def _extract_zip_with_greek_filename_repair(path: Path, destination: Path) -> None:
+    with zipfile.ZipFile(path) as archive:
+        for member in archive.infolist():
+            repaired_name = _repair_zip_member_name(member.filename)
+            target = _safe_zip_member_path(destination, repaired_name)
+            if member.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member) as source, target.open("wb") as output:
+                shutil.copyfileobj(source, output)
+
+
+def _safe_zip_member_path(destination: Path, member_name: str) -> Path:
+    parts = [
+        part
+        for part in PurePosixPath(member_name.replace("\\", "/")).parts
+        if part not in {"", ".", "..", "/"}
+    ]
+    target = destination.joinpath(*parts)
+    resolved_destination = destination.resolve()
+    resolved_target = target.resolve(strict=False)
+    if resolved_destination not in resolved_target.parents and resolved_target != resolved_destination:
+        raise ValueError(f"Unsafe archive member path: {member_name}")
+    return target
+
+
+def _repair_zip_member_name(member_name: str) -> str:
+    if _zip_member_name_score(member_name) >= 0:
+        return member_name
+    try:
+        raw = member_name.encode("cp437")
+    except UnicodeEncodeError:
+        raw = member_name.encode("cp437", errors="replace")
+    candidates = [member_name]
+    for encoding in ("cp737", "cp869", "windows-1253", "iso8859_7"):
+        try:
+            candidates.append(raw.decode(encoding))
+        except UnicodeDecodeError:
+            continue
+    return max(candidates, key=_zip_member_name_score)
+
+
+def _zip_member_name_score(value: str) -> int:
+    greek_letters = sum(1 for char in value if "\u0370" <= char <= "\u03ff" or "\u1f00" <= char <= "\u1fff")
+    suspicious = sum(1 for char in value if char in "ïäèåæÆÇÉêëùîú£₧ÿ¿ªÜ¬⌐¼Θ½")
+    replacement = value.count("?") + value.count("\ufffd")
+    return greek_letters * 4 - suspicious * 3 - replacement * 6
 
 
 def _safe_path_part(value: str) -> str:

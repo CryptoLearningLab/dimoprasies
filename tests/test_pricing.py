@@ -3,10 +3,14 @@ import json
 import sqlite3
 
 from tender_radar.pricing import (
+    _extract_zip_with_greek_filename_repair,
     _is_pricing_candidate_document,
+    _pricing_budget_router_documents,
     _pricing_rows_from_ai_payload,
+    _repair_zip_member_name,
     _validate_ai_budget_rows_against_text_total,
     _unit_price_before_quantity,
+    mark_pricing_document_heavy_file_deleted,
     PricingBudgetRow,
     canonical_article_code,
     canonical_revision_code,
@@ -708,6 +712,87 @@ def test_pricing_candidate_document_accepts_meleti_budget_bundle() -> None:
         "ΜΕΛΕΤΗ συντηρηση και επισκευη αυλειων χωρων 7_2021_Π_Μ_Π.pdf",
         Path("ΜΕΛΕΤΗ συντηρηση και επισκευη αυλειων χωρων 7_2021_Π_Μ_Π.pdf"),
     )
+
+
+def test_mark_pricing_document_heavy_file_deleted_clears_stale_local_path(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    fake_pdf = tmp_path / "ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf"
+    fake_pdf.write_bytes(b"%PDF fixture")
+    upsert_pricing_document(
+        db_path,
+        eshidis_id="220675",
+        document_name=fake_pdf.name,
+        local_path=str(fake_pdf),
+        document_type="pdf",
+        extraction_status="TEXT_EXTRACTED",
+    )
+
+    fake_pdf.unlink()
+    mark_pricing_document_heavy_file_deleted(db_path, eshidis_id="220675", document_name=fake_pdf.name)
+
+    connection = sqlite3.connect(db_path)
+    try:
+        row = connection.execute(
+            "SELECT local_path, heavy_file_deleted_at FROM pricing_documents WHERE eshidis_id = ? AND document_name = ?",
+            ("220675", fake_pdf.name),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    assert row[0] is None
+    assert row[1]
+
+
+def test_pricing_budget_router_prioritizes_standalone_official_budget_over_zip_summary(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    nested_text = tmp_path / "nested.txt"
+    official_text = tmp_path / "official.txt"
+    nested_text.write_text(
+        """
+        ΣΥΝΟΠΤΙΚΟΣ ΠΡΟΫΠΟΛΟΓΙΣΜΟΣ
+        1 ΟΔΟ Α-24.2 Επένδυση πρανών ΟΔΟ-1610 m2 1.800,00 10,50 18.900,00
+        """,
+        encoding="utf-8",
+    )
+    official_text.write_text("A.10 m 16,90 30,00\n", encoding="utf-8")
+    upsert_pricing_document(
+        db_path,
+        eshidis_id="220675",
+        document_name="ΜΕΛΕΤΗ ΕΦΑΡΜΟΓΗΣ.zip/ΣΥΝΟΠΤΙΚΟΣ ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        document_type="pdf",
+        text_path=str(nested_text),
+        text_sample=nested_text.read_text(encoding="utf-8"),
+    )
+    official_id = upsert_pricing_document(
+        db_path,
+        eshidis_id="220675",
+        document_name="ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        document_type="pdf",
+        text_path=str(official_text),
+        text_sample=official_text.read_text(encoding="utf-8"),
+    )
+
+    documents = _pricing_budget_router_documents(db_path, eshidis_id="220675", max_documents=2, max_pages_per_document=4)
+
+    assert documents[0]["document_id"] == official_id
+    assert documents[0]["official_budget_priority"] > documents[1]["official_budget_priority"]
+
+
+def test_zip_greek_filename_repair_handles_legacy_cp737_names(tmp_path: Path) -> None:
+    greek_name = "ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf"
+    mojibake_name = greek_name.encode("cp737").decode("cp437")
+    assert _repair_zip_member_name(mojibake_name) == greek_name
+
+    zip_path = tmp_path / "bundle.zip"
+    destination = tmp_path / "extracted"
+    import zipfile
+
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr(mojibake_name, b"pdf")
+
+    _extract_zip_with_greek_filename_repair(zip_path, destination)
+
+    assert (destination / greek_name).read_bytes() == b"pdf"
 
 
 def test_ingest_and_search_pricing_rows_from_text_pdf_fixture(tmp_path: Path) -> None:

@@ -40,7 +40,9 @@ command falls back to full deterministic reprocess.
 
 After deploy and live reprocess reports
 `work/reports/pricing_reprocess_v0143_quantity_total_guard.json` and
-`work/reports/pricing_reprocess_220675_ai_router_guarded.json`:
+`work/reports/pricing_reprocess_220675_ai_router_guarded.json`, local
+`v0.1.41` adds the standalone official budget route guard but still needs live
+reprocess evidence before `220675` can be reclassified:
 
 - `OK`: `9`
   - `221148`
@@ -76,6 +78,9 @@ Important validation fixes already deployed:
 - official subtotal candidate ranking;
 - project-total selection before trailing `Π2: 0,00`;
 - rejection of quantity-only totals such as `170,51τμ`.
+- local standalone official budget/pro-measurement route priority;
+- local stale heavy-file path cleanup after deleted downloaded PDFs;
+- local Greek filename repair for ZIP members.
 
 ## Instruction
 
@@ -98,11 +103,10 @@ Do not mark a project `OK` unless:
 
 ## Suggested Next Gate
 
-1. Inspect `220675` first. It now has parsed rows but no trusted reference
-   total after quantity-total rejection. AI budget routing selected document
-   id `232`, but the routed parse failed validation and correctly fell back to
-   full reprocess. Determine whether the monetary subtotal exists in another
-   extracted document or the source is not parseable enough.
+1. Deploy `v0.1.41`, then re-ingest/re-route `220675` so
+   `ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf` is preserved locally and appears ahead of
+   nested ZIP summaries. Reprocess from that official standalone PDF and
+   determine whether it can reconcile to a trusted monetary subtotal.
 2. Inspect `221720` next. It has many parsed rows but appears to be reading a
    price-list/table with many `quantity = 1` rows rather than the actual
    project budget. Add a generic guard if this pattern is confirmed.
