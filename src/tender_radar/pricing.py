@@ -1765,7 +1765,28 @@ def _budget_row_score(row: PricingBudgetRow, source_document: str) -> tuple[int,
         source_score = 10
     completeness = sum(1 for value in (row.unit, row.quantity, row.unit_price, row.amount) if value is not None)
     amount_score = _budget_row_amount_score(row)
-    return source_score, amount_score, row.confidence, completeness
+    at_alignment_score = _budget_row_at_alignment_score(row)
+    return source_score, at_alignment_score, amount_score, row.confidence, completeness
+
+
+def _budget_row_at_alignment_score(row: PricingBudgetRow) -> int:
+    if row.row_number is None:
+        return 0
+    tokens = [_clean_token(token) for token in _clean_text(row.raw_text).split()]
+    unit_index = None
+    if row.unit:
+        clean_unit = row.unit.lower().rstrip(".")
+        unit_index = next((index for index, token in enumerate(tokens) if token.lower().rstrip(".") == clean_unit), None)
+    candidate_tokens = tokens[:unit_index] if unit_index is not None else tokens
+    at_tokens = [token for token in candidate_tokens if re.fullmatch(r"\d{3}", token)]
+    if not at_tokens:
+        return 0
+    expected = f"{row.row_number:03d}"
+    if at_tokens[0] == expected:
+        return 30
+    if expected in at_tokens:
+        return 20
+    return -30
 
 
 def _budget_row_amount_delta(row: PricingBudgetRow) -> tuple[float, float, float]:
