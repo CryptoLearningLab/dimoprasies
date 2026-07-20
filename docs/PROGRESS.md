@@ -4194,6 +4194,47 @@ Evidence:
 # 55 passed
 ```
 
+Production deploy on commit `6e86b9c` passed through GitHub Actions run
+`29782675307`. The droplet reports `tender-radar 0.1.48`, HEAD `6e86b9c`,
+`tender-radar-ui.service` active and `tender-radar-scheduled.timer` active.
+
+Live reprocess evidence:
+
+```bash
+tender-radar pricing reprocess-existing --db data/tender_radar.sqlite \
+  --eshidis-id 219930 \
+  --report work/reports/pricing_reprocess_219930_v0148.json
+```
+
+Result:
+
+- `ok`: `true`
+- `completed`: `1`
+- `documents_seen`: `16`
+- `merged_budget_rows`: `1`
+- `merged_budget_amount_total`: `2.988.598,87`
+- `document_total_validation.status`: `OK`
+- reference document: `ΝΕΟΣ ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΜΕΛΕΤΗΣ.pdf`
+- reference label:
+  `Συνολική Δαπάνη Εργασιών με κατ’ αποκοπήν τίμημα, κατά τη μελέτη (ΣΑΣ) 2.988.598,87`
+
+Post-fix read-only SQLite audit:
+
+- reverse-pricing projects: `23`
+- full `OK`: `10`
+- review/no-reference/mismatch: `13`
+- pricing documents: `706`
+- `local_path` set: `601`
+- true local files existing: `392`
+- extracted text artifacts existing: `196`
+- stale `local_path` rows: `209`
+- `219930`: `124/124` local files exist, `10` essential local files exist,
+  `0` stale paths.
+
+The stale local paths are from older projects created before the current
+heavy-file retention cleanup. They should be cleaned/refetched separately and
+must not be interpreted as true current downloads.
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

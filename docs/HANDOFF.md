@@ -899,8 +899,12 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Deploy v0.1.48 and reprocess `219930`. Live ingest already proved the official
-downloads work (`15/15` attachments) and the correct standalone budget is
-`ΝΕΟΣ ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΜΕΛΕΤΗΣ.pdf`; the fix should parse it as one lump-sum row
-with official works subtotal `2.988.598,87`. After that, continue with the
-remaining review projects one generic layout at a time.
+v0.1.48 is deployed and `219930` is fixed. It now parses the standalone
+`ΝΕΟΣ ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΜΕΛΕΤΗΣ.pdf` as one lump-sum row with official works
+subtotal `2.988.598,87` and document-total validation `OK`.
+
+Next, clean/refetch stale `pricing_documents.local_path` rows for older
+reverse-pricing projects before continuing parser work. Post-fix audit found
+`706` pricing documents, `392` true local files, `196` extracted text artifacts
+and `209` stale local paths. `219930` itself is clean: `124/124` local files
+exist and `0` stale paths.

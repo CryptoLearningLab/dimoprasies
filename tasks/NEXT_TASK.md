@@ -135,11 +135,12 @@ Do not mark a project `OK` unless:
 
 ## Suggested Next Gate
 
-1. Deploy v0.1.48 and reprocess `219930` on the droplet to confirm the
-   lump-sum parser produces one merged row totaling `2.988.598,87`.
-2. Run the live read-only SQLite audit again and record whether `219930` moved
-   from review to `OK`.
-3. Then continue with the remaining review set: `219795`, `220133`, `220220`,
+1. Clean or refetch stale `pricing_documents.local_path` rows for older
+   reverse-pricing projects, prioritizing essential budget/pro-measurement,
+   price-list, declaration and technical documents.
+2. Keep `219930` as the accepted lump-sum regression fixture: it is `OK` with
+   one merged row totaling `2.988.598,87`.
+3. Continue with the remaining review set: `219795`, `220133`, `220220`,
    `220423`, `220675`, `221006`, `221368`, `221381`, `221452`, `221720`.
 4. Add parser or AI-assisted fixes only for confirmed generic layouts, one at
    a time.
