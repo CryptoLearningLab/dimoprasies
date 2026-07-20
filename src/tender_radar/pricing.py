@@ -2647,7 +2647,12 @@ def _select_budget_total_amount(line: str, amounts: list[float | int]) -> float 
 def _looks_like_quantity_total_line(normalized_line: str) -> bool:
     if "ΕΡΓΑΣ" in normalized_line or "ΔΑΠΑΝ" in normalized_line or "ΚΟΣΤ" in normalized_line:
         return False
-    return bool(re.search(r"\b(?:KGR|KG|M|M2|M3|ΤΜ|Τ\.Μ|ΤΕΜ|ΤΕΜ\.|ΤΕΜΑΧ|LT|KM|H)\b", normalized_line))
+    return bool(
+        re.search(
+            r"(?:^|[\s\d,.])(?:KGR|KG|M|M2|M3|ΤΜ|Τ\.Μ|ΤΕΜ|ΤΕΜ\.|ΤΕΜΑΧ|LT|KM|H)(?:$|[\s\d,.;:])",
+            normalized_line,
+        )
+    )
 
 
 def _budget_total_source_penalty(source_document: str) -> int:

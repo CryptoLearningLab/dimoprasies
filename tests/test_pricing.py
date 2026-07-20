@@ -271,6 +271,7 @@ def test_extract_budget_total_candidates_handles_sparse_ocr_synolo() -> None:
 def test_extract_budget_total_candidates_ignores_quantity_totals() -> None:
     text = """
     Σύνολο = 850,00 Kgr
+    ΣΥΝΟΛΟ ΧΩΡΩΝ ΠΑΙΔΙΚΟΥ ΣΤΑΘΜΟΥ 170,51τμ
     Σύνολο Κόστους Εργασιών Σ1: 93.574,13 Π1:
     """
 
