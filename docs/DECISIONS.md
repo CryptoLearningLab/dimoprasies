@@ -1083,3 +1083,22 @@ must not make the system believe a deleted PDF is available.
 ZIP extraction must repair common legacy Greek filename encodings before
 indexing child documents, so router prompts and provenance do not receive
 mojibake paths as primary document evidence.
+
+## D-085 - Lump-sum budgets are valid single-row pricing budgets
+**Status:** Accepted
+
+Reverse-pricing must support public-works budgets that are explicitly
+structured as `κατ' αποκοπή` instead of analytic article rows.
+
+When an official budget document contains a trusted works subtotal such as
+`Συνολική Δαπάνη Εργασιών` and the surrounding text states that the works are
+priced with a lump-sum amount, the parser may persist one budget row with:
+
+- the detected table/article reference, such as `Πιν. Α`;
+- unit `κ.α.`;
+- empty quantity and unit price;
+- amount equal to the official works subtotal.
+
+This is preferred over parsing unrelated nested study schedules from ZIP
+attachments that contain broad words such as `ΜΕΛΕΤΗ` but are not themselves
+pricing documents.

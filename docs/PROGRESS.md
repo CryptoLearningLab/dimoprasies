@@ -4156,6 +4156,44 @@ Evidence:
 # 49 passed
 ```
 
+### Local v0.1.48 reverse-pricing 219930 lump-sum budget fix
+
+- The runtime/UI version was bumped from `0.1.47` to `0.1.48`.
+- A live SQLite health check showed `22` reverse-pricing projects in
+  `data/tender_radar.sqlite`, with `497` pricing files on disk and `168`
+  extracted-text artifacts.
+- The health check also confirmed that several older projects have parsed
+  rows/text artifacts but stale or cleaned-up PDF paths. This is a database
+  hygiene issue for later cleanup/refetch, not evidence that every historical
+  project still has a true local PDF download.
+- A live backup was created before touching pricing state:
+  `data/backups/tender_radar_before_219930_health_20260720T215403Z.sqlite`.
+- Targeted ingest for ESHIDIS `219930` downloaded all `15/15` official
+  attachments and extracted text from the standalone
+  `ΝΕΟΣ ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΜΕΛΕΤΗΣ.pdf`.
+- The failed layout was identified as a lump-sum / `κατ' αποκοπή` budget:
+  the trusted official works subtotal is `2.988.598,87`, while the previous
+  parser selected a nested fan-coil schedule row from a ZIP and produced one
+  invalid row totaling `50,00`.
+- The parser now handles lump-sum budget texts by creating one validated
+  budget row from the official `Συνολική Δαπάνη Εργασιών` total, and archive
+  child documents no longer become pricing candidates merely because the leaf
+  filename contains the broad word `ΜΕΛΕΤΗ`.
+
+Evidence:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/pricing.py
+# passed
+
+.venv/bin/python -m pytest tests/test_pricing.py::test_parse_budget_rows_handles_lump_sum_budget_total \
+  tests/test_pricing.py::test_pricing_candidate_document_skips_drawings_inside_meleti_archive
+# 2 passed
+
+.venv/bin/python -m pytest tests/test_pricing.py
+# 55 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

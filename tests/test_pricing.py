@@ -318,6 +318,35 @@ def test_parse_budget_rows_handles_collapsed_ocr_table_stream() -> None:
     assert rows[3].amount == 41919
 
 
+def test_parse_budget_rows_handles_lump_sum_budget_total() -> None:
+    text = """
+    ΠΡΟΫΠΟΛΟΓΙΣΜΟΣ ΜΕΛΕΤΗΣ
+    ΕΡΓΑΣΙΕΣ ΑΠΟΤΙΜΩΜΕΝΕΣ ΜΕ ΚΑΤ' ΑΠΟΚΟΠΗ ΤΙΜΗΜΑ
+
+    Α/Α ΕΙΔΟΣ ΕΡΓΑΣΙΩΝ ΑΡΘΡΑ ΑΝΑΘΕΩΡΗΣΗΣ ΔΑΠΑΝΗ ΣΕ ΕΥΡΩ
+
+        Κατασκευή, πλήρης αποπεράτωση και παράδοση σε λειτουργία όλων των οικοδομικών εργασιών και των Η/Μ
+        εγκαταστάσεων του έργου, σύμφωνα με τις εγκεκριμένες μελέτες, τα σχέδια και τις τεχνικές περιγραφές
+    Α   Πιν. Α   2.988.598,87
+        εγκαταστάσεων, κ.λπ.), (χωρίς Γ.Ε & Ο.Ε 18%).
+
+    Συνολική Δαπάνη Εργασιών με κατ' αποκοπήν τίμημα, κατά τη μελέτη (ΣΑΣ) 2.988.598,87
+    Χρηματικό ποσό για γενικά και επισφαλή έξοδα 537.947,80
+    ΣΥΝΟΛΙΚΗ ΚΑΤA ΤΗΝ ΜΕΛΕΤΗ ΔΑΠΑΝΗ ΤΟΥ ΟΛΟΥ ΕΡΓΟΥ ΜΕ ΦΠΑ 5.290.204,15
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert len(rows) == 1
+    assert rows[0].row_number == 1
+    assert rows[0].article_code == "Πιν. Α"
+    assert rows[0].unit == "κ.α."
+    assert rows[0].quantity is None
+    assert rows[0].unit_price is None
+    assert rows[0].amount == 2988598.87
+    assert "πλήρης αποπεράτωση" in rows[0].description
+
+
 def test_ai_pricing_rows_are_normalized_and_amount_guarded() -> None:
     rows, rejected = _pricing_rows_from_ai_payload(
         [
@@ -724,6 +753,10 @@ def test_pricing_candidate_document_skips_drawings_inside_meleti_archive() -> No
     assert not _is_pricing_candidate_document(
         "ΣΤΑΤΙΚΗ ΜΕΛΕΤΗ .zip/ΣΟ3 ΟΠΛΙΣΜΟΙ signed.pdf",
         Path("ΣΟ3 ΟΠΛΙΣΜΟΙ signed.pdf"),
+    )
+    assert not _is_pricing_candidate_document(
+        "ΜΕΛΕΤΗ 1.zip/1.ΚΤΙΡΙΟ Β ΕΚΑΒ/ΤΕΥΧΗ/13_ΚΤΙΡΙΟ_Β_ΜΕΛΕΤΗ_ΚΛΙΜΑΤΙΣΜΟΥ_FAN_COILS.pdf",
+        Path("13_ΚΤΙΡΙΟ_Β_ΜΕΛΕΤΗ_ΚΛΙΜΑΤΙΣΜΟΥ_FAN_COILS.pdf"),
     )
 
 

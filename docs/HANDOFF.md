@@ -899,8 +899,8 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Classify the 10 remaining reverse-pricing review projects before adding new
-features. Start with `220675` (parsed rows but no trusted monetary reference
-after quantity-total rejection), then `221720` (likely price-list rows with many
-`quantity = 1` values), then the zero/near-zero row cases `220133`, `221006`,
-`221381` and `221452`.
+Deploy v0.1.48 and reprocess `219930`. Live ingest already proved the official
+downloads work (`15/15` attachments) and the correct standalone budget is
+`ΝΕΟΣ ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΜΕΛΕΤΗΣ.pdf`; the fix should parse it as one lump-sum row
+with official works subtotal `2.988.598,87`. After that, continue with the
+remaining review projects one generic layout at a time.

@@ -366,12 +366,81 @@ def parse_budget_rows_from_text(text: str) -> list[PricingBudgetRow]:
     sparse_rows = _parse_sparse_ocr_budget_lines(text)
     if sparse_rows:
         return sparse_rows
+    lump_sum_rows = _parse_lump_sum_budget_rows(text)
+    if lump_sum_rows:
+        return lump_sum_rows
     collapsed_rows = _parse_collapsed_ocr_budget_stream(text)
     if collapsed_rows:
         return collapsed_rows
     blocks = _budget_row_blocks(text)
     rows = [row for block in blocks if (row := _parse_budget_block(block)) is not None]
     return rows
+
+
+def _parse_lump_sum_budget_rows(text: str) -> list[PricingBudgetRow]:
+    normalized = strip_accents(text).upper()
+    if "ΠΡΟΥΠΟΛΟΓΙΣ" not in normalized or "ΚΑΤ" not in normalized or "ΑΠΟΚΟΠ" not in normalized:
+        return []
+    candidates = extract_budget_total_candidates(text)
+    works_totals = [
+        candidate
+        for candidate in candidates
+        if "ΔΑΠΑΝΗ ΕΡΓΑΣΙΩΝ" in strip_accents(str(candidate.get("label") or "")).upper()
+        or "ΣΥΝΟΛΟ ΚΟΣΤΟΥΣ ΕΡΓΑΣΙΩΝ" in strip_accents(str(candidate.get("label") or "")).upper()
+    ]
+    if not works_totals:
+        return []
+    total = sorted(works_totals, key=lambda candidate: -float(candidate.get("confidence") or 0))[0]
+    amount = float(total["amount"])
+    lines = [line.rstrip() for line in text.splitlines()]
+    description_parts: list[str] = []
+    article_code = "Πιν. Α"
+    in_description = False
+    for line in lines:
+        clean = _clean_text(line)
+        if not clean:
+            continue
+        line_norm = strip_accents(clean).upper()
+        if "ΕΙΔΟΣ ΕΡΓΑΣΙΩΝ" in line_norm and "ΔΑΠΑΝΗ" in line_norm:
+            in_description = True
+            continue
+        if not in_description:
+            continue
+        if "ΣΥΝΟΛΙΚΗ ΔΑΠΑΝΗ ΕΡΓΑΣΙΩΝ" in line_norm:
+            break
+        if "ΠΙΝ" in line_norm:
+            pin_match = re.search(r"ΠΙΝ\.?\s*[Α-ΩA-Z]", clean, flags=re.IGNORECASE)
+            if pin_match:
+                article_code = pin_match.group(0)
+            clean = re.sub(r"\b[ΑA]\b", " ", clean)
+            clean = re.sub(r"Πιν\.?\s*[Α-ΩA-Z]", " ", clean, flags=re.IGNORECASE)
+            clean = re.sub(r"\d{1,3}(?:\.\d{3})*,\d{2}", " ", clean)
+            clean = _clean_text(clean)
+        if not clean:
+            continue
+        if any(marker in line_norm for marker in ("Α/Α", "ΑΡΘΡΑ ΑΝΑΘΕΩΡΗΣΗΣ", "ΔΑΠΑΝΗ ΣΕ ΕΥΡΩ")):
+            continue
+        if "ΣΕΛ." in line_norm or line_norm == "ΣΧΕΔΙΟ":
+            continue
+        description_parts.append(clean)
+    description = _clean_text(" ".join(description_parts))
+    if not description:
+        description = "Εργασίες αποτιμώμενες με κατ' αποκοπή τίμημα"
+    return [
+        PricingBudgetRow(
+            row_number=1,
+            article_code=article_code,
+            canonical_article_code=canonical_article_code(article_code),
+            description=description,
+            revision_codes=[],
+            unit="κ.α.",
+            quantity=None,
+            unit_price=None,
+            amount=amount,
+            raw_text=_clean_text("\n".join(lines[: min(len(lines), int(total.get("line_number") or 40))])),
+            confidence=0.9,
+        )
+    ]
 
 
 def parse_budget_rows_with_ai_fallback(
@@ -4465,8 +4534,8 @@ def _is_pricing_candidate_document(document_name: str, local_path: Path) -> bool
         "ΤΕΧΝΙΚΗ_ΕΚΘΕΣΗ",
         "ΜΕΛΕΤΗ",
     )
-    leaf_has_candidate_signal = any(term in normalized_leaf or term in compact_leaf for term in (*strong_candidate_terms, *broad_candidate_terms))
-    if leaf_has_candidate_signal:
+    leaf_has_strong_signal = any(term in normalized_leaf or term in compact_leaf for term in strong_candidate_terms)
+    if leaf_has_strong_signal:
         return True
 
     # Nested archive children often inherit a useful-looking parent name such as
@@ -4479,6 +4548,10 @@ def _is_pricing_candidate_document(document_name: str, local_path: Path) -> bool
         compact_parent = re.sub(r"[^A-ZΑ-Ω0-9]+", "", normalized_parent)
         parent_has_strong_pricing_signal = any(term in normalized_parent or term in compact_parent for term in strong_candidate_terms)
         return parent_has_strong_pricing_signal
+
+    leaf_has_broad_signal = any(term in normalized_leaf or term in compact_leaf for term in broad_candidate_terms)
+    if leaf_has_broad_signal:
+        return True
 
     normalized_full = strip_accents(f"{document_name} {local_path.name}").upper()
     compact_full = re.sub(r"[^A-ZΑ-Ω0-9]+", "", normalized_full)
