@@ -2864,6 +2864,7 @@ def reprocess_pricing_project_from_texts(
             "merged_budget_rows": merged_budget.get("rows_merged"),
             "merged_budget_amount_total": merged_budget.get("amount_total"),
             "merged_budget_missing_row_numbers": merged_budget.get("missing_row_numbers"),
+            "merged_budget_amount_validation": amount_validation,
             "merged_budget_document_total_validation": document_total_validation,
             "ai_budget_router_used": use_ai_budget_router,
             "ai_budget_router_selected_document_id": selected_document_id,
@@ -3512,6 +3513,7 @@ def _recover_partial_pricing_project(db_path: Path, *, eshidis_id: str) -> dict[
             "merged_budget_rows": merged_budget["rows_merged"],
             "merged_budget_amount_total": merged_budget["amount_total"],
             "merged_budget_missing_row_numbers": merged_budget["missing_row_numbers"],
+            "merged_budget_amount_validation": merged_budget["amount_validation"],
             "merged_budget_document_total_validation": merged_budget["document_total_validation"],
             "heavy_files_deleted": 0,
             "partial_recovered": True,
@@ -3578,6 +3580,23 @@ def _pricing_project_is_complete(db_path: Path, *, eshidis_id: str) -> bool:
         return bool(amount_validation.get("ok") is True and document_total_validation.get("ok") is True)
     finally:
         connection.close()
+
+
+def _pricing_ingest_result_is_complete(result: dict[str, Any]) -> bool:
+    if not result.get("ok"):
+        return False
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    if int(summary.get("failed") or 0) > 0:
+        return False
+    if int(summary.get("merged_budget_rows") or 0) <= 0:
+        return False
+    amount_validation = summary.get("merged_budget_amount_validation")
+    if isinstance(amount_validation, dict) and amount_validation.get("ok") is not True:
+        return False
+    document_total_validation = summary.get("merged_budget_document_total_validation")
+    if not isinstance(document_total_validation, dict):
+        return False
+    return document_total_validation.get("ok") is True
 
 
 def _pricing_run_insert(db_path: Path, *, run_id: str, mode: str, started_at: str) -> None:
@@ -3822,6 +3841,7 @@ def ingest_pricing_eshidis_project(
             "merged_budget_rows": merged_budget["rows_merged"],
             "merged_budget_amount_total": merged_budget["amount_total"],
             "merged_budget_missing_row_numbers": merged_budget["missing_row_numbers"],
+            "merged_budget_amount_validation": merged_budget["amount_validation"],
             "merged_budget_document_total_validation": merged_budget["document_total_validation"],
             "heavy_files_deleted": cleanup_deleted,
         },
@@ -3932,8 +3952,7 @@ def ingest_pricing_active_candidates(
             continue
 
         summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
-        merged_rows = int(summary.get("merged_budget_rows") or 0)
-        item_status = "COMPLETED" if result.get("ok") and merged_rows > 0 else "PARTIAL_OR_FAILED"
+        item_status = "COMPLETED" if _pricing_ingest_result_is_complete(result) else "PARTIAL_OR_FAILED"
         if item_status == "COMPLETED":
             completed += 1
         elif result.get("ok"):

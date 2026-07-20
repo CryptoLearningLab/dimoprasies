@@ -1,12 +1,14 @@
 # NEXT TASK
 
 Execute:
-`Deploy and verify the official standalone budget route guard`
+`Run guarded reverse-pricing repair pass after v0.1.44 validation-status deploy`
 
 ## Current Input
 
-The independent reverse-pricing workflow is deployed on commit `2f392b0`.
-It remains disconnected from cron.
+The independent reverse-pricing workflow remains disconnected from cron.
+`v0.1.44` adds a completion guard: active-batch items are only `COMPLETED` when
+they have parsed budget rows and pass official document-total validation.
+Budget-total mismatches must remain partial/review.
 
 The repair command is:
 
@@ -38,15 +40,13 @@ command falls back to full deterministic reprocess.
 
 ## Latest Live Audit
 
-After deploy of `v0.1.41`, the read-only router shortlist correctly ranked
-`ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf` for `220675` first, but the AI response still
-selected a nested ZIP summary because the standalone file had no extracted
-snippets in the current database. Local `v0.1.42` adds a deterministic
-post-AI guard that overrides this case to the standalone official attachment.
-Live `v0.1.42` smoke on the droplet selected `document_id 300`
-`ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf`. It still needs targeted re-ingest/reprocess
-before `220675` can be reclassified because the standalone local PDF path is
-missing from earlier heavy-file cleanup:
+Before the `v0.1.44` guard, a depth-1 reverse-pricing UI run on the droplet
+found 156 active ESHIDIS candidates, selected one new project (`221155`) and
+stopped as intended. Fetch/index finished, but the merged budget validation was
+`MISMATCH`; under the new guard this must be counted as partial/review rather
+than completed.
+
+Previous budget extraction state:
 
 - `OK`: `9`
   - `221148`

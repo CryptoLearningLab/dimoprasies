@@ -10,6 +10,13 @@
 `tasks/NEXT_TASK.md`
 
 ## Completed Milestones
+- Reverse-pricing `v0.1.44` tightens active-batch completion status. A project
+  can no longer be counted as `COMPLETED` just because budget rows exist; the
+  merged budget must also pass local row arithmetic where available and official
+  document-total validation. A live depth-1 run on 2026-07-20 found 156 active
+  ESHIDIS candidates, selected exactly one new project (`221155`) and stopped
+  correctly, but exposed a budget-total `MISMATCH`; this now reports as partial
+  so full-base reruns cannot overstate completion.
 - Reverse-pricing `v0.1.43` adds deadline-retention rules for heavy ESHIDIS
   attachments. Essential operational documents such as invitations,
   declarations, technical reports/descriptions, budgets, pro-measurements and

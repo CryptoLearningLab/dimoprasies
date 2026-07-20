@@ -1559,7 +1559,16 @@ def test_active_pricing_batch_records_every_candidate_outcome(tmp_path: Path, mo
             ],
         )
         merged = consolidate_pricing_project_budget(db_path_arg, eshidis_id=eshidis_id)
-        return {"ok": True, "summary": {"merged_budget_rows": merged["rows_merged"], "failed": 0}, "project": {"title": f"Project {eshidis_id}"}}
+        return {
+            "ok": True,
+            "summary": {
+                "merged_budget_rows": merged["rows_merged"],
+                "merged_budget_amount_validation": {"ok": True},
+                "merged_budget_document_total_validation": {"ok": True},
+                "failed": 0,
+            },
+            "project": {"title": f"Project {eshidis_id}"},
+        }
 
     monkeypatch.setattr("tender_radar.pricing.ingest_pricing_eshidis_project", fake_ingest)
 
@@ -1669,6 +1678,45 @@ def test_active_pricing_batch_skips_already_complete_projects(tmp_path: Path, mo
     assert payload["items"][0]["status"] == "SKIPPED_ALREADY_COMPLETE"
 
 
+def test_active_pricing_batch_marks_total_mismatch_as_partial(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+
+    def fake_ingest(db_path_arg, *, eshidis_id, **kwargs):
+        upsert_pricing_project(db_path_arg, eshidis_id=eshidis_id, title="Mismatch project")
+        return {
+            "ok": True,
+            "summary": {
+                "failed": 0,
+                "merged_budget_rows": 1,
+                "merged_budget_amount_total": 2.64,
+                "merged_budget_amount_validation": {"ok": True},
+                "merged_budget_document_total_validation": {
+                    "ok": False,
+                    "status": "MISMATCH",
+                    "amount_total": 2.64,
+                    "reference_total": 100,
+                },
+            },
+            "project": {"title": "Mismatch project"},
+        }
+
+    monkeypatch.setattr("tender_radar.pricing.ingest_pricing_eshidis_project", fake_ingest)
+
+    payload = ingest_pricing_active_candidates(
+        db_path,
+        candidates_payload={"candidates": [{"eshidis_id": "221155", "submission_deadline": "21-07-2026 10:00:00"}]},
+        max_new_projects=1,
+        run_id="mismatch-run",
+    )
+
+    assert payload["ok"] is False
+    assert payload["status"] == "INCOMPLETE"
+    assert payload["summary"]["completed"] == 0
+    assert payload["summary"]["partial"] == 1
+    assert payload["summary"]["failed"] == 0
+    assert payload["items"][0]["status"] == "PARTIAL_OR_FAILED"
+
+
 def test_active_pricing_batch_with_project_limit_is_incomplete(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "runtime.sqlite"
 
@@ -1703,7 +1751,15 @@ def test_active_pricing_batch_with_project_limit_is_incomplete(tmp_path: Path, m
             ],
         )
         merged = consolidate_pricing_project_budget(db_path_arg, eshidis_id=eshidis_id)
-        return {"ok": True, "summary": {"merged_budget_rows": merged["rows_merged"]}, "project": {}}
+        return {
+            "ok": True,
+            "summary": {
+                "merged_budget_rows": merged["rows_merged"],
+                "merged_budget_amount_validation": {"ok": True},
+                "merged_budget_document_total_validation": {"ok": True},
+            },
+            "project": {},
+        }
 
     monkeypatch.setattr("tender_radar.pricing.ingest_pricing_eshidis_project", fake_ingest)
 
@@ -1815,7 +1871,15 @@ def test_active_pricing_batch_max_new_skips_existing_and_continues(tmp_path: Pat
             ],
         )
         merged = consolidate_pricing_project_budget(db_path_arg, eshidis_id=eshidis_id)
-        return {"ok": True, "summary": {"merged_budget_rows": merged["rows_merged"]}, "project": {}}
+        return {
+            "ok": True,
+            "summary": {
+                "merged_budget_rows": merged["rows_merged"],
+                "merged_budget_amount_validation": {"ok": True},
+                "merged_budget_document_total_validation": {"ok": True},
+            },
+            "project": {},
+        }
 
     monkeypatch.setattr("tender_radar.pricing.ingest_pricing_eshidis_project", fake_ingest)
 

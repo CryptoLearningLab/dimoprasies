@@ -1,5 +1,14 @@
 # Decision Log
 
+## D-087 — Reverse-pricing completion requires budget total validation
+**Status:** Accepted
+
+Reverse-pricing batch runs must not mark a project `COMPLETED` unless the
+project has parsed budget rows and the merged project budget passes official
+document-total validation. If totals are missing, mismatched or otherwise not
+validated, the project remains partial/review even when fetch, OCR and parsing
+finished without transport errors.
+
 ## D-086 — Reverse-pricing heavy file retention is essential-doc only
 **Status:** Accepted
 
