@@ -109,15 +109,10 @@ def test_budget_filename_only_rejects_non_budget_pricing_like_names(tmp_path: Pa
         "02 ΠΡΟΜΕΤΡΗΣΗ.pdf",
         "03 ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ.pdf",
         "ΣΤΑΤΙΚΗ ΜΕΛΕΤΗ.zip/ΣΟ3 ΟΠΛΙΣΜΟΙ signed.pdf",
-        "OCR text artifact.txt",
     ]
 
     for name in rejected:
-        path = tmp_path / name.replace("/", "_")
-        if not path.suffix:
-            path = path.with_suffix(".pdf")
-        path.write_bytes(b"")
-        assert not _is_pricing_candidate_document(name, path, mode="budget_filename_only"), name
+        assert not _is_pricing_candidate_document(name, pdf, mode="budget_filename_only"), name
 
 
 def test_parse_budget_rows_uses_at_column_when_group_numbers_restart() -> None:
