@@ -327,6 +327,7 @@ def _ocr_pdf_for_budget(path: Path, *, max_pages: int = 12) -> str | None:
 def parse_budget_rows_from_text(text: str) -> list[PricingBudgetRow]:
     table_rows = _parse_budget_table_lines(text, unit_price_before_quantity=_unit_price_before_quantity(text))
     if table_rows:
+        table_rows = _filter_invalid_amount_table_rows(table_rows)
         table_rows = _renumber_local_restarted_article_rows(table_rows)
         table_rows = _renumber_decimal_at_layout_rows(table_rows)
         by_key: dict[tuple[int | None, str, str], PricingBudgetRow] = {}
@@ -366,6 +367,20 @@ def _parse_budget_table_lines(text: str, *, unit_price_before_quantity: bool = F
         if row is not None:
             parsed.append(row)
     return parsed
+
+
+def _filter_invalid_amount_table_rows(rows: list[PricingBudgetRow]) -> list[PricingBudgetRow]:
+    valid_rows = [row for row in rows if _budget_row_amount_is_valid(row)]
+    if len(valid_rows) < 3:
+        return rows
+    return [
+        row
+        for row in rows
+        if row.quantity is None
+        or row.unit_price is None
+        or row.amount is None
+        or _budget_row_amount_is_valid(row)
+    ]
 
 
 def _parse_budget_table_line(

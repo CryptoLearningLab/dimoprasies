@@ -348,6 +348,21 @@ def test_parse_budget_rows_handles_neighbor_article_code_with_at_before_unit() -
     assert [row.amount for row in rows] == [5800, 15.9, 56.25, 472.5, 1200]
 
 
+def test_parse_budget_rows_drops_invalid_complete_ocr_table_rows_when_valid_rows_exist() -> None:
+    text = """
+      1 001 Τομή οδοστρώματος με ασφαλτοκόπτη ΝΕΤ ΟΔΟ-ΜΕ Δ-1 m 600 1 600,00
+      2 002 Αποξήλωση ασφαλτοταπήτων ΝΕΤ ΟΔΟ-ΜΕ Α-2.1 m3 385 4,75 1.828,75
+      3 003 Καθαίρεση πλακοστρώσεων ΝΕΤ ΟΙΚ-Α 22.20.1 m2 1500 7,90 11.850,00
+      4 004 Γενικές εκσκαφές ΝΕΤ ΟΔΟ-ΜΕ Α-2 m3 1500 3,85 5.775,00
+      5 005 Ψευδής συμπιεσμένη γραμμή ΝΕΤ ΟΔΟ-ΜΕ Β-2 m3 1000 6 2210.1
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert [row.row_number for row in rows] == [1, 2, 3, 4]
+    assert all(row.amount == round((row.quantity or 0) * (row.unit_price or 0), 2) for row in rows)
+
+
 def test_parse_budget_rows_handles_decimal_at_layout_with_suffix_articles() -> None:
     text = """
        1 Μεταφορές με αυτοκίνητο δια    ΝΑΟΙΚ          ΟΙΚ 1136      1.01     ton.k    900,00               0,35      315,00
