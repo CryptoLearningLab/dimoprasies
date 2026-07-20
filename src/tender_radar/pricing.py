@@ -2049,7 +2049,7 @@ def _budget_total_candidates_for_project(
 
 
 def extract_budget_total_candidates(text: str) -> list[dict[str, Any]]:
-    amount_re = re.compile(r"\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}")
+    amount_re = re.compile(r"\d{1,3}(?:,\d{3})+\.\d{2}|\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}")
     candidates: list[dict[str, Any]] = []
     for line_number, line in enumerate(text.splitlines(), start=1):
         clean = _clean_text(line)

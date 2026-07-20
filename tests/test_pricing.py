@@ -9,6 +9,7 @@ from tender_radar.pricing import (
     canonical_article_code,
     canonical_revision_code,
     consolidate_pricing_project_budget,
+    extract_budget_total_candidates,
     ingest_pricing_active_candidates,
     ingest_pricing_budget_pdf,
     ingest_pricing_eshidis_project,
@@ -243,6 +244,18 @@ def test_parse_budget_rows_handles_wrapped_numeric_prefix_rows() -> None:
     assert rows[0].amount == 571.50
     assert rows[2].unit == "Kg"
     assert sum(row.amount or 0 for row in rows) == 49816
+
+
+def test_extract_budget_total_candidates_handles_english_thousands_decimal_format() -> None:
+    text = """
+      ΣΥΝΟΛΟ                                                                                              49,816.00    49,816.00
+      ΔΑΠΑΝΗ ΕΡΓΑΣΙΩΝ                                                                                                  72,649.57
+      ΣΥΝΟΛΙΚΗ ΔΑΠΑΝΗ ΕΡΓΑΣΙΩΝ                                                                                         85,000.00
+    """
+
+    candidates = extract_budget_total_candidates(text)
+
+    assert [candidate["amount"] for candidate in candidates] == [72649.57, 85000]
 
 
 def test_consolidate_validates_merged_sum_against_document_total(tmp_path: Path) -> None:

@@ -3848,6 +3848,8 @@ OCR/layout extraction splits one row across two lines:
 
 The numeric parser now also supports English-style formatted numbers such as
 `46,750.00` and `72,649.57`, which appear in some official Greek PDFs.
+The same format is supported in budget subtotal/reference detection, so
+document-total candidates are not truncated before validation.
 
 This is intended to repair archived/source-extracted budget documents such as
 the `221148` `ΜΕΛΕΤΗ.rar` budget, without hardcoding a project id or a specific
@@ -3857,7 +3859,7 @@ Evidence:
 
 ```bash
 .venv/bin/python -m pytest tests/test_pricing.py
-# 36 passed
+# 37 passed
 
 .venv/bin/python -m py_compile src/tender_radar/pricing.py
 # passed
