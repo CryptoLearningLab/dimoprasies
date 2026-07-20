@@ -849,6 +849,12 @@ The system `python` command is not present in the remote environment; use
   thousands repaired `221580` to `OK`. Current complete reverse-pricing
   projects: `221233`, `221369`, `221580`, `221615`, `221639`, `221689`,
   `221691`; `12` projects still require parser/source review.
+- Production deploy on commit `e3c2992` passed. Reverse-pricing parser repairs
+  for archive-backed wrapped numeric-prefix rows, English formatted totals,
+  sparse OCR rows and OCR-corrupted `ΣΥΝΟΛΟ` labels repaired `221148` and
+  `221695` to `OK`. Current complete reverse-pricing projects: `9`; remaining
+  review set: `5` parsed mismatch projects and `5` zero-row parser/source
+  projects.
 
 ## Next Work
 
@@ -856,9 +862,8 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Continue repairing the remaining reverse-pricing `NEEDS_REVIEW` /
-`NO_BUDGET_AUDIT` projects from stored extracted text. Prioritize zero-row
-layouts (`220423`, `221006`, `221148`, `221452`, `221695`) and subtotal
-mismatches with parsed rows (`219795`, `220220`, `220675`, `221368`,
-`221720`). A project can be reported as pricing-complete only after row
-arithmetic and document subtotal validation both pass `OK`.
+Continue repairing the remaining reverse-pricing projects from stored extracted
+text. Prioritize zero-row layouts (`220133`, `220423`, `221006`, `221381`,
+`221452`) and parsed subtotal mismatches (`219795`, `220220`, `220675`,
+`221368`, `221720`). A project can be reported as pricing-complete only after
+row arithmetic and document subtotal validation both pass `OK`.

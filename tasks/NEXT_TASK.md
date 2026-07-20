@@ -42,34 +42,41 @@ Strict completion rules:
 
 Live SQLite re-audit after deploy:
 
-- `OK`: `7` projects
+- `OK`: `9` projects
   - `221233`
+  - `221148`
   - `221369`
   - `221580`
   - `221615`
   - `221639`
   - `221689`
   - `221691`
+  - `221695`
 - `NEEDS_REVIEW`: `5` projects with parsed rows but non-OK audit
   - `219795`
   - `220220`
   - `220675`
   - `221368`
   - `221720`
-- `NO_BUDGET_AUDIT`: `7` projects with no merged pricing budget yet
+- `ZERO_ROW_NEEDS_PARSER_OR_SOURCE`: `5` projects with no parsed budget rows
   - `220133`
   - `220423`
   - `221006`
-  - `221148`
   - `221381`
   - `221452`
-  - `221695`
+
+Latest generic repairs:
+
+- archive-backed wrapped budget rows repaired `221148`;
+- sparse OCR budget rows with missing unit/unit-price columns repaired `221695`;
+- English-style totals such as `72,649.57` are parsed correctly;
+- OCR-corrupted subtotal label `ΣWΝ ΟΛΟ` is recognized.
 
 ## Instruction
 
 Repair the reverse-pricing database before building new pricing features:
 
-1. Pick a small batch from `NO_BUDGET_AUDIT` or `NEEDS_REVIEW`.
+1. Pick a small batch from `ZERO_ROW_NEEDS_PARSER_OR_SOURCE` or `NEEDS_REVIEW`.
 2. For each project, inspect the source budget/offer text and the merged rows.
 3. Fix only generic parser or audit rules. Do not hardcode project-specific
    values.

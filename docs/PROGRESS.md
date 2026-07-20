@@ -3876,6 +3876,19 @@ Evidence:
 # passed
 ```
 
+Live production evidence after deploy on commit `e3c2992`:
+
+- Droplet HEAD: `e3c2992`.
+- Droplet focused tests: `tests/test_pricing.py` -> `39 passed`.
+- `221148` repaired to `OK` after archive extraction and wrapped-row parsing:
+  `4` merged rows, total `49.816,00`, document-total validation `OK`.
+- `221695` repaired to `OK` after sparse OCR parsing:
+  `5` merged rows, total `49.460,00`, document-total validation `OK`.
+- Current reverse-pricing SQLite audit:
+  - `OK`: `9`
+  - `NEEDS_REVIEW`: `10`
+  - `NO_BUDGET_AUDIT`: `0`
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:
