@@ -6,7 +6,7 @@ Execute:
 ## Current Input
 
 The independent reverse-pricing workflow is moving to runtime version
-`0.1.38` and remains disconnected from cron.
+`0.1.39` and remains disconnected from cron.
 
 Production deploy on commit `6a88b18` made pricing completion strict and added
 a download-free repair command:
@@ -100,7 +100,7 @@ source subtotal.
 
 Suggested next gate:
 
-1. Deploy `v0.1.38` and run focused droplet pricing tests.
+1. Deploy `v0.1.39` and run focused droplet pricing tests.
 2. Run:
    `tender-radar pricing reprocess-existing --eshidis-id 221452 --eshidis-id 221006 --use-ai-fallback --report ...`
 3. Inspect whether AI produced locally arithmetic-valid rows.

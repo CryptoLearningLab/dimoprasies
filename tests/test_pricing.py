@@ -5,6 +5,7 @@ import sqlite3
 from tender_radar.pricing import (
     _is_pricing_candidate_document,
     _pricing_rows_from_ai_payload,
+    _validate_ai_budget_rows_against_text_total,
     _unit_price_before_quantity,
     PricingBudgetRow,
     canonical_article_code,
@@ -325,6 +326,32 @@ def test_ai_pricing_rows_are_normalized_and_amount_guarded() -> None:
     assert rows[0].amount == 355
     assert len(rejected) == 1
     assert rejected[0]["reason"] == "invalid_or_unvalidated"
+
+
+def test_ai_pricing_rows_require_document_total_match() -> None:
+    rows, rejected = _pricing_rows_from_ai_payload(
+        [
+            {
+                "row_number": 1,
+                "article_code": "ΝΑΟΔΟ Α02",
+                "description": "Γενικές εκσκαφές",
+                "revision_codes": ["ΟΔΟ-1123Α"],
+                "unit": "m3",
+                "quantity": "100,00",
+                "unit_price": "10,00",
+                "amount": "1.000,00",
+                "evidence": "1 ΝΑΟΔΟ Α02 Γενικές εκσκαφές ΟΔΟ-1123Α m3 100,00 10,00 1.000,00",
+            }
+        ]
+    )
+
+    assert rejected == []
+    mismatch = _validate_ai_budget_rows_against_text_total(rows, "Σύνολο Κόστους Εργασιών Σ1: 900,00 Π1:")
+    ok = _validate_ai_budget_rows_against_text_total(rows, "Σύνολο Κόστους Εργασιών Σ1: 1.000,00 Π1:")
+
+    assert mismatch["ok"] is False
+    assert mismatch["status"] == "MISMATCH"
+    assert ok["ok"] is True
 
 
 def test_parse_budget_rows_handles_sparse_ocr_table_with_missing_unit_prices() -> None:

@@ -3947,8 +3947,10 @@ tender-radar pricing reprocess-existing --use-ai-fallback --ai-fallback-mode alw
 The fallback does not promote projects to complete by itself. OpenAI returns
 candidate budget rows as strict JSON, then the local parser normalizes them into
 `PricingBudgetRow` objects and rejects any row where `quantity * unit_price`
-does not reconcile to `amount`. Project completion still requires the existing
-merged-budget audit and official document-total validation to pass.
+does not reconcile to `amount`. AI-extracted rows are also rejected for that
+document when their sum conflicts with an official subtotal found in the same
+text. Project completion still requires the existing merged-budget audit and
+official document-total validation to pass.
 
 Evidence:
 
@@ -3960,8 +3962,19 @@ Evidence:
 # passed
 
 .venv/bin/python -m pytest
-# 270 passed
+# 271 passed
 ```
+
+Live production evidence after deploy on commit `1ca5a06`:
+
+- Droplet HEAD: `1ca5a06`.
+- Runtime version: `tender-radar 0.1.38`.
+- Droplet focused tests: `tests/test_pricing.py` -> `41 passed` before the
+  extra subtotal guard was added locally.
+- Targeted AI fallback run for `221452` and `221006` stayed `NEEDS_REVIEW`.
+  `221452` produced arithmetic-valid AI rows, but the merged total did not
+  reconcile to the official offer subtotal, proving the guard kept it out of
+  `OK`. `221006` still produced zero accepted rows.
 
 ## Handoff Discipline
 

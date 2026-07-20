@@ -472,6 +472,10 @@ def parse_budget_rows_with_ai_fallback(
     parsed = json.loads(_strip_json_fence(_response_text(response_payload)))
     raw_rows = parsed.get("rows") if isinstance(parsed, dict) else []
     rows, rejected = _pricing_rows_from_ai_payload(raw_rows if isinstance(raw_rows, list) else [])
+    total_validation = _validate_ai_budget_rows_against_text_total(rows, text)
+    if total_validation.get("ok") is False:
+        rejected.extend({"reason": "document_total_mismatch", "item": asdict(row)} for row in rows)
+        rows = []
     return {
         "ok": True,
         "model": model_name,
@@ -479,6 +483,7 @@ def parse_budget_rows_with_ai_fallback(
         "rows": rows,
         "rows_extracted": len(rows),
         "rejected_rows": rejected,
+        "document_total_validation": total_validation,
         "notes": str(parsed.get("notes") or "") if isinstance(parsed, dict) else "",
     }
 
@@ -517,6 +522,36 @@ def _pricing_rows_from_ai_payload(items: list[object]) -> tuple[list[PricingBudg
     for row in rows:
         by_key[(row.row_number, row.canonical_article_code, row.description)] = row
     return list(by_key.values()), rejected
+
+
+def _validate_ai_budget_rows_against_text_total(rows: list[PricingBudgetRow], text: str) -> dict[str, Any]:
+    amount_total = round(sum(float(row.amount or 0) for row in rows), 2)
+    if not rows:
+        return {"ok": None, "status": "NO_ROWS", "amount_total": amount_total}
+    candidates = extract_budget_total_candidates(text)
+    if not candidates:
+        return {"ok": None, "status": "NO_REFERENCE_TOTAL_FOUND", "amount_total": amount_total}
+    ranked = sorted(
+        candidates,
+        key=lambda candidate: (
+            -float(candidate.get("confidence") or 0),
+            abs(float(candidate.get("amount") or 0) - amount_total),
+        ),
+    )
+    best = ranked[0]
+    reference_total = float(best.get("amount") or 0)
+    difference = round(amount_total - reference_total, 4)
+    allowed = max(0.02, abs(reference_total) * 0.001)
+    return {
+        "ok": abs(difference) <= allowed,
+        "status": "OK" if abs(difference) <= allowed else "MISMATCH",
+        "amount_total": amount_total,
+        "reference_total": reference_total,
+        "difference": difference,
+        "allowed_difference": allowed,
+        "reference": best,
+        "candidate_count": len(candidates),
+    }
 
 
 def _pricing_row_from_ai_item(item: dict[str, Any]) -> PricingBudgetRow | None:
@@ -2263,6 +2298,7 @@ def reprocess_pricing_project_from_texts(
                     "ok": ai_report.get("ok") if isinstance(ai_report, dict) else None,
                     "rows_extracted": ai_report.get("rows_extracted") if isinstance(ai_report, dict) else None,
                     "rejected_rows": len(ai_report.get("rejected_rows") or []) if isinstance(ai_report, dict) else None,
+                    "document_total_validation": ai_report.get("document_total_validation") if isinstance(ai_report, dict) else None,
                     "error": ai_report.get("error") if isinstance(ai_report, dict) else None,
                     "prompt_version": ai_report.get("prompt_version") if isinstance(ai_report, dict) else None,
                 },

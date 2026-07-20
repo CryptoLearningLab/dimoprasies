@@ -863,13 +863,14 @@ The system `python` command is not present in the remote environment; use
   it does not reconcile to the official reference total. `221452` still has
   zero accepted rows because the OCR text loses enough numeric/unit columns that
   deterministic guards reject it.
-- Local `v0.1.38` adds an optional OpenAI fallback for OCR-damaged
+- Local `v0.1.39` adds an optional OpenAI fallback for OCR-damaged
   reverse-pricing budget extraction. It is exposed on
   `tender-radar pricing reprocess-existing` via `--use-ai-fallback` and
   `--ai-fallback-mode empty|always`. AI output is advisory row extraction only:
   rows are persisted only after local normalization and row arithmetic
-  validation, and project completion still requires official subtotal
-  validation.
+  validation. AI rows are also rejected when their document-level sum conflicts
+  with an official subtotal found in the same extracted text, and project
+  completion still requires official subtotal validation.
 
 ## Next Work
 
@@ -877,7 +878,7 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Deploy `v0.1.38`, run focused droplet tests, then run the OpenAI fallback only
+Deploy `v0.1.39`, run focused droplet tests, then run the OpenAI fallback only
 against `221452` and `221006` first. If the fallback yields arithmetic-valid
 rows but project subtotal validation still fails, keep them in `NEEDS_REVIEW`
 and inspect the official source/PDF quality instead of weakening deterministic
