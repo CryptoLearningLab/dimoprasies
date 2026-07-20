@@ -364,6 +364,8 @@ def _apply_at_unit_prices_from_text(
             adjusted.append(row)
             continue
         quantity = _quantity_from_budget_row_raw_text(row, unit_price_before_quantity=unit_price_before_quantity)
+        if quantity is None:
+            quantity = _quantity_from_budget_row_raw_text(row, unit_price_before_quantity=not unit_price_before_quantity)
         unit_price = unit_prices[row.row_number]
         if quantity is None or unit_price is None:
             adjusted.append(row)
