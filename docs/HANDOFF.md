@@ -885,6 +885,13 @@ The system `python` command is not present in the remote environment; use
   `work/reports/pricing_reprocess_v0143_quantity_total_guard.json` leaves
   `9` projects fully `OK` and `10` in `NEEDS_REVIEW`; this is intentional
   correctness, not a regression.
+- Production deploys on commits `e290b45` and `b72ff0c` passed. Reverse-pricing
+  now has optional AI budget routing for `pricing reprocess-existing` via
+  `--use-ai-budget-router`. The router stores document/page-range evidence but
+  does not write rows. If routed parsing fails validation, the command falls
+  back to full deterministic reprocess. Live smoke for `220675` selected
+  document id `232`, failed validation in routed mode, fell back to all `69`
+  extracted documents and correctly left the project in `NEEDS_REVIEW`.
 
 ## Next Work
 

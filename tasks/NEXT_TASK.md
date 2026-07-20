@@ -5,7 +5,7 @@ Execute:
 
 ## Current Input
 
-The independent reverse-pricing workflow is deployed on commit `25aeebd`.
+The independent reverse-pricing workflow is deployed on commit `b72ff0c`.
 It remains disconnected from cron.
 
 The repair command is:
@@ -25,10 +25,22 @@ tender-radar pricing reprocess-existing --db data/tender_radar.sqlite \
 AI output must still pass local row arithmetic and official document subtotal
 validation before rows can complete a project.
 
+Optional AI budget routing is also available:
+
+```bash
+tender-radar pricing reprocess-existing --db data/tender_radar.sqlite \
+  --use-ai-budget-router
+```
+
+The router selects the likely budget document/page range and stores audit
+metadata. It does not write rows. If routed parsing fails validation, the
+command falls back to full deterministic reprocess.
+
 ## Latest Live Audit
 
-After deploy and live reprocess report
-`work/reports/pricing_reprocess_v0143_quantity_total_guard.json`:
+After deploy and live reprocess reports
+`work/reports/pricing_reprocess_v0143_quantity_total_guard.json` and
+`work/reports/pricing_reprocess_220675_ai_router_guarded.json`:
 
 - `OK`: `9`
   - `221148`
@@ -87,8 +99,10 @@ Do not mark a project `OK` unless:
 ## Suggested Next Gate
 
 1. Inspect `220675` first. It now has parsed rows but no trusted reference
-   total after quantity-total rejection. Determine whether a monetary subtotal
-   exists in another extracted document or the source is not parseable enough.
+   total after quantity-total rejection. AI budget routing selected document
+   id `232`, but the routed parse failed validation and correctly fell back to
+   full reprocess. Determine whether the monetary subtotal exists in another
+   extracted document or the source is not parseable enough.
 2. Inspect `221720` next. It has many parsed rows but appears to be reading a
    price-list/table with many `quantity = 1` rows rather than the actual
    project budget. Add a generic guard if this pattern is confirmed.

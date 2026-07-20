@@ -987,3 +987,18 @@ The accepted behavior is to leave a project incomplete until the merged
 database rows reconcile with an official monetary subtotal from the source
 documents. A lower `OK` count is preferable to a false completed audit that
 would later pollute the deep-analysis database.
+
+## D-083 - AI budget routing is advisory and validation-guarded
+**Status:** Accepted
+
+Reverse-pricing may use AI to choose the most likely budget document and page
+range before deterministic parsing, especially when the budget is embedded in
+a study, declaration or archive.
+
+AI routing does not write budget rows and does not mark a project complete.
+The selected route is persisted only as provenance/audit metadata. If parsing
+only the routed document fails row arithmetic or official subtotal validation,
+the command must fall back to full deterministic reprocess for that project.
+
+This lets AI reduce search space and identify hard document layouts without
+allowing a bad route to degrade the pricing database.

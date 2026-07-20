@@ -4019,6 +4019,50 @@ Live production evidence after deploy on commit `350458d`:
   `pricing_budget_rows` for `221452` and `221006`, so rejected AI extraction did
   not pollute the pricing database.
 
+### 2026-07-20 - AI budget router connected to guarded reprocess
+
+Reverse-pricing now has an optional AI budget router connected to
+`pricing reprocess-existing`:
+
+```bash
+tender-radar pricing reprocess-existing --use-ai-budget-router
+```
+
+The router runs before deterministic parsing and selects the most likely
+budget document/page range. It stores compact routing evidence in
+`pricing_projects.metadata_json.pricing_budget_route` and the command report.
+It does not write budget rows directly.
+
+If the routed parse fails local row arithmetic or official document-total
+validation, the command automatically falls back to full deterministic
+reprocess for the project. This keeps the router useful as a prioritization
+layer while preventing it from degrading the persisted project budget.
+
+Evidence:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/pricing.py src/tender_radar/cli.py
+# passed
+
+.venv/bin/python -m pytest tests/test_pricing.py
+# 46 passed
+```
+
+Production deploys on commits `e290b45` and `b72ff0c` passed through GitHub
+Actions. Live smoke on the droplet:
+
+```bash
+tender-radar pricing reprocess-existing --db data/tender_radar.sqlite \
+  --eshidis-id 220675 --use-ai-budget-router \
+  --report work/reports/pricing_reprocess_220675_ai_router_guarded.json
+```
+
+Result: the AI router selected document id `232`, but the routed parse did not
+pass validation, so the new fallback reprocessed all `69` extracted documents.
+The project remains `NEEDS_REVIEW` with `17` merged rows and no trusted
+reference monetary total. This is expected: the router integration is now safe,
+but `220675` still needs classification/parser work before it can become `OK`.
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:
