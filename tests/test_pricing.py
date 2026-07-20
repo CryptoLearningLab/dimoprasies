@@ -116,6 +116,33 @@ def test_parse_budget_rows_handles_split_m3_and_starred_unit_prices() -> None:
     assert sum(row.amount or 0 for row in rows) == 138253.83
 
 
+def test_parse_budget_rows_handles_split_backslash_articles_and_special_units() -> None:
+    text = """
+                                                                                                       Τιμή            Δαπάνη (Ευρώ)
+                                          Κωδικός        Κωδικός                 Μον.
+    A/A            Είδος Εργασιών                                            Α.Τ.          Ποσότητα      Μονάδας        Μερική             Ολική
+                                          Άρθρου       Αναθεώρησης               Mετρ.
+      1 ΦΟΡΤΗΓΟ ΑΥΤΟΚΙΝΗΤΟ             ΝΑΟΔΟ          ΝΟΔΟ 1133Β     1           ΗΜ/Σ       10,00      450,00         4.500,00
+                                       Α\\ΝΑ01.1                                  ΘΙΟ
+      8 ΕΠΟΥΛΩΣΗ ΛΑΚΚΩΝ ΜΕ              ΝΑΟΔΟ         ΝΟΔΟ 4720Α    45         Kgr     6.000,00              0,50     3.000,00
+        ΨΥΧΡΟ ΑΣΦΑΛΤΟΜΙΓΜΑ              Α\\ΝΔ08.3
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert [row.row_number for row in rows] == [1, 45]
+    assert rows[0].article_code == "ΝΑΟΔΟ Α\\ΝΑ01.1"
+    assert rows[0].unit == "ΗΜ/Σ"
+    assert rows[0].quantity == 10
+    assert rows[0].unit_price == 450
+    assert rows[0].amount == 4500
+    assert rows[1].article_code == "ΝΑΟΔΟ Α\\ΝΔ08.3"
+    assert rows[1].unit == "Kgr"
+    assert rows[1].quantity == 6000
+    assert rows[1].unit_price == 0.5
+    assert rows[1].amount == 3000
+
+
 def test_ingest_and_search_pricing_rows_from_text_pdf_fixture(tmp_path: Path) -> None:
     db_path = tmp_path / "runtime.sqlite"
     pdf_text_path = tmp_path / "budget.txt"

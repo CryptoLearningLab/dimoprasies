@@ -37,8 +37,10 @@ KNOWN_UNITS = {
     "m2",
     "m3",
     "kg",
+    "kgr",
     "tn",
     "ton",
+    "ημ/σ",
     "τεμ",
     "τεμ.",
     "τεμαχ",
@@ -476,7 +478,7 @@ def _split_article_from_next_line(tokens: list[str], next_line: str) -> tuple[st
 def _find_article_suffix_index(tokens: list[str]) -> int | None:
     for index, token in enumerate(tokens):
         clean = _clean_token(token)
-        if re.fullmatch(r"[A-ZΑ-ΩΒB]?\d+(?:[./-]\d+)+[A-ZΑ-ΩA-Z0-9]*", clean, flags=re.IGNORECASE):
+        if re.fullmatch(r"[A-ZΑ-ΩΒB]?[\\/A-ZΑ-ΩΒB]*\d+(?:[./-]\d+)+[A-ZΑ-ΩA-Z0-9]*", clean, flags=re.IGNORECASE):
             return index
     return None
 

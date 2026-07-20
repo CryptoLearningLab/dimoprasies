@@ -819,6 +819,10 @@ The system `python` command is not present in the remote environment; use
   where `Τιμή Μονάδας` appears before `Ποσότητα`. Live force reprocess
   produced `10` merged rows, no missing row numbers and amount total
   `138.253,83`.
+- The pricing parser also handles the `221691` budget layout: special units
+  such as `ΗΜ/Σ` and `Kgr`, plus backslash article suffixes such as
+  `Α\ΝΑ01.1` and `Α\ΝΔ08.3`. Live force reprocess produced `56` merged rows,
+  no missing row numbers and amount total `1.062.649,50`.
 - Production deploy on commit `0c203f6` passed through GitHub Actions run
   `29700913414`. The droplet reports `tender-radar 0.1.36`,
   `tender-radar-ui.service` is active, and the local droplet homepage contains

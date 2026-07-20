@@ -4,7 +4,7 @@
 `PHASE_2_SQLITE_VERTICAL_SLICE_PARTIAL`
 
 ## Last Updated
-`2026-07-19`
+`2026-07-20`
 
 ## Current Task
 `tasks/NEXT_TASK.md`
@@ -51,6 +51,12 @@
   subtotal before GE/OE, contingencies, revision and VAT. A repeat run
   completed in `7.5s` with `downloaded 0`, `skipped_download 9`,
   `skipped_indexed 9`, `failed 0`.
+- Live pricing smoke for ESHIDIS `221691` fetched `8` attachments and now
+  extracts all `56` rows from
+  `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΣΥΝΤ ΝΑΥΠ ΘΕΡΜΟΥ 2026 2027 signed.pdf`. The parser handles
+  special units such as `ΗΜ/Σ` and `Kgr` plus backslash article suffixes such
+  as `Α\ΝΑ01.1` and `Α\ΝΔ08.3`. The merged amount total is `1.062.649,50`
+  with no missing row numbers.
 - UI discovery flow now starts a real OpenAI-backed `sources ai-triage-report`
   job from `/api/ai-triage` after bounded discovery, using the existing
   `OPENAI_API_KEY` in `.env.local` without exposing the secret.
@@ -3572,8 +3578,24 @@ Verification:
 # ok true, downloaded 0, skipped_download 9, skipped_indexed 9, failed 0,
 # merged rows 41, missing row numbers [], merged amount total 422.052,75
 
+.venv/bin/python -m tender_radar pricing ingest-eshidis 221691 \
+  --db /tmp/tender_pricing_221691.sqlite \
+  --work-dir /tmp/tender_pricing_221691_work \
+  --limit 50 \
+  --allow-insecure-tls \
+  --force \
+  --report /tmp/tender_pricing_221691_fixed_report.json
+# ok true, attachments_found 8, downloaded 8, failed 0,
+# rows upserted 56, merged rows 56, missing row numbers [],
+# merged amount total 1.062.649,50
+
+.venv/bin/python -c "from pathlib import Path; from tender_radar.pricing import parse_budget_rows_from_text; paths={'221473':'/tmp/tender_pricing_221473_work/extracted_text/221473/221473_1_ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf.txt','221689':'/tmp/tender_pricing_221689_work/extracted_text/221689/221689_1_ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ_signed.pdf.txt','221691':'/tmp/tender_pricing_221691_work/extracted_text/221691/221691_1_ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ_ΣΥΝΤ_ΝΑΥΠ_ΘΕΡΜΟΥ_2026_2027_signed.pdf.txt'}; [print(k, len((rows:=parse_budget_rows_from_text(Path(v).read_text(encoding='utf-8', errors='ignore'), source_document_id=1, eshidis_id=k))), min(r.row_number for r in rows), max(r.row_number for r in rows), sorted(set(range(min(r.row_number for r in rows), max(r.row_number for r in rows)+1))-set(r.row_number for r in rows)), sum(r.amount for r in rows if r.amount is not None)) for k,v in paths.items()]"
+# 221473 10 1 10 [] 138253.83
+# 221689 41 1 41 [] 422052.75
+# 221691 56 1 56 [] 1062649.5
+
 .venv/bin/python -m pytest -q
-# 236 passed in 19.85s
+# 237 passed in 27.70s
 ```
 
 Cron remains intentionally unchanged for the new reverse-pricing flow until

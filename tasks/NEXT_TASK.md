@@ -40,7 +40,11 @@ Local version `0.1.36` starts the independent reverse-pricing foundation:
   `422.052,75`.
 - A repeat `221689` run is skip-aware: `downloaded 0`, `skipped_download 9`,
   `skipped_indexed 9`, `failed 0`.
-- Full local suite passed: `236 passed`.
+- Live smoke for ESHIDIS `221691` covers special-unit budget rows and
+  backslash article suffixes. The parser now extracts all `56` merged rows from
+  `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΣΥΝΤ ΝΑΥΠ ΘΕΡΜΟΥ 2026 2027 signed.pdf`, with no missing row
+  numbers and amount total `1.062.649,50`.
+- Full local suite passed: `237 passed`.
 
 The reverse-pricing workflow is intentionally separate from the local
 `ΔΗΜΟΣΙΑ ΕΡΓΑ` dashboard and is not attached to the six-hour cron yet.
@@ -77,6 +81,8 @@ Complete the next gate:
   split article codes do not reuse local section numbering as row numbers.
 - Regression test that split `m3` units, starred unit prices and
   price-before-quantity budget headers still extract all rows.
+- Regression test that special units such as `ΗΜ/Σ` and `Kgr`, plus backslash
+  article suffixes such as `Α\ΝΑ01.1`, still extract correctly.
 - Full test suite before production deploy.
 
 ## Required Closeout
