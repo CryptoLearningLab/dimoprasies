@@ -3751,7 +3751,6 @@ def ingest_pricing_eshidis_project(
     allow_insecure_tls: bool = False,
     keep_heavy_files: bool = True,
     force: bool = False,
-    pricing_document_filter: str = "standard",
 ) -> dict[str, Any]:
     if not eshidis_id.isdigit():
         raise ValueError("Pricing ESHIDIS ingest accepts only a numeric ESHIDIS id.")
@@ -3868,7 +3867,6 @@ def ingest_pricing_eshidis_project(
                 keep_heavy_files=preserve_local_file,
                 metadata={"download_audit_path": str(download_audit_path), "size_bytes": downloaded_file.get("size_bytes")},
                 force=force,
-                pricing_document_filter=pricing_document_filter,
             )
         rows_inserted = int(indexed.get("rows_upserted") or 0)
         rows_total += rows_inserted
@@ -3944,7 +3942,6 @@ def ingest_pricing_active_candidates(
     allow_insecure_tls: bool = False,
     keep_heavy_files: bool = False,
     force: bool = False,
-    pricing_document_filter: str = "standard",
     run_id: str | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
@@ -4073,7 +4070,6 @@ def ingest_pricing_active_candidates(
                 allow_insecure_tls=allow_insecure_tls,
                 keep_heavy_files=keep_heavy_files,
                 force=force,
-                pricing_document_filter=pricing_document_filter,
             )
         except Exception as exc:  # pragma: no cover - live source defensive boundary
             failed += 1
@@ -4214,7 +4210,6 @@ def ingest_pricing_active_eshidis(
     allow_insecure_tls: bool = False,
     keep_heavy_files: bool = False,
     force: bool = False,
-    pricing_document_filter: str = "standard",
     report_path: Path = Path("work/reports/pricing_active_candidates.json"),
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
@@ -4236,7 +4231,6 @@ def ingest_pricing_active_eshidis(
         allow_insecure_tls=allow_insecure_tls,
         keep_heavy_files=keep_heavy_files,
         force=force,
-        pricing_document_filter=pricing_document_filter,
         progress_callback=progress_callback,
     )
     return {
@@ -4312,7 +4306,6 @@ def _index_pricing_document_path(
     keep_heavy_files: bool,
     metadata: dict[str, Any] | None = None,
     force: bool = False,
-    pricing_document_filter: str = "standard",
 ) -> dict[str, Any]:
     suffix = local_path.suffix.lower()
     if suffix in {".zip", ".rar"}:
@@ -4336,7 +4329,6 @@ def _index_pricing_document_path(
                 keep_heavy_files=keep_heavy_files or _pricing_document_should_preserve_until_deadline(child_name),
                 metadata={**(metadata or {}), "archive_path": str(local_path)},
                 force=force,
-                pricing_document_filter=pricing_document_filter,
             )
             rows_total += int(child_report.get("rows_upserted") or 0)
             child_reports.append(child_report)
@@ -4368,7 +4360,7 @@ def _index_pricing_document_path(
             "heavy_file_deleted": deleted,
         }
 
-    if not _is_pricing_candidate_document(document_name, local_path, mode=pricing_document_filter):
+    if not _is_pricing_candidate_document(document_name, local_path):
         document_id = upsert_pricing_document(
             db_path,
             eshidis_id=eshidis_id,
@@ -4451,16 +4443,12 @@ def _index_pricing_document_path(
     }
 
 
-def _is_pricing_candidate_document(document_name: str, local_path: Path, *, mode: str = "standard") -> bool:
+def _is_pricing_candidate_document(document_name: str, local_path: Path) -> bool:
     suffix = local_path.suffix.lower()
     if suffix in {".txt", ".text"}:
         return True
     if suffix != ".pdf":
         return False
-    if mode == "budget_filename_only":
-        return _pricing_document_name_has_budget_signal(document_name, local_path)
-    if mode != "standard":
-        raise ValueError(f"Unsupported pricing document filter: {mode}")
     normalized_name = document_name.replace("\\", "/")
     leaf_name = PurePosixPath(normalized_name).name or local_path.name
     normalized_leaf = strip_accents(f"{leaf_name} {local_path.name}").upper()
@@ -4495,19 +4483,6 @@ def _is_pricing_candidate_document(document_name: str, local_path: Path, *, mode
     normalized_full = strip_accents(f"{document_name} {local_path.name}").upper()
     compact_full = re.sub(r"[^A-ZΑ-Ω0-9]+", "", normalized_full)
     return any(term in normalized_full or term in compact_full for term in (*strong_candidate_terms, *broad_candidate_terms))
-
-
-def _pricing_document_name_has_budget_signal(document_name: str, local_path: Path) -> bool:
-    """Return true when the ESHIDIS filename/path explicitly says budget.
-
-    This intentionally accepts common numbering/punctuation variants such as
-    "07 ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf", "04. ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
-    "06_ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf" and archive paths where either the archive or
-    child filename contains the same word.
-    """
-    normalized = strip_accents(f"{document_name} {local_path.name}").upper()
-    compact = re.sub(r"[^A-ZΑ-Ω0-9]+", "", normalized)
-    return "ΠΡΟΥΠΟΛΟΓ" in normalized or "ΠΡΟΥΠΟΛΟΓ" in compact
 
 
 def _extract_pricing_archive(path: Path, destination: Path, *, force: bool = False) -> dict[str, Any]:

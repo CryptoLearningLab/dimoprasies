@@ -202,11 +202,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Delete downloaded PDFs after text extraction and structured row persistence.",
     )
-    pricing_ingest_eshidis.add_argument(
-        "--budget-filename-only",
-        action="store_true",
-        help="Experimental pricing pass: OCR/parse only PDFs whose filename/path contains ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.",
-    )
     pricing_ingest_active_report = pricing_sub.add_parser(
         "ingest-active-report",
         help="Ingest every ESHIDIS id from an existing active-candidates report into pricing tables.",
@@ -227,11 +222,6 @@ def build_parser() -> argparse.ArgumentParser:
     pricing_ingest_active_report.add_argument("--allow-insecure-tls", action="store_true")
     pricing_ingest_active_report.add_argument("--force", action="store_true")
     pricing_ingest_active_report.add_argument("--keep-heavy-files", action="store_true")
-    pricing_ingest_active_report.add_argument(
-        "--budget-filename-only",
-        action="store_true",
-        help="Experimental pricing pass: OCR/parse only PDFs whose filename/path contains ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.",
-    )
     pricing_ingest_active = pricing_sub.add_parser(
         "ingest-active",
         help="Discover active ESHIDIS public works and ingest every returned id into pricing tables.",
@@ -253,11 +243,6 @@ def build_parser() -> argparse.ArgumentParser:
     pricing_ingest_active.add_argument("--allow-insecure-tls", action="store_true")
     pricing_ingest_active.add_argument("--force", action="store_true")
     pricing_ingest_active.add_argument("--keep-heavy-files", action="store_true")
-    pricing_ingest_active.add_argument(
-        "--budget-filename-only",
-        action="store_true",
-        help="Experimental pricing pass: OCR/parse only PDFs whose filename/path contains ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.",
-    )
     pricing_reprocess = pricing_sub.add_parser(
         "reprocess-existing",
         help="Rebuild pricing rows and project audits from already extracted text artifacts.",
@@ -659,7 +644,6 @@ def _pricing_ingest_eshidis(args: argparse.Namespace) -> int:
         allow_insecure_tls=bool(args.allow_insecure_tls),
         keep_heavy_files=not bool(args.delete_heavy_files),
         force=bool(args.force),
-        pricing_document_filter="budget_filename_only" if bool(args.budget_filename_only) else "standard",
     )
     if args.report:
         report_path = Path(args.report)
@@ -683,7 +667,6 @@ def _pricing_ingest_active_report(args: argparse.Namespace) -> int:
         allow_insecure_tls=bool(args.allow_insecure_tls),
         keep_heavy_files=bool(args.keep_heavy_files),
         force=bool(args.force),
-        pricing_document_filter="budget_filename_only" if bool(args.budget_filename_only) else "standard",
         progress_callback=progress_callback,
     )
     if args.report:
@@ -707,7 +690,6 @@ def _pricing_ingest_active(args: argparse.Namespace) -> int:
         allow_insecure_tls=bool(args.allow_insecure_tls),
         keep_heavy_files=bool(args.keep_heavy_files),
         force=bool(args.force),
-        pricing_document_filter="budget_filename_only" if bool(args.budget_filename_only) else "standard",
         report_path=Path(args.candidates_report),
         progress_callback=progress_callback,
     )
