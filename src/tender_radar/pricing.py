@@ -1558,6 +1558,160 @@ def consolidate_pricing_project_budget(db_path: Path, *, eshidis_id: str) -> dic
     return summary
 
 
+def reprocess_pricing_project_from_texts(db_path: Path, *, eshidis_id: str) -> dict[str, Any]:
+    """Rebuild a pricing project budget from already extracted text artifacts.
+
+    This is intentionally download-free. It lets parser improvements repair
+    existing pricing rows without touching ESHIDIS, browser automation, OCR, or
+    stored source documents.
+    """
+    ensure_pricing_tables(db_path)
+    connection = connect(db_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        documents = connection.execute(
+            """
+            SELECT id, document_name, text_path
+            FROM pricing_documents
+            WHERE eshidis_id = ?
+              AND text_path IS NOT NULL
+            ORDER BY document_name
+            """,
+            (eshidis_id,),
+        ).fetchall()
+    finally:
+        connection.close()
+
+    document_reports: list[dict[str, Any]] = []
+    rows_total = 0
+    failed = 0
+    for document in documents:
+        text_path = Path(str(document["text_path"]))
+        if not text_path.is_absolute():
+            text_path = Path.cwd() / text_path
+        report: dict[str, Any] = {
+            "document_id": int(document["id"]),
+            "document_name": str(document["document_name"] or ""),
+            "text_path": str(text_path),
+            "rows_extracted": 0,
+            "rows_upserted": 0,
+            "status": "PENDING",
+        }
+        if not text_path.exists():
+            failed += 1
+            report["status"] = "TEXT_PATH_MISSING"
+            document_reports.append(report)
+            continue
+        text = text_path.read_text(encoding="utf-8", errors="ignore")
+        rows = parse_budget_rows_from_text(text)
+        inserted = upsert_pricing_budget_rows(
+            db_path,
+            eshidis_id=eshidis_id,
+            document_id=int(document["id"]),
+            source_document=str(document["document_name"] or ""),
+            rows=rows,
+        )
+        rows_total += inserted
+        report.update(
+            {
+                "rows_extracted": len(rows),
+                "rows_upserted": inserted,
+                "status": "REPROCESSED",
+            }
+        )
+        document_reports.append(report)
+
+    merged_budget = consolidate_pricing_project_budget(db_path, eshidis_id=eshidis_id)
+    document_total_validation = merged_budget.get("document_total_validation") or {}
+    amount_validation = merged_budget.get("amount_validation") or {}
+    return {
+        "ok": failed == 0 and bool(amount_validation.get("ok")) and bool(document_total_validation.get("ok")),
+        "eshidis_id": eshidis_id,
+        "summary": {
+            "documents_seen": len(documents),
+            "documents_reprocessed": sum(1 for item in document_reports if item.get("status") == "REPROCESSED"),
+            "failed": failed,
+            "pricing_budget_rows_upserted": rows_total,
+            "merged_budget_rows": merged_budget.get("rows_merged"),
+            "merged_budget_amount_total": merged_budget.get("amount_total"),
+            "merged_budget_missing_row_numbers": merged_budget.get("missing_row_numbers"),
+            "merged_budget_document_total_validation": document_total_validation,
+        },
+        "documents": document_reports,
+        "merged_budget": merged_budget,
+    }
+
+
+def reprocess_existing_pricing_projects(
+    db_path: Path,
+    *,
+    eshidis_ids: list[str] | None = None,
+    only_incomplete: bool = True,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    ensure_pricing_tables(db_path)
+    connection = connect(db_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        if eshidis_ids:
+            projects = [{"eshidis_id": str(value)} for value in eshidis_ids]
+        else:
+            query = "SELECT eshidis_id FROM pricing_projects ORDER BY eshidis_id"
+            projects = [dict(row) for row in connection.execute(query).fetchall()]
+    finally:
+        connection.close()
+
+    items: list[dict[str, Any]] = []
+    completed = 0
+    skipped_complete = 0
+    failed = 0
+    inspected = 0
+    for project in projects:
+        if limit is not None and inspected >= limit:
+            break
+        eshidis_id = str(project.get("eshidis_id") or "").strip()
+        if not eshidis_id:
+            continue
+        if only_incomplete and _pricing_project_is_complete(db_path, eshidis_id=eshidis_id):
+            skipped_complete += 1
+            items.append({"eshidis_id": eshidis_id, "status": "SKIPPED_ALREADY_COMPLETE"})
+            continue
+        inspected += 1
+        try:
+            result = reprocess_pricing_project_from_texts(db_path, eshidis_id=eshidis_id)
+        except Exception as exc:  # pragma: no cover - maintenance boundary
+            failed += 1
+            items.append({"eshidis_id": eshidis_id, "status": "FAILED_EXCEPTION", "error": repr(exc)})
+            continue
+        status = "OK" if result.get("ok") else "NEEDS_REVIEW"
+        if status == "OK":
+            completed += 1
+        else:
+            failed += 1
+        items.append(
+            {
+                "eshidis_id": eshidis_id,
+                "status": status,
+                "summary": result.get("summary"),
+            }
+        )
+
+    summary = {
+        "projects_seen": len(projects),
+        "projects_inspected": inspected,
+        "completed": completed,
+        "skipped_complete": skipped_complete,
+        "needs_review_or_failed": failed,
+        "limit": limit,
+        "only_incomplete": only_incomplete,
+    }
+    return {
+        "ok": failed == 0,
+        "summary": summary,
+        "items": items,
+    }
+
+
 def _store_pricing_project_budget_audit(db_path: Path, *, eshidis_id: str, summary: dict[str, Any]) -> None:
     ensure_pricing_tables(db_path)
     connection = connect(db_path)

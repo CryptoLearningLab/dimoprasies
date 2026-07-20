@@ -31,6 +31,7 @@ from tender_radar.pricing import (
     ingest_pricing_active_eshidis,
     ingest_pricing_budget_pdf,
     ingest_pricing_eshidis_project,
+    reprocess_existing_pricing_projects,
     search_pricing_rows,
 )
 from tender_radar.sources.eshidis import (
@@ -238,6 +239,15 @@ def build_parser() -> argparse.ArgumentParser:
     pricing_ingest_active.add_argument("--allow-insecure-tls", action="store_true")
     pricing_ingest_active.add_argument("--force", action="store_true")
     pricing_ingest_active.add_argument("--keep-heavy-files", action="store_true")
+    pricing_reprocess = pricing_sub.add_parser(
+        "reprocess-existing",
+        help="Rebuild pricing rows and project audits from already extracted text artifacts.",
+    )
+    pricing_reprocess.add_argument("--db", default="data/tender_radar.sqlite", help="SQLite database path.")
+    pricing_reprocess.add_argument("--eshidis-id", action="append", default=None, help="Specific ESHIDIS id to reprocess. Repeatable.")
+    pricing_reprocess.add_argument("--limit", type=int, default=None)
+    pricing_reprocess.add_argument("--all", action="store_true", help="Also reprocess projects already audited OK.")
+    pricing_reprocess.add_argument("--report", default=None, help="JSON report output path.")
 
     sources_parser = subparsers.add_parser("sources", help="Source audit commands.")
     sources_sub = sources_parser.add_subparsers(dest="sources_command")
@@ -518,6 +528,8 @@ def main(argv: list[str] | None = None) -> int:
         return _pricing_ingest_active_report(args)
     if args.command == "pricing" and args.pricing_command == "ingest-active":
         return _pricing_ingest_active(args)
+    if args.command == "pricing" and args.pricing_command == "reprocess-existing":
+        return _pricing_reprocess_existing(args)
     if args.command == "sources" and args.sources_command == "health":
         return _sources_health(args.allow_insecure_tls)
     if args.command == "sources" and args.sources_command == "audit-whitelist":
@@ -645,6 +657,22 @@ def _pricing_ingest_active(args: argparse.Namespace) -> int:
         keep_heavy_files=bool(args.keep_heavy_files),
         force=bool(args.force),
         report_path=Path(args.candidates_report),
+    )
+    if args.report:
+        report_path = Path(args.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = {**payload, "report_path": str(report_path)}
+    _emit_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def _pricing_reprocess_existing(args: argparse.Namespace) -> int:
+    payload = reprocess_existing_pricing_projects(
+        Path(args.db),
+        eshidis_ids=[str(value) for value in args.eshidis_id] if args.eshidis_id else None,
+        only_incomplete=not bool(args.all),
+        limit=args.limit,
     )
     if args.report:
         report_path = Path(args.report)

@@ -13,6 +13,8 @@ from tender_radar.pricing import (
     ingest_pricing_budget_pdf,
     ingest_pricing_eshidis_project,
     parse_budget_rows_from_text,
+    reprocess_existing_pricing_projects,
+    reprocess_pricing_project_from_texts,
     search_pricing_rows,
     upsert_pricing_budget_rows,
     upsert_pricing_document,
@@ -890,6 +892,91 @@ def test_ingest_eshidis_project_recovers_partial_rows_without_refetch(tmp_path: 
     assert payload["summary"]["downloaded"] == 0
     assert payload["summary"]["merged_budget_rows"] == 1
     assert payload["guard"]["status"] == "PARTIAL_PROJECT_RECOVERED_WITHOUT_REFETCH"
+
+
+def test_reprocess_project_rebuilds_rows_from_existing_text(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    text_path = tmp_path / "budget.txt"
+    text_path.write_text(
+        """
+        ΠΡΟΫΠΟΛΟΓΙΣΜΟΣ
+        Α/Α Άρθρο Περιγραφή Μονάδα Ποσότητα Τιμή Μονάδας Δαπάνη
+        1 ΝΑΟΔΟΑ02 Γενικές εκσκαφές ΟΔΟ-1123 m3 100,00 3,55 355,00
+        ΣΥΝΟΛΟ ΕΡΓΑΣΙΩΝ 355,00
+        """,
+        encoding="utf-8",
+    )
+    upsert_pricing_project(db_path, eshidis_id="221566", title="Reprocess project")
+    document_id = upsert_pricing_document(
+        db_path,
+        eshidis_id="221566",
+        document_name="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        document_type="pdf",
+        extraction_status="TEXT_EXTRACTED",
+        text_path=str(text_path),
+    )
+    upsert_pricing_budget_rows(
+        db_path,
+        eshidis_id="221566",
+        document_id=document_id,
+        source_document="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        rows=[
+            PricingBudgetRow(
+                row_number=1,
+                article_code="ΝΑΟΔΟ Α02",
+                canonical_article_code="ΝΑΟΔΟΑ02",
+                description="stale wrong row",
+                revision_codes=[],
+                unit="m3",
+                quantity=1,
+                unit_price=1,
+                amount=1,
+                raw_text="stale wrong row",
+                confidence=0.1,
+            )
+        ],
+    )
+
+    payload = reprocess_pricing_project_from_texts(db_path, eshidis_id="221566")
+
+    assert payload["ok"] is True
+    assert payload["summary"]["documents_reprocessed"] == 1
+    assert payload["summary"]["merged_budget_rows"] == 1
+    assert payload["summary"]["merged_budget_amount_total"] == 355
+
+
+def test_reprocess_existing_skips_complete_projects(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    text_path = tmp_path / "budget.txt"
+    text_path.write_text(
+        """
+        1 ΝΑΟΔΟΑ02 Γενικές εκσκαφές ΟΔΟ-1123 m3 100,00 3,55 355,00
+        ΣΥΝΟΛΟ ΕΡΓΑΣΙΩΝ 355,00
+        """,
+        encoding="utf-8",
+    )
+    upsert_pricing_project(db_path, eshidis_id="221566", title="Complete project")
+    document_id = upsert_pricing_document(
+        db_path,
+        eshidis_id="221566",
+        document_name="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        document_type="pdf",
+        extraction_status="TEXT_EXTRACTED",
+        text_path=str(text_path),
+    )
+    upsert_pricing_budget_rows(
+        db_path,
+        eshidis_id="221566",
+        document_id=document_id,
+        source_document="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        rows=parse_budget_rows_from_text(text_path.read_text(encoding="utf-8")),
+    )
+    consolidate_pricing_project_budget(db_path, eshidis_id="221566")
+
+    payload = reprocess_existing_pricing_projects(db_path)
+
+    assert payload["summary"]["skipped_complete"] == 1
+    assert payload["items"][0]["status"] == "SKIPPED_ALREADY_COMPLETE"
 
 
 def test_active_pricing_batch_records_every_candidate_outcome(tmp_path: Path, monkeypatch) -> None:
