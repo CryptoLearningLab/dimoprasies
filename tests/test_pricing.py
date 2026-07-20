@@ -263,9 +263,106 @@ def test_consolidates_project_budget_rows_from_best_sources(tmp_path: Path) -> N
     assert summary["rows_merged"] == 3
     assert summary["missing_row_numbers"] == []
     assert summary["amount_total"] == 83
+    assert summary["amount_validation"]["ok"] is True
+    assert summary["amount_validation"]["checked"] == 3
+    assert summary["amount_validation"]["mismatch_count"] == 0
     assert search_payload["summary"]["matches"] == 1
     assert search_payload["results"][0]["source_document"] == "__PROJECT_BUDGET_MERGED__"
     assert "καθαρό προϋπολογισμό" in search_payload["results"][0]["description"]
+
+
+def test_consolidate_reports_row_amount_mismatches(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    upsert_pricing_project(db_path, eshidis_id="221566")
+    document_id = upsert_pricing_document(
+        db_path,
+        eshidis_id="221566",
+        document_name="03-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        document_type="budget",
+    )
+    upsert_pricing_budget_rows(
+        db_path,
+        eshidis_id="221566",
+        document_id=document_id,
+        source_document="03-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        rows=[
+            PricingBudgetRow(
+                row_number=1,
+                article_code="ΝΑΟΔΟ Α02",
+                canonical_article_code="ΝΑΟΔΟΑ02",
+                description="Γενικές εκσκαφές",
+                revision_codes=[],
+                unit="m3",
+                quantity=10,
+                unit_price=3.55,
+                amount=99,
+                raw_text="1 ΝΑΟΔΟ Α02 Γενικές εκσκαφές m3 10,00 3,55 99,00",
+                confidence=0.9,
+            )
+        ],
+    )
+
+    summary = consolidate_pricing_project_budget(db_path, eshidis_id="221566")
+
+    assert summary["amount_validation"]["ok"] is False
+    assert summary["amount_validation"]["mismatch_count"] == 1
+    mismatch = summary["amount_validation"]["mismatches"][0]
+    assert mismatch["row_number"] == 1
+    assert mismatch["expected_amount"] == 35.5
+    assert mismatch["amount"] == 99
+
+
+def test_consolidate_prefers_amount_valid_duplicate_row_candidate(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    upsert_pricing_project(db_path, eshidis_id="221271")
+    document_id = upsert_pricing_document(
+        db_path,
+        eshidis_id="221271",
+        document_name="ΜΕΛΕΤΗ.pdf",
+        document_type="budget",
+    )
+    upsert_pricing_budget_rows(
+        db_path,
+        eshidis_id="221271",
+        document_id=document_id,
+        source_document="ΜΕΛΕΤΗ.pdf",
+        rows=[
+            PricingBudgetRow(
+                row_number=3,
+                article_code="BAD",
+                canonical_article_code="BAD",
+                description="Wrong table carry-over",
+                revision_codes=[],
+                unit="mm",
+                quantity=4,
+                unit_price=75,
+                amount=5,
+                raw_text="3 Wrong table carry-over mm 4 75 5",
+                confidence=0.9,
+            ),
+            PricingBudgetRow(
+                row_number=3,
+                article_code="ΟΙΚ Ν8537.2",
+                canonical_article_code="ΟΙΚΝ8537.2",
+                description="Αποξηλώσεις υφιστάμενων ειδών υγιεινής",
+                revision_codes=[],
+                unit="Τεμ.",
+                quantity=130,
+                unit_price=15,
+                amount=1950,
+                raw_text="3 Αποξηλώσεις υφιστάμενων ΟΙΚ Ν8537.2 Τεμ. 130 15,00 1950,00",
+                confidence=0.9,
+            ),
+        ],
+    )
+
+    summary = consolidate_pricing_project_budget(db_path, eshidis_id="221271")
+    search_payload = search_pricing_rows(db_path, "ΟΙΚ Ν8537.2")
+
+    assert summary["amount_validation"]["ok"] is True
+    assert summary["amount_validation"]["mismatch_count"] == 0
+    assert search_payload["summary"]["matches"] == 1
+    assert search_payload["results"][0]["article_code"] == "ΟΙΚ Ν8537.2"
 
 
 def test_ingest_eshidis_project_downloads_and_indexes_budget_rows(tmp_path: Path, monkeypatch) -> None:

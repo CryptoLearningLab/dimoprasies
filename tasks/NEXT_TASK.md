@@ -53,7 +53,11 @@ Local version `0.1.36` starts the independent reverse-pricing foundation:
   integer quantities, `Αρ. Τιμ.` work-budget layouts and units such as `t` and
   `tkm`. The parser extracts `86` merged rows from
   `ΜΕΛΕΤΗ συντηρηση και επισκευη αυλειων χωρων 7_2021_Π_Μ_Π.pdf`, with no
-  missing row numbers and amount total `1.273.445,42`.
+  missing row numbers and corrected amount total `1.275.390,42`.
+- Merged budget consolidation now validates every row amount with
+  `quantity * unit_price ~= amount`, allowing small display-rounding
+  differences. The same scoring is used to choose between duplicate row-number
+  candidates, which fixed `221271` row `3`.
 - Batch smoke with `221326`, `221271`, `221473`, `221689`, `221691` and
   `221744` showed skip-existing behavior for the first two and clean full
   ingest for the four new ids. Manual budget quality audit confirmed that the
@@ -62,7 +66,7 @@ Local version `0.1.36` starts the independent reverse-pricing foundation:
   the merged project budget was missing. `pricing ingest-eshidis` now detects
   that state and consolidates locally without refetching, returning
   `PARTIAL_PROJECT_RECOVERED_WITHOUT_REFETCH`.
-- Focused pricing suite passed: `14 passed`.
+- Focused pricing suite passed: `16 passed`.
 
 The reverse-pricing workflow is intentionally separate from the local
 `ΔΗΜΟΣΙΑ ΕΡΓΑ` dashboard and is not attached to the six-hour cron yet.
@@ -105,6 +109,8 @@ Complete the next gate:
   suffixes and bundled `ΜΕΛΕΤΗ` documents remain pricing candidates.
 - Regression test that interrupted runs with raw pricing rows but no merged
   budget recover locally without refetching ESHIDIS.
+- Regression test that merged row amount validation reports exact mismatched
+  rows and that duplicate row-number candidates prefer the amount-valid row.
 - Live smoke check for `221326` and `221271` after parser changes, until these
   layouts are covered by smaller fixtures.
 - Full test suite before production deploy.

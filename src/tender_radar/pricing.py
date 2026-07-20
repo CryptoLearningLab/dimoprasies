@@ -1015,6 +1015,7 @@ def consolidate_pricing_project_budget(db_path: Path, *, eshidis_id: str) -> dic
         expected = set(range(min(row_numbers), max(row_numbers) + 1))
         missing_numbers = sorted(expected.difference(row_numbers))
     amount_total = sum(float(row.amount or 0) for row in merged_rows)
+    amount_validation = validate_budget_row_amounts(merged_rows)
     return {
         "rows_merged": len(merged_rows),
         "rows_upserted": inserted,
@@ -1022,11 +1023,52 @@ def consolidate_pricing_project_budget(db_path: Path, *, eshidis_id: str) -> dic
         "row_number_max": max(row_numbers) if row_numbers else None,
         "missing_row_numbers": missing_numbers,
         "amount_total": amount_total,
+        "amount_validation": amount_validation,
         "source_documents": sorted(set(source_by_number.values())),
     }
 
 
-def _budget_row_score(row: PricingBudgetRow, source_document: str) -> tuple[int, float, int]:
+def validate_budget_row_amounts(
+    rows: list[PricingBudgetRow],
+    *,
+    tolerance: float = 0.02,
+    relative_tolerance: float = 0.005,
+) -> dict[str, Any]:
+    checked = 0
+    skipped = 0
+    mismatches: list[dict[str, Any]] = []
+    for row in rows:
+        if row.quantity is None or row.unit_price is None or row.amount is None:
+            skipped += 1
+            continue
+        checked += 1
+        expected, actual, difference = _budget_row_amount_delta(row)
+        if _budget_row_amount_is_valid(row, tolerance=tolerance, relative_tolerance=relative_tolerance):
+            continue
+        mismatches.append(
+            {
+                "row_number": row.row_number,
+                "article_code": row.article_code,
+                "quantity": row.quantity,
+                "unit_price": row.unit_price,
+                "amount": row.amount,
+                "expected_amount": expected,
+                "difference": difference,
+                "description": row.description[:160],
+            }
+        )
+    return {
+        "checked": checked,
+        "skipped": skipped,
+        "mismatches": mismatches,
+        "mismatch_count": len(mismatches),
+        "ok": not mismatches,
+        "tolerance": tolerance,
+        "relative_tolerance": relative_tolerance,
+    }
+
+
+def _budget_row_score(row: PricingBudgetRow, source_document: str) -> tuple[int, int, float, int]:
     source_upper = strip_accents(source_document).upper()
     source_score = 0
     if "ΠΡΟΥΠΟΛΟΓΙΣ" in source_upper:
@@ -1036,7 +1078,36 @@ def _budget_row_score(row: PricingBudgetRow, source_document: str) -> tuple[int,
     elif "ΤΙΜΟΛΟΓ" in source_upper:
         source_score = 10
     completeness = sum(1 for value in (row.unit, row.quantity, row.unit_price, row.amount) if value is not None)
-    return source_score, row.confidence, completeness
+    amount_score = _budget_row_amount_score(row)
+    return source_score, amount_score, row.confidence, completeness
+
+
+def _budget_row_amount_delta(row: PricingBudgetRow) -> tuple[float, float, float]:
+    expected = round(float(row.quantity or 0) * float(row.unit_price or 0), 2)
+    actual = round(float(row.amount or 0), 2)
+    return expected, actual, round(actual - expected, 2)
+
+
+def _budget_row_amount_is_valid(
+    row: PricingBudgetRow,
+    *,
+    tolerance: float = 0.02,
+    relative_tolerance: float = 0.005,
+) -> bool:
+    if row.quantity is None or row.unit_price is None or row.amount is None:
+        return False
+    expected, _actual, difference = _budget_row_amount_delta(row)
+    if abs(difference) <= tolerance:
+        return True
+    if expected and abs(difference) / abs(expected) <= relative_tolerance:
+        return True
+    return False
+
+
+def _budget_row_amount_score(row: PricingBudgetRow) -> int:
+    if row.quantity is None or row.unit_price is None or row.amount is None:
+        return 0
+    return 10 if _budget_row_amount_is_valid(row) else -10
 
 
 def _pricing_document_snapshot(db_path: Path, *, eshidis_id: str, document_name: str) -> dict[str, Any] | None:

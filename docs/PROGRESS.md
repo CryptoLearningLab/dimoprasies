@@ -30,6 +30,15 @@
   contingencies, revision and VAT: `221473` `138.253,83`, `221689`
   `422.052,75`, `221691` `1.062.649,50`, `221744` `1.440.932,40`.
   No omitted row ranges were found in those four budgets.
+- Reverse-pricing merge now validates each merged row with
+  `quantity * unit_price ~= amount`, allowing small display-rounding
+  differences. The validation is included in `merged_budget.amount_validation`
+  and reports exact row mismatches when present.
+- Amount-aware merge scoring fixed ESHIDIS `221271`: a bad duplicate candidate
+  for row `3` (`amount 5,00`) was replaced by the valid row
+  `ΟΙΚ Ν8537.2`, `130 * 15,00 = 1.950,00`. The corrected merged works subtotal
+  is `1.275.390,42`, matching the six official group subtotals in the bundled
+  study PDF.
 - Independent reverse-pricing ESHIDIS ingest now downloads official ESHIDIS
   attachments into pricing-specific storage, expands ZIP/RAR bundles, extracts
   text with layout-aware PDF parsing/OCR fallback, stores raw document rows for
@@ -3657,7 +3666,7 @@ projects from the bounded ESHIDIS pricing run:
   --report work/reports/pricing_ingest_221271_fixed.json
 # ok true, attachments_found 9, downloaded 9, failed 0,
 # rows upserted 87, merged rows 86, missing row numbers [],
-# merged amount total 1.273.445,42
+# corrected merged amount total 1.275.390,42 after amount-aware row scoring
 
 .venv/bin/python -m pytest tests/test_pricing.py -q
 # 13 passed

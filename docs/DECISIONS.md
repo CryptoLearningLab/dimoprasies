@@ -888,3 +888,15 @@ This prevents interrupted or timed-out runs from forcing a new browser,
 download or OCR cycle when enough structured rows already exist to rebuild the
 merged budget. Operators can still pass `--force` when they deliberately want a
 full official refetch and re-index.
+
+## D-076 - Reverse pricing validates row arithmetic before trusting a merge
+**Status:** Accepted
+
+Merged reverse-pricing budget rows include arithmetic validation:
+`quantity * unit_price ~= amount`, with tolerance for small displayed-unit-price
+rounding differences.
+
+When multiple candidates share the same project row number, amount-valid rows
+are preferred over rows whose extracted numeric columns do not reconcile. This
+keeps the official source text as provenance while using arithmetic consistency
+as an additional guard against layout/table carry-over parsing errors.
