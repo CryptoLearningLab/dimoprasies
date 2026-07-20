@@ -75,6 +75,7 @@ ARTICLE_CODE_PREFIXES = {
     "ΝΑΟΔΟ",
     "ΝΟΔΟ",
     "ΟΔΟ",
+    "ΙΝΑΟΔΟ",
     "ΝΑΥΔΡ",
     "ΥΔΡ",
     "ΝΑΟΙΚ",
@@ -219,6 +220,7 @@ def canonical_revision_code(value: str) -> str:
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
+    text = text.replace("YAP", "ΥΔΡ").replace("ΥΑΡ", "ΥΔΡ")
     text = text.replace("ΟΔΟ", "ΟΔΟ")
     return text
 
@@ -348,10 +350,19 @@ def parse_budget_rows_from_text(text: str) -> list[PricingBudgetRow]:
         by_key: dict[tuple[int | None, str, str], PricingBudgetRow] = {}
         for row in table_rows:
             by_key[(row.row_number, row.canonical_article_code, row.description)] = row
-        return list(by_key.values())
+        table_rows = list(by_key.values())
+        if len(table_rows) >= 3:
+            return table_rows
+        collapsed_rows = _parse_collapsed_ocr_budget_stream(text)
+        if len(collapsed_rows) > len(table_rows):
+            return collapsed_rows
+        return table_rows
     sparse_rows = _parse_sparse_ocr_budget_lines(text)
     if sparse_rows:
         return sparse_rows
+    collapsed_rows = _parse_collapsed_ocr_budget_stream(text)
+    if collapsed_rows:
+        return collapsed_rows
     blocks = _budget_row_blocks(text)
     rows = [row for block in blocks if (row := _parse_budget_block(block)) is not None]
     return rows
@@ -754,6 +765,172 @@ def _parse_sparse_ocr_budget_lines(text: str) -> list[PricingBudgetRow]:
         )
         last_row_number = row_number
     return rows
+
+
+def _parse_collapsed_ocr_budget_stream(text: str) -> list[PricingBudgetRow]:
+    stream = _clean_text(text)
+    if len(stream) < 250 or "ΠΡΟΥΠΟΛΟΓΙΣ" not in strip_accents(stream).upper():
+        return []
+    row_markers = list(re.finditer(r"(?<![A-Za-zΑ-Ωα-ω0-9])(?P<row>\d{1,3})\s*[\]\|]\s*", stream))
+    if len(row_markers) < 3:
+        return []
+    rows: list[PricingBudgetRow] = []
+    for index, marker in enumerate(row_markers):
+        row_number = int(marker.group("row"))
+        if row_number <= 0:
+            continue
+        end = row_markers[index + 1].start() if index + 1 < len(row_markers) else min(len(stream), marker.end() + 900)
+        segment = stream[marker.end() : end]
+        row = _parse_collapsed_ocr_budget_segment(row_number, segment)
+        if row is not None:
+            rows.append(row)
+    if len(rows) < 3:
+        return []
+    by_key: dict[tuple[int | None, str, str], PricingBudgetRow] = {}
+    for row in rows:
+        by_key[(row.row_number, row.canonical_article_code, row.description)] = row
+    return list(by_key.values())
+
+
+def _parse_collapsed_ocr_budget_segment(row_number: int, segment: str) -> PricingBudgetRow | None:
+    tokens = [_clean_ocr_table_token(token) for token in segment.split()]
+    tokens = [token for token in tokens if token]
+    if len(tokens) < 8:
+        return None
+    unit_tail = _find_collapsed_unit_numeric_tail(tokens)
+    if unit_tail is None:
+        return None
+    unit_index, unit, numeric_after_unit = unit_tail
+    if len(numeric_after_unit) < 2:
+        return None
+    if len(numeric_after_unit) >= 3:
+        quantity_pos, unit_price_pos, amount_pos = [item[0] for item in numeric_after_unit[:3]]
+        quantity = parse_greek_decimal(tokens[quantity_pos])
+        unit_price = parse_greek_decimal(tokens[unit_price_pos])
+        amount = parse_greek_decimal(tokens[amount_pos])
+    else:
+        quantity_pos, amount_pos = [item[0] for item in numeric_after_unit[:2]]
+        quantity = parse_greek_decimal(tokens[quantity_pos])
+        amount = parse_greek_decimal(tokens[amount_pos])
+        unit_price = round(float(amount) / float(quantity), 2) if quantity not in (None, 0) and amount is not None else None
+    if quantity in (None, 0) or unit_price is None or amount is None:
+        return None
+    if abs(round(float(quantity) * float(unit_price), 2) - float(amount)) > max(0.02, abs(float(amount)) * 0.005):
+        return None
+    article_code, article_indexes = _article_code_from_collapsed_segment(tokens, unit_index, amount_pos)
+    if not article_code:
+        return None
+    revision_start = _find_revision_start_before_unit(tokens, unit_index)
+    revision_tokens = tokens[revision_start:unit_index] if revision_start is not None else []
+    revision_codes = _revision_codes_from_tokens(revision_tokens) or _extract_revision_codes(" ".join(tokens[:unit_index]))
+    excluded = set(article_indexes)
+    if revision_start is not None:
+        excluded.update(range(revision_start, unit_index))
+    excluded.update(range(unit_index, amount_pos + 1))
+    description_tokens = [token for index, token in enumerate(tokens) if index not in excluded]
+    description = _clean_description(" ".join(description_tokens), revision_codes)
+    if not description:
+        return None
+    return PricingBudgetRow(
+        row_number=row_number,
+        article_code=article_code,
+        canonical_article_code=canonical_article_code(article_code),
+        description=description,
+        revision_codes=revision_codes,
+        unit=unit,
+        quantity=quantity,
+        unit_price=unit_price,
+        amount=amount,
+        raw_text=_clean_text(segment),
+        confidence=0.76 if len(numeric_after_unit) >= 3 else 0.68,
+    )
+
+
+def _find_collapsed_unit_numeric_tail(tokens: list[str]) -> tuple[int, str, list[tuple[int, str]]] | None:
+    unit_candidates = [
+        (index, token)
+        for index, token in enumerate(tokens)
+        if token.lower().rstrip(".") in {unit.rstrip(".") for unit in KNOWN_UNITS}
+    ]
+    for unit_index, unit in unit_candidates:
+        numeric_after_unit = [
+            (index, token)
+            for index, token in enumerate(tokens[unit_index + 1 : min(len(tokens), unit_index + 8)], start=unit_index + 1)
+            if NUMERIC_RE.match(token)
+        ]
+        if len(numeric_after_unit) < 2:
+            continue
+        plausible_tail = _collapsed_plausible_numeric_tail(numeric_after_unit)
+        if plausible_tail is not None:
+            return unit_index, unit, plausible_tail
+    return None
+
+
+def _collapsed_numeric_tail_is_plausible(numeric_after_unit: list[tuple[int, str]]) -> bool:
+    return _collapsed_plausible_numeric_tail(numeric_after_unit) is not None
+
+
+def _collapsed_plausible_numeric_tail(numeric_after_unit: list[tuple[int, str]]) -> list[tuple[int, str]] | None:
+    if len(numeric_after_unit) >= 3:
+        quantity = parse_greek_decimal(numeric_after_unit[0][1])
+        unit_price = parse_greek_decimal(numeric_after_unit[1][1])
+        amount = parse_greek_decimal(numeric_after_unit[2][1])
+        if quantity not in (None, 0) and unit_price is not None and amount is not None:
+            if abs(round(float(quantity) * float(unit_price), 2) - float(amount)) <= max(0.02, abs(float(amount)) * 0.005):
+                return numeric_after_unit[:3]
+    if len(numeric_after_unit) >= 2:
+        quantity = parse_greek_decimal(numeric_after_unit[0][1])
+        amount = parse_greek_decimal(numeric_after_unit[1][1])
+        unit_price = round(float(amount) / float(quantity), 2) if quantity not in (None, 0) and amount is not None else None
+    else:
+        return None
+    if quantity in (None, 0) or unit_price is None or amount is None:
+        return None
+    if abs(round(float(quantity) * float(unit_price), 2) - float(amount)) <= max(0.02, abs(float(amount)) * 0.005):
+        return numeric_after_unit[:2]
+    return None
+
+
+def _article_code_from_collapsed_segment(tokens: list[str], unit_index: int, amount_pos: int) -> tuple[str | None, list[int]]:
+    prefix_index = _find_work_budget_article_start(tokens[:unit_index])
+    if prefix_index is not None:
+        article_tokens = tokens[prefix_index : min(unit_index, prefix_index + 2)]
+        if len(article_tokens) >= 2 and re.search(r"\d", " ".join(article_tokens)):
+            if _extract_revision_codes(" ".join(article_tokens[1:])):
+                suffix_index = _collapsed_article_suffix_after_amount(tokens, amount_pos)
+                if suffix_index is not None:
+                    return f"{tokens[prefix_index]} {tokens[suffix_index]}", [prefix_index, suffix_index]
+            return " ".join(article_tokens), list(range(prefix_index, prefix_index + len(article_tokens)))
+    prefix_candidates = [
+        (index, strip_accents(token).upper().rstrip("."))
+        for index, token in enumerate(tokens[:unit_index])
+        if strip_accents(token).upper().rstrip(".") in ARTICLE_CODE_PREFIXES
+    ]
+    for prefix_index, _prefix in reversed(prefix_candidates):
+        suffix_index = _collapsed_article_suffix_after_amount(tokens, amount_pos)
+        if suffix_index is not None:
+            return f"{tokens[prefix_index]} {tokens[suffix_index]}", [prefix_index, suffix_index]
+    for index in range(0, unit_index - 1):
+        current = strip_accents(tokens[index]).upper().rstrip(".")
+        nxt = _clean_token(tokens[index + 1])
+        if current in ARTICLE_CODE_PREFIXES and re.search(r"\d", nxt):
+            return f"{tokens[index]} {tokens[index + 1]}", [index, index + 1]
+    return None, []
+
+
+def _collapsed_article_suffix_after_amount(tokens: list[str], amount_pos: int) -> int | None:
+    return next(
+        (
+            index
+            for index in range(amount_pos + 1, min(len(tokens), amount_pos + 10))
+            if re.fullmatch(r"\d{1,3}(?:[./-]\d{1,3})+[A-ZΑ-ΩA-Z0-9.]*", _clean_token(tokens[index]), flags=re.IGNORECASE)
+        ),
+        None,
+    )
+
+
+def _clean_ocr_table_token(value: str) -> str:
+    return value.strip().strip("[]{}|,;:·")
 
 
 def _parse_budget_table_line(

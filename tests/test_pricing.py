@@ -266,6 +266,30 @@ def test_extract_budget_total_candidates_handles_sparse_ocr_synolo() -> None:
     assert candidates[0]["amount"] == 49460
 
 
+def test_parse_budget_rows_handles_collapsed_ocr_table_stream() -> None:
+    text = """
+    ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΔΗΜΟΠΡΑΤΗΣΗΣ 1]Εκθάµνωση εδάφους µε ΝΑΟΙΚ ΟΙΚ2101 001 m2 | 4.480,00 17.920,00
+    δενδρύλια περιµέτρου κορμού |20.01.01 μέχρι 0,25 m 2|Εκθάµνωση εδάφους µε ΝΑΟΙΚ OIK 2101 002 m2
+    2.065,00 5,00 10.325,00 δενδρύλια περιµέτρου κορμού {20.01.02 0,26 - 0,40 m
+    3 |Αποξήλωση κρασπέδων ΝΑΥΔΡ 4.05.ΣΧ | YAP 6808 003 m 280,00 8,00 2.240,00 πρόχυτων ή μή
+    5] Γενικές Εκσκαφές σε έδαφος |ΙΝΑΟΔΟ Α02 ΝΟΔΟ 1123.A 005 m3 9.420,00 4,45 41.919,00
+    γαιώδες - ημιβραχώδες
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert [row.row_number for row in rows] == [1, 2, 3, 5]
+    assert rows[0].article_code == "ΝΑΟΙΚ 20.01.01"
+    assert rows[0].unit == "m2"
+    assert rows[0].quantity == 4480
+    assert rows[0].unit_price == 4
+    assert rows[0].amount == 17920
+    assert rows[2].article_code == "ΝΑΥΔΡ 4.05.ΣΧ"
+    assert rows[2].revision_codes == ["ΥΔΡ-6808"]
+    assert rows[3].canonical_article_code == "ΙΝΑΟΔΟΑ02"
+    assert rows[3].amount == 41919
+
+
 def test_parse_budget_rows_handles_sparse_ocr_table_with_missing_unit_prices() -> None:
     text = """
                                                                                                                        Αριθ. Τιμολ.    Αρθρο
