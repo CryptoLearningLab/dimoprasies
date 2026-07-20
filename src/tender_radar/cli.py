@@ -255,6 +255,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="empty",
         help="Run AI only when deterministic parsing is empty, or for every pricing document.",
     )
+    pricing_reprocess.add_argument(
+        "--use-ai-budget-router",
+        action="store_true",
+        help="Use OpenAI to choose the likely budget document before deterministic parsing.",
+    )
+    pricing_reprocess.add_argument("--ai-router-timeout", type=int, default=90)
+    pricing_reprocess.add_argument("--ai-router-min-confidence", type=float, default=0.7)
     pricing_reprocess.add_argument("--report", default=None, help="JSON report output path.")
     pricing_route_budget = pricing_sub.add_parser(
         "route-budget",
@@ -695,6 +702,9 @@ def _pricing_reprocess_existing(args: argparse.Namespace) -> int:
         limit=args.limit,
         use_ai_fallback=bool(args.use_ai_fallback),
         ai_fallback_mode=str(args.ai_fallback_mode),
+        use_ai_budget_router=bool(args.use_ai_budget_router),
+        ai_router_timeout_seconds=int(args.ai_router_timeout),
+        ai_router_min_confidence=float(args.ai_router_min_confidence),
     )
     if args.report:
         report_path = Path(args.report)

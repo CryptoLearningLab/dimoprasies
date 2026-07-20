@@ -1210,6 +1210,86 @@ def test_reprocess_existing_skips_complete_projects(tmp_path: Path) -> None:
     assert payload["items"][0]["status"] == "SKIPPED_ALREADY_COMPLETE"
 
 
+def test_reprocess_with_ai_budget_router_uses_only_selected_document(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    wrong_text = tmp_path / "wrong.txt"
+    budget_text = tmp_path / "budget.txt"
+    wrong_text.write_text(
+        """
+        1 ΝΑΟΔΟΑ01 Λάθος πίνακας ΟΔΟ-1111 m3 1,00 999,00 999,00
+        ΣΥΝΟΛΟ ΕΡΓΑΣΙΩΝ 999,00
+        """,
+        encoding="utf-8",
+    )
+    budget_text.write_text(
+        """
+        1 ΝΑΟΔΟΑ02 Σωστός προϋπολογισμός ΟΔΟ-1123 m3 10,00 20,00 200,00
+        ΣΥΝΟΛΟ ΕΡΓΑΣΙΩΝ 200,00
+        """,
+        encoding="utf-8",
+    )
+    upsert_pricing_project(db_path, eshidis_id="221566", title="Routed project")
+    wrong_document_id = upsert_pricing_document(
+        db_path,
+        eshidis_id="221566",
+        document_name="ΤΙΜΟΛΟΓΙΟ.pdf",
+        document_type="pdf",
+        extraction_status="TEXT_EXTRACTED",
+        text_path=str(wrong_text),
+    )
+    budget_document_id = upsert_pricing_document(
+        db_path,
+        eshidis_id="221566",
+        document_name="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        document_type="pdf",
+        extraction_status="TEXT_EXTRACTED",
+        text_path=str(budget_text),
+    )
+    upsert_pricing_budget_rows(
+        db_path,
+        eshidis_id="221566",
+        document_id=wrong_document_id,
+        source_document="ΤΙΜΟΛΟΓΙΟ.pdf",
+        rows=parse_budget_rows_from_text(wrong_text.read_text(encoding="utf-8")),
+    )
+
+    def fake_route(*args, **kwargs):
+        return {
+            "ok": True,
+            "model": "fake",
+            "prompt_version": "test-router",
+            "documents_considered": 2,
+            "route": {
+                "budget_document": "ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+                "budget_document_id": budget_document_id,
+                "page_start": 1,
+                "page_end": 1,
+                "confidence": 0.95,
+                "evidence": "selected budget document",
+                "warnings": [],
+                "section_start_hint": "ΣΥΝΟΛΟ ΕΡΓΑΣΙΩΝ",
+                "section_end_hint": "200,00",
+                "budget_shape": {},
+            },
+        }
+
+    monkeypatch.setattr("tender_radar.pricing.route_pricing_budget_documents_with_ai", fake_route)
+
+    payload = reprocess_pricing_project_from_texts(
+        db_path,
+        eshidis_id="221566",
+        use_ai_budget_router=True,
+    )
+
+    assert payload["ok"] is True
+    assert payload["summary"]["ai_budget_router_selected_document_id"] == budget_document_id
+    assert payload["summary"]["documents_reprocessed"] == 1
+    assert payload["summary"]["documents_skipped_by_ai_budget_router"] == 1
+    assert payload["summary"]["merged_budget_rows"] == 1
+    assert payload["summary"]["merged_budget_amount_total"] == 200
+    assert "SKIPPED_BY_AI_BUDGET_ROUTER" in {item["status"] for item in payload["documents"]}
+
+
 def test_active_pricing_batch_records_every_candidate_outcome(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "runtime.sqlite"
     calls: list[str] = []

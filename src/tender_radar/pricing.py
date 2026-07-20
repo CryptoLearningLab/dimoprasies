@@ -2564,6 +2564,9 @@ def reprocess_pricing_project_from_texts(
     eshidis_id: str,
     use_ai_fallback: bool = False,
     ai_fallback_mode: str = "empty",
+    use_ai_budget_router: bool = False,
+    ai_router_timeout_seconds: int = 90,
+    ai_router_min_confidence: float = 0.7,
 ) -> dict[str, Any]:
     """Rebuild a pricing project budget from already extracted text artifacts.
 
@@ -2591,6 +2594,29 @@ def reprocess_pricing_project_from_texts(
     document_reports: list[dict[str, Any]] = []
     rows_total = 0
     failed = 0
+    router_report: dict[str, Any] | None = None
+    selected_document_id: int | None = None
+    if use_ai_budget_router:
+        try:
+            router_report = route_pricing_budget_documents_with_ai(
+                db_path,
+                eshidis_id=eshidis_id,
+                timeout_seconds=ai_router_timeout_seconds,
+            )
+            route = router_report.get("route") if isinstance(router_report.get("route"), dict) else {}
+            confidence = float(route.get("confidence") or 0)
+            route_document_id = route.get("budget_document_id")
+            if confidence >= ai_router_min_confidence and isinstance(route_document_id, int):
+                selected_document_id = int(route_document_id)
+                _store_pricing_budget_route(db_path, eshidis_id=eshidis_id, route_report=router_report)
+        except (HTTPError, URLError, TimeoutError, OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+            router_report = {
+                "ok": False,
+                "error": str(exc),
+                "prompt_version": PRICING_ROUTER_AI_PROMPT_VERSION,
+            }
+
+    _delete_pricing_raw_budget_rows(db_path, eshidis_id=eshidis_id)
     for document in documents:
         text_path = Path(str(document["text_path"]))
         if not text_path.is_absolute():
@@ -2603,6 +2629,10 @@ def reprocess_pricing_project_from_texts(
             "rows_upserted": 0,
             "status": "PENDING",
         }
+        if selected_document_id is not None and int(document["id"]) != selected_document_id:
+            report["status"] = "SKIPPED_BY_AI_BUDGET_ROUTER"
+            document_reports.append(report)
+            continue
         if not text_path.exists():
             failed += 1
             report["status"] = "TEXT_PATH_MISSING"
@@ -2662,15 +2692,21 @@ def reprocess_pricing_project_from_texts(
         "summary": {
             "documents_seen": len(documents),
             "documents_reprocessed": sum(1 for item in document_reports if item.get("status") == "REPROCESSED"),
+            "documents_skipped_by_ai_budget_router": sum(
+                1 for item in document_reports if item.get("status") == "SKIPPED_BY_AI_BUDGET_ROUTER"
+            ),
             "failed": failed,
             "pricing_budget_rows_upserted": rows_total,
             "merged_budget_rows": merged_budget.get("rows_merged"),
             "merged_budget_amount_total": merged_budget.get("amount_total"),
             "merged_budget_missing_row_numbers": merged_budget.get("missing_row_numbers"),
             "merged_budget_document_total_validation": document_total_validation,
+            "ai_budget_router_used": use_ai_budget_router,
+            "ai_budget_router_selected_document_id": selected_document_id,
         },
         "documents": document_reports,
         "merged_budget": merged_budget,
+        "ai_budget_router": _compact_pricing_budget_route_report(router_report),
     }
 
 
@@ -2682,6 +2718,9 @@ def reprocess_existing_pricing_projects(
     limit: int | None = None,
     use_ai_fallback: bool = False,
     ai_fallback_mode: str = "empty",
+    use_ai_budget_router: bool = False,
+    ai_router_timeout_seconds: int = 90,
+    ai_router_min_confidence: float = 0.7,
 ) -> dict[str, Any]:
     ensure_pricing_tables(db_path)
     connection = connect(db_path)
@@ -2717,6 +2756,9 @@ def reprocess_existing_pricing_projects(
                 eshidis_id=eshidis_id,
                 use_ai_fallback=use_ai_fallback,
                 ai_fallback_mode=ai_fallback_mode,
+                use_ai_budget_router=use_ai_budget_router,
+                ai_router_timeout_seconds=ai_router_timeout_seconds,
+                ai_router_min_confidence=ai_router_min_confidence,
             )
         except Exception as exc:  # pragma: no cover - maintenance boundary
             failed += 1
@@ -2743,6 +2785,7 @@ def reprocess_existing_pricing_projects(
         "needs_review_or_failed": failed,
         "limit": limit,
         "only_incomplete": only_incomplete,
+        "use_ai_budget_router": use_ai_budget_router,
     }
     return {
         "ok": failed == 0,
@@ -2787,6 +2830,82 @@ def _store_pricing_project_budget_audit(db_path: Path, *, eshidis_id: str, summa
         connection.commit()
     finally:
         connection.close()
+
+
+def _delete_pricing_raw_budget_rows(db_path: Path, *, eshidis_id: str) -> None:
+    ensure_pricing_tables(db_path)
+    connection = connect(db_path)
+    try:
+        connection.execute(
+            """
+            DELETE FROM pricing_budget_rows
+            WHERE eshidis_id = ? AND source_document != ?
+            """,
+            (eshidis_id, MERGED_BUDGET_SOURCE_DOCUMENT),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _store_pricing_budget_route(db_path: Path, *, eshidis_id: str, route_report: dict[str, Any]) -> None:
+    route = route_report.get("route") if isinstance(route_report.get("route"), dict) else {}
+    compact = _compact_pricing_budget_route_report(route_report)
+    ensure_pricing_tables(db_path)
+    connection = connect(db_path)
+    try:
+        row = connection.execute(
+            "SELECT metadata_json FROM pricing_projects WHERE eshidis_id = ?",
+            (eshidis_id,),
+        ).fetchone()
+        if row is None:
+            return
+        try:
+            metadata = json.loads(str(row[0] or "{}"))
+        except json.JSONDecodeError:
+            metadata = {}
+        metadata["pricing_budget_route"] = {
+            **compact,
+            "routed_at": _utc_now_iso(),
+            "budget_document": route.get("budget_document"),
+            "budget_document_id": route.get("budget_document_id"),
+            "page_start": route.get("page_start"),
+            "page_end": route.get("page_end"),
+            "section_start_hint": route.get("section_start_hint"),
+            "section_end_hint": route.get("section_end_hint"),
+            "budget_shape": route.get("budget_shape"),
+        }
+        connection.execute(
+            """
+            UPDATE pricing_projects
+               SET metadata_json = ?, updated_at = ?
+             WHERE eshidis_id = ?
+            """,
+            (json.dumps(metadata, ensure_ascii=False), _utc_now_iso(), eshidis_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _compact_pricing_budget_route_report(route_report: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(route_report, dict):
+        return None
+    route = route_report.get("route") if isinstance(route_report.get("route"), dict) else {}
+    return {
+        "ok": route_report.get("ok"),
+        "model": route_report.get("model"),
+        "prompt_version": route_report.get("prompt_version"),
+        "documents_considered": route_report.get("documents_considered"),
+        "budget_document_id": route.get("budget_document_id"),
+        "budget_document": route.get("budget_document"),
+        "page_start": route.get("page_start"),
+        "page_end": route.get("page_end"),
+        "confidence": route.get("confidence"),
+        "evidence": route.get("evidence"),
+        "warnings": route.get("warnings"),
+        "error": route_report.get("error"),
+    }
 
 
 def validate_budget_row_amounts(
