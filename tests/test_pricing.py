@@ -721,6 +721,10 @@ def test_pricing_candidate_document_skips_drawings_inside_meleti_archive() -> No
         "ΣΧΕΔΙΑ ΑΡΧ.ΜΕΛΕΤΗΣ 3 .zip/ΝΕΟ Σ18 signed .pdf",
         Path("ΝΕΟ Σ18 signed .pdf"),
     )
+    assert not _is_pricing_candidate_document(
+        "ΣΤΑΤΙΚΗ ΜΕΛΕΤΗ .zip/ΣΟ3 ΟΠΛΙΣΜΟΙ signed.pdf",
+        Path("ΣΟ3 ΟΠΛΙΣΜΟΙ signed.pdf"),
+    )
 
 
 def test_pricing_candidate_document_accepts_budget_inside_archive() -> None:

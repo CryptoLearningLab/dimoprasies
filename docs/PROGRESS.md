@@ -10,6 +10,11 @@
 `tasks/NEXT_TASK.md`
 
 ## Completed Milestones
+- Reverse-pricing `v0.1.47` tightens the pre-OCR guard for nested archive
+  children. A second live smoke exposed `ΣΤΑΤΙΚΗ ΜΕΛΕΤΗ .zip/ΣΟ3 ΟΠΛΙΣΜΟΙ`
+  entering OCR because the archive parent contained `ΜΕΛΕΤΗ`; nested children
+  now require their own pricing signal, unless the archive parent has a strong
+  budget/pricing signal such as `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`.
 - Reverse-pricing `v0.1.46` adds a pre-OCR guard for nested drawing PDFs inside
   archive bundles. A live force-refetch stress run exposed ESHIDIS `221325`
   spending many minutes OCR-ing files such as

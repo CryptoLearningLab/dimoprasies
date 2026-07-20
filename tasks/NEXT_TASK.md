@@ -1,20 +1,21 @@
 # NEXT TASK
 
 Execute:
-`Run guarded reverse-pricing refetch after v0.1.46 archive-drawing OCR guard`
+`Run guarded reverse-pricing refetch after v0.1.47 nested-archive OCR guard`
 
 ## Current Input
 
 The independent reverse-pricing workflow remains disconnected from cron.
-`v0.1.46` keeps the `v0.1.45` incremental JSONL progress logs and adds a
-pre-OCR guard for nested drawing PDFs inside archive bundles. Use
+`v0.1.47` keeps the `v0.1.45` incremental JSONL progress logs and tightens the
+pre-OCR guard for nested drawing/study PDFs inside archive bundles. Use
 `--progress-log` for any long refetch/reprocess run and monitor it with
 `tail -f`.
 
 A force-refetch stress run was stopped after ESHIDIS `221325` spent many
-minutes OCR-ing nested drawing files from `ΣΧΕΔΙΑ ΑΡΧ.ΜΕΛΕΤΗΣ ...zip` without
-finding budget rows. That behavior is now guarded; rerun a small force batch
-before attempting a larger active-window pass.
+minutes OCR-ing nested drawing files from `ΣΧΕΔΙΑ ΑΡΧ.ΜΕΛΕΤΗΣ ...zip` and
+`ΣΤΑΤΙΚΗ ΜΕΛΕΤΗ ...zip` without finding budget rows. That behavior is now
+guarded; rerun a small force batch before attempting a larger active-window
+pass.
 
 The repair command is:
 
