@@ -565,6 +565,15 @@ def _parse_budget_table_lines(text: str, *, unit_price_before_quantity: bool = F
         )
         if row is not None:
             parsed.append(row)
+            continue
+        prefixed_row = _parse_prefixed_article_table_line(
+            line,
+            previous_line=previous_line,
+            next_line=next_line,
+            unit_price_before_quantity=unit_price_before_quantity,
+        )
+        if prefixed_row is not None:
+            parsed.append(prefixed_row)
     return parsed
 
 
@@ -700,6 +709,86 @@ def _parse_budget_table_line(
         raw_text=_clean_text(line_for_raw),
         confidence=0.9,
     )
+
+
+def _parse_prefixed_article_table_line(
+    line: str,
+    *,
+    previous_line: str = "",
+    next_line: str = "",
+    unit_price_before_quantity: bool = False,
+) -> PricingBudgetRow | None:
+    tokens = _clean_text(line).split()
+    if len(tokens) < 9:
+        return None
+    prefix = strip_accents(tokens[0]).upper().rstrip(".")
+    if prefix not in ARTICLE_CODE_PREFIXES:
+        return None
+    article_suffix = _clean_token(tokens[1])
+    if not re.search(r"\d", article_suffix):
+        return None
+    row_index = 2
+    if not re.fullmatch(r"\d{1,3}", _clean_token(tokens[row_index])):
+        return None
+    row_number = int(_clean_token(tokens[row_index]))
+    unit_end = _find_unit_end(tokens, len(tokens))
+    if unit_end is None:
+        return None
+    unit_index, unit = unit_end
+    numeric_after_unit = [
+        token for token in tokens[unit_index + 1 :] if NUMERIC_RE.match(token)
+    ]
+    if len(numeric_after_unit) < 3:
+        return None
+    if unit.lower().rstrip(".") == "m":
+        previous_tokens = _clean_text(previous_line).split()
+        next_tokens = _clean_text(next_line).split()
+        if previous_tokens and previous_tokens[-1] in {"2", "3"}:
+            unit = f"m{previous_tokens[-1]}"
+        elif next_tokens and next_tokens[0] in {"2", "3"}:
+            unit = f"m{next_tokens[0]}"
+    if unit_price_before_quantity:
+        unit_price_token, quantity_token, amount_token = numeric_after_unit[:3]
+    else:
+        quantity_token, unit_price_token, amount_token = numeric_after_unit[:3]
+    revision_start = _find_revision_start_before_unit(tokens, unit_index)
+    if revision_start is None or revision_start <= row_index + 1:
+        return None
+    article_code = f"{tokens[0]} {article_suffix}"
+    description_tokens = tokens[row_index + 2 : revision_start]
+    if _should_prepend_previous_description(previous_line, description_tokens):
+        description_tokens = [*_clean_text(previous_line).split(), *description_tokens]
+    if not description_tokens:
+        return None
+    revision_tokens = tokens[revision_start:unit_index]
+    revision_codes = _revision_codes_from_tokens(revision_tokens) or _extract_revision_codes(" ".join(revision_tokens))
+    return PricingBudgetRow(
+        row_number=row_number,
+        article_code=article_code,
+        canonical_article_code=canonical_article_code(article_code),
+        description=_clean_description(" ".join(description_tokens), revision_codes),
+        revision_codes=revision_codes,
+        unit=unit,
+        quantity=parse_greek_decimal(quantity_token),
+        unit_price=parse_greek_decimal(unit_price_token),
+        amount=parse_greek_decimal(amount_token),
+        raw_text=_clean_text(line),
+        confidence=0.9,
+    )
+
+
+def _find_revision_start_before_unit(tokens: list[str], unit_index: int) -> int | None:
+    for index in range(unit_index - 1, 2, -1):
+        token = _clean_token(tokens[index])
+        previous = _clean_token(tokens[index - 1]) if index > 0 else ""
+        if _extract_revision_codes(token):
+            return index
+        if (
+            strip_accents(previous).upper().rstrip(".") in ARTICLE_CODE_PREFIXES
+            and re.fullmatch(r"\d+[A-ZΑ-ΩA-Z0-9.]*", token, flags=re.IGNORECASE)
+        ):
+            return index - 1
+    return None
 
 
 def _expand_table_row_numeric_tail(tokens: list[str], next_lines: list[str]) -> list[str] | None:

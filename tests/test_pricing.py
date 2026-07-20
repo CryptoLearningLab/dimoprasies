@@ -171,6 +171,31 @@ def test_parse_budget_rows_handles_local_at_with_unit_price_before_quantity() ->
     assert sum(row.amount or 0 for row in rows) == 115290
 
 
+def test_parse_budget_rows_handles_category_prefixed_article_table() -> None:
+    text = """
+                           ΟΜΑΔΑ Α : ΧΩΜΑΤΟΥΡΓΙΚΑ
+ ΟΔΟ         Α-2      1      Α1     Γενικές εκσκαφές σε έδαφος γαιώδες -ημιβραχώδες                 ΟΔΟ-1123Α      m3        300            3,55       1.065,00
+
+ ΟΔΟ        Α-18.3    2      Α2     Δάνεια θραυστών επίλεκτων υλικών λατομείου Κατηγ. Ε4            ΟΔΟ-1510       m3        300           15,50       4.650,00
+                                                                                                                       3
+ ΟΔΟ         Α-20     3      Α3     Κατασκευή επιχωμάτων                                            ΟΔΟ-1530       m         300            1,05        315,00
+
+                                    Προσαύξηση τιμών εκσκαφών ορυγμάτων υπογείων δικτύων για
+ ΥΔΡ         3.12     4      Β1                                                                     ΥΔΡ 6087       m        300,00         15,50       4.650,00
+                                    την αντιμετώπιση προσθέτων δυσχερειών από διερχόμενα δίκτυα
+ ΟΔΟ       Β-29.3.1   5      Β2                                                                     ΟΔΟ-2532       m3       250,00         94,20      23.550,00
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert [row.row_number for row in rows] == [1, 2, 3, 4, 5]
+    assert [row.article_code for row in rows] == ["ΟΔΟ Α-2", "ΟΔΟ Α-18.3", "ΟΔΟ Α-20", "ΥΔΡ 3.12", "ΟΔΟ Β-29.3.1"]
+    assert rows[2].unit == "m3"
+    assert rows[3].description.startswith("Προσαύξηση τιμών εκσκαφών")
+    assert rows[4].revision_codes == ["ΟΔΟ-2532"]
+    assert sum(row.amount or 0 for row in rows) == 34230
+
+
 def test_consolidate_validates_merged_sum_against_document_total(tmp_path: Path) -> None:
     db_path = tmp_path / "runtime.sqlite"
     text_path = tmp_path / "budget.txt"
