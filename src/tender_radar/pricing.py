@@ -30,6 +30,7 @@ TABLE_ROW_RE = re.compile(r"^\s*(?P<row>\d{1,3})\s+(?P<rest>.+)$")
 SPARSE_OCR_ROW_RE = re.compile(r"^\s*(?P<row>\d{1,3}|[~])\s+(?P<rest>.+)$")
 MERGED_BUDGET_SOURCE_DOCUMENT = "__PROJECT_BUDGET_MERGED__"
 PRICING_AI_PROMPT_VERSION = "2026-07-20-budget-row-extraction-v1"
+PRICING_ROUTER_AI_PROMPT_VERSION = "2026-07-20-budget-router-v1"
 NUMERIC_RE = re.compile(r"^\d+(?:[.,]\d{1,3})*\*?$")
 REVISION_RE = re.compile(
     r"(?:(?P<pct>\d+(?:[.,]\d+)?)\s*%)?\s*(?P<code>[A-ZΑ-ΩΟ∆Δ.]{2,8})\s*[-–—]?\s*(?P<num>\d+[A-ZΑ-ΩA-Z0-9]*)",
@@ -486,6 +487,340 @@ def parse_budget_rows_with_ai_fallback(
         "document_total_validation": total_validation,
         "notes": str(parsed.get("notes") or "") if isinstance(parsed, dict) else "",
     }
+
+
+def route_pricing_budget_documents_with_ai(
+    db_path: Path,
+    *,
+    eshidis_id: str,
+    api_key: str | None = None,
+    model: str | None = None,
+    timeout_seconds: int = 90,
+    max_documents: int = 8,
+    max_pages_per_document: int = 6,
+) -> dict[str, Any]:
+    """Ask AI to identify the document/page range that contains the budget.
+
+    This is intentionally read-only. It routes later deterministic parsing to
+    the best document/section, but it does not persist rows or modify audits.
+    """
+    ensure_pricing_tables(db_path)
+    key = api_key or load_openai_api_key()
+    if not key:
+        raise RuntimeError("OPENAI_API_KEY was not found in the environment or .env.local.")
+    model_name = model or os.environ.get("PRICING_OPENAI_MODEL") or os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL
+    documents = _pricing_budget_router_documents(
+        db_path,
+        eshidis_id=eshidis_id,
+        max_documents=max_documents,
+        max_pages_per_document=max_pages_per_document,
+    )
+    prompt_text = _pricing_budget_router_prompt(eshidis_id=eshidis_id, documents=documents)
+    payload = {
+        "model": model_name,
+        "input": [
+            {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "You route Greek public works pricing extraction. "
+                            "Identify the real project budget table document and page range. "
+                            "Return strict JSON only and do not invent evidence."
+                        ),
+                    }
+                ],
+            },
+            {"role": "user", "content": [{"type": "input_text", "text": prompt_text}]},
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "tender_radar_pricing_budget_router",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "budget_document": {"type": ["string", "null"]},
+                        "budget_document_id": {"type": ["integer", "null"]},
+                        "page_start": {"type": ["integer", "null"]},
+                        "page_end": {"type": ["integer", "null"]},
+                        "section_start_hint": {"type": ["string", "null"]},
+                        "section_end_hint": {"type": ["string", "null"]},
+                        "offer_document": {"type": ["string", "null"]},
+                        "offer_document_id": {"type": ["integer", "null"]},
+                        "ignore_documents": {"type": "array", "items": {"type": "string"}},
+                        "budget_shape": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "row_number_column": {"type": ["string", "null"]},
+                                "article_column": {"type": ["string", "null"]},
+                                "description_column": {"type": ["string", "null"]},
+                                "unit_column": {"type": ["string", "null"]},
+                                "quantity_column": {"type": ["string", "null"]},
+                                "unit_price_column": {"type": ["string", "null"]},
+                                "amount_column": {"type": ["string", "null"]},
+                                "likely_table_layout": {"type": "string"},
+                            },
+                            "required": [
+                                "row_number_column",
+                                "article_column",
+                                "description_column",
+                                "unit_column",
+                                "quantity_column",
+                                "unit_price_column",
+                                "amount_column",
+                                "likely_table_layout",
+                            ],
+                        },
+                        "confidence": {"type": "number"},
+                        "evidence": {"type": "string"},
+                        "warnings": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": [
+                        "budget_document",
+                        "budget_document_id",
+                        "page_start",
+                        "page_end",
+                        "section_start_hint",
+                        "section_end_hint",
+                        "offer_document",
+                        "offer_document_id",
+                        "ignore_documents",
+                        "budget_shape",
+                        "confidence",
+                        "evidence",
+                        "warnings",
+                    ],
+                },
+            }
+        },
+        "temperature": 0,
+        "max_output_tokens": 5000,
+    }
+    request = Request(
+        RESPONSES_URL,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    with urlopen(request, timeout=timeout_seconds) as response:
+        response_payload = json.loads(response.read().decode("utf-8", errors="replace"))
+    parsed = json.loads(_strip_json_fence(_response_text(response_payload)))
+    return {
+        "ok": True,
+        "eshidis_id": eshidis_id,
+        "model": model_name,
+        "prompt_version": PRICING_ROUTER_AI_PROMPT_VERSION,
+        "documents_considered": len(documents),
+        "document_previews": documents,
+        "route": parsed,
+    }
+
+
+def _pricing_budget_router_documents(
+    db_path: Path,
+    *,
+    eshidis_id: str,
+    max_documents: int,
+    max_pages_per_document: int,
+) -> list[dict[str, Any]]:
+    connection = connect(db_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        rows = connection.execute(
+            """
+            SELECT id, document_name, document_type, local_path, text_path
+            FROM pricing_documents
+            WHERE eshidis_id = ?
+              AND (text_path IS NOT NULL OR local_path IS NOT NULL)
+            ORDER BY document_name
+            """,
+            (eshidis_id,),
+        ).fetchall()
+    finally:
+        connection.close()
+    candidates = [_pricing_budget_router_document_summary(row, max_pages=max_pages_per_document) for row in rows]
+    candidates = [candidate for candidate in candidates if candidate["score"] > 0]
+    candidates.sort(key=lambda item: (-int(item["score"]), str(item["document_name"])))
+    return candidates[:max_documents]
+
+
+def _pricing_budget_router_document_summary(row: sqlite3.Row, *, max_pages: int) -> dict[str, Any]:
+    document_name = str(row["document_name"] or "")
+    document_type = str(row["document_type"] or "")
+    local_path = _absolute_existing_path(row["local_path"])
+    text_path = _absolute_existing_path(row["text_path"])
+    full_text = ""
+    if text_path:
+        try:
+            full_text = text_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            full_text = ""
+    pages = _pricing_budget_router_page_snippets(local_path, full_text=full_text, max_pages=max_pages)
+    keyword_hits = _pricing_router_keyword_hits(" ".join([document_name, document_type, full_text[:20_000]]))
+    score = _pricing_router_document_score(document_name, document_type, keyword_hits, pages)
+    return {
+        "document_id": int(row["id"]),
+        "document_name": document_name,
+        "document_type": document_type,
+        "score": score,
+        "keyword_hits": keyword_hits,
+        "local_path": str(local_path) if local_path else None,
+        "text_path": str(text_path) if text_path else None,
+        "candidate_pages": pages,
+    }
+
+
+def _absolute_existing_path(value: Any) -> Path | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    path = Path(text)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path if path.exists() else None
+
+
+def _pricing_budget_router_page_snippets(local_path: Path | None, *, full_text: str, max_pages: int) -> list[dict[str, Any]]:
+    page_items: list[dict[str, Any]] = []
+    if local_path and local_path.suffix.lower() == ".pdf":
+        try:
+            from pypdf import PdfReader  # type: ignore
+
+            reader = PdfReader(str(local_path))
+            for index, page in enumerate(reader.pages, start=1):
+                page_text = _clean_text(page.extract_text() or "")
+                score = _pricing_router_text_score(page_text)
+                if score <= 0:
+                    continue
+                page_items.append(
+                    {
+                        "page": index,
+                        "score": score,
+                        "snippet": _pricing_router_snippet(page_text),
+                    }
+                )
+        except Exception:
+            page_items = []
+    if not page_items and full_text:
+        lines = full_text.splitlines()
+        window_size = 40
+        for start in range(0, len(lines), window_size):
+            chunk = _clean_text("\n".join(lines[start : start + window_size]))
+            score = _pricing_router_text_score(chunk)
+            if score <= 0:
+                continue
+            page_items.append(
+                {
+                    "page": None,
+                    "line_start": start + 1,
+                    "score": score,
+                    "snippet": _pricing_router_snippet(chunk),
+                }
+            )
+    page_items.sort(key=lambda item: -int(item["score"]))
+    return page_items[:max_pages]
+
+
+def _pricing_router_keyword_hits(text: str) -> list[str]:
+    normalized = strip_accents(text).upper()
+    keywords = [
+        "ΠΡΟΥΠΟΛΟΓΙΣ",
+        "ΟΙΚΟΝΟΜΙΚΗ ΠΡΟΣΦΟΡΑ",
+        "ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ",
+        "ΤΙΜΗ ΜΟΝΑΔΑΣ",
+        "ΠΟΣΟΤΗΤΑ",
+        "ΔΑΠΑΝΗ",
+        "ΑΡΘΡΟ",
+        "Α.Τ",
+        "Α/Α",
+        "ΣΥΝΟΛΟ ΚΟΣΤΟΥΣ ΕΡΓΑΣΙΩΝ",
+        "ΣΥΝΟΛΙΚΗ ΔΑΠΑΝΗ ΕΡΓΑΣΙΩΝ",
+        "ΤΙΜΟΛΟΓΙΟ",
+        "ΜΕΛΕΤΗ",
+    ]
+    return [keyword for keyword in keywords if strip_accents(keyword).upper() in normalized]
+
+
+def _pricing_router_text_score(text: str) -> int:
+    hits = _pricing_router_keyword_hits(text)
+    score = len(hits)
+    normalized = strip_accents(text).upper()
+    if "ΠΡΟΥΠΟΛΟΓΙΣ" in normalized:
+        score += 6
+    if "ΣΥΝΟΛΟ ΚΟΣΤΟΥΣ ΕΡΓΑΣΙΩΝ" in normalized or "ΣΥΝΟΛΙΚΗ ΔΑΠΑΝΗ ΕΡΓΑΣΙΩΝ" in normalized:
+        score += 5
+    if "ΤΙΜΗ ΜΟΝΑΔΑΣ" in normalized and "ΠΟΣΟΤΗΤΑ" in normalized and "ΔΑΠΑΝΗ" in normalized:
+        score += 5
+    if "ΤΙΜΟΛΟΓΙΟ" in normalized and "ΠΡΟΥΠΟΛΟΓΙΣ" not in normalized:
+        score -= 4
+    return max(0, score)
+
+
+def _pricing_router_document_score(document_name: str, document_type: str, keyword_hits: list[str], pages: list[dict[str, Any]]) -> int:
+    normalized_name = strip_accents(f"{document_name} {document_type}").upper()
+    score = len(keyword_hits) + sum(int(page.get("score") or 0) for page in pages[:2])
+    if "ΠΡΟΥΠΟΛΟΓΙΣ" in normalized_name:
+        score += 15
+    if "ΟΙΚΟΝΟΜΙΚ" in normalized_name and "ΠΡΟΣΦΟΡ" in normalized_name:
+        score += 8
+    if "ΤΙΜΟΛΟΓ" in normalized_name:
+        score -= 5
+    if "ΣΧΕΔ" in normalized_name or "LAYOUT" in normalized_name:
+        score -= 10
+    return max(0, score)
+
+
+def _pricing_router_snippet(text: str, *, limit: int = 1800) -> str:
+    clean = _clean_text(text)
+    if len(clean) <= limit:
+        return clean
+    normalized = strip_accents(clean).upper()
+    anchors = ["ΠΡΟΥΠΟΛΟΓΙΣ", "ΣΥΝΟΛΟ ΚΟΣΤΟΥΣ ΕΡΓΑΣΙΩΝ", "ΤΙΜΗ ΜΟΝΑΔΑΣ", "ΠΟΣΟΤΗΤΑ"]
+    indexes = [normalized.find(anchor) for anchor in anchors if normalized.find(anchor) >= 0]
+    start = max(0, min(indexes) - 400) if indexes else 0
+    return clean[start : start + limit]
+
+
+def _pricing_budget_router_prompt(*, eshidis_id: str, documents: list[dict[str, Any]]) -> str:
+    compact_documents = []
+    for document in documents:
+        compact_documents.append(
+            {
+                "document_id": document["document_id"],
+                "document_name": document["document_name"],
+                "document_type": document["document_type"],
+                "keyword_hits": document["keyword_hits"],
+                "candidate_pages": [
+                    {
+                        "page": page.get("page"),
+                        "line_start": page.get("line_start"),
+                        "snippet": page.get("snippet"),
+                    }
+                    for page in document.get("candidate_pages", [])
+                ],
+            }
+        )
+    return (
+        "Εντόπισε το αρχείο και το εύρος σελίδων που περιέχουν τον πραγματικό προϋπολογισμό δημόσιου έργου.\n"
+        "Δεν θέλουμε τιμολόγιο χωρίς ποσότητες, τεχνική περιγραφή, σχέδια ή απλή οικονομική προσφορά αν δεν έχει αναλυτικές γραμμές.\n"
+        "Προτίμησε πίνακα με Α/Α ή Α.Τ., άρθρο, περιγραφή, άρθρα αναθεώρησης, μονάδα, ποσότητα, τιμή μονάδας, δαπάνη.\n"
+        "Αν ο προϋπολογισμός είναι μέσα σε ενιαίο PDF μελέτης/διακήρυξης, δώσε page_start/page_end ή line hints.\n"
+        "Αν υπάρχουν πολλοί υποψήφιοι, διάλεξε εκείνον που περιέχει αναλυτικές ποσότητες και επίσημο σύνολο εργασιών.\n"
+        "Μην εφεύρεις σελίδες ή στοιχεία που δεν φαίνονται στα snippets.\n"
+        f"ΕΣΗΔΗΣ: {eshidis_id}\n"
+        f"Prompt version: {PRICING_ROUTER_AI_PROMPT_VERSION}\n"
+        "Υποψήφια έγγραφα/snippets:\n"
+        f"{json.dumps(compact_documents, ensure_ascii=False, indent=2)}"
+    )
 
 
 def _pricing_ai_prompt(text: str, *, document_name: str) -> str:

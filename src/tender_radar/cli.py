@@ -32,6 +32,7 @@ from tender_radar.pricing import (
     ingest_pricing_budget_pdf,
     ingest_pricing_eshidis_project,
     reprocess_existing_pricing_projects,
+    route_pricing_budget_documents_with_ai,
     search_pricing_rows,
 )
 from tender_radar.sources.eshidis import (
@@ -255,6 +256,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run AI only when deterministic parsing is empty, or for every pricing document.",
     )
     pricing_reprocess.add_argument("--report", default=None, help="JSON report output path.")
+    pricing_route_budget = pricing_sub.add_parser(
+        "route-budget",
+        help="Use AI to identify the budget document/page range without writing pricing rows.",
+    )
+    pricing_route_budget.add_argument("eshidis_id", help="Numeric ESHIDIS id.")
+    pricing_route_budget.add_argument("--db", default="data/tender_radar.sqlite", help="SQLite database path.")
+    pricing_route_budget.add_argument("--report", default=None, help="JSON report output path.")
+    pricing_route_budget.add_argument("--max-documents", type=int, default=8)
+    pricing_route_budget.add_argument("--max-pages-per-document", type=int, default=6)
+    pricing_route_budget.add_argument("--timeout", type=int, default=90, help="OpenAI request timeout in seconds.")
 
     sources_parser = subparsers.add_parser("sources", help="Source audit commands.")
     sources_sub = sources_parser.add_subparsers(dest="sources_command")
@@ -537,6 +548,8 @@ def main(argv: list[str] | None = None) -> int:
         return _pricing_ingest_active(args)
     if args.command == "pricing" and args.pricing_command == "reprocess-existing":
         return _pricing_reprocess_existing(args)
+    if args.command == "pricing" and args.pricing_command == "route-budget":
+        return _pricing_route_budget(args)
     if args.command == "sources" and args.sources_command == "health":
         return _sources_health(args.allow_insecure_tls)
     if args.command == "sources" and args.sources_command == "audit-whitelist":
@@ -682,6 +695,23 @@ def _pricing_reprocess_existing(args: argparse.Namespace) -> int:
         limit=args.limit,
         use_ai_fallback=bool(args.use_ai_fallback),
         ai_fallback_mode=str(args.ai_fallback_mode),
+    )
+    if args.report:
+        report_path = Path(args.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = {**payload, "report_path": str(report_path)}
+    _emit_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def _pricing_route_budget(args: argparse.Namespace) -> int:
+    payload = route_pricing_budget_documents_with_ai(
+        Path(args.db),
+        eshidis_id=str(args.eshidis_id),
+        timeout_seconds=int(args.timeout),
+        max_documents=int(args.max_documents),
+        max_pages_per_document=int(args.max_pages_per_document),
     )
     if args.report:
         report_path = Path(args.report)
