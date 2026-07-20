@@ -325,8 +325,20 @@ def _ocr_pdf_for_budget(path: Path, *, max_pages: int = 12) -> str | None:
 
 
 def parse_budget_rows_from_text(text: str) -> list[PricingBudgetRow]:
-    table_rows = _parse_budget_table_lines(text, unit_price_before_quantity=_unit_price_before_quantity(text))
+    unit_price_before_quantity = _unit_price_before_quantity(text)
+    at_unit_prices = _extract_at_unit_prices(text)
+    table_text = _complete_budget_lines_with_at_unit_prices(
+        text,
+        at_unit_prices,
+        unit_price_before_quantity=unit_price_before_quantity,
+    )
+    table_rows = _parse_budget_table_lines(table_text, unit_price_before_quantity=unit_price_before_quantity)
     if table_rows:
+        table_rows = _apply_at_unit_prices_from_text(
+            text,
+            table_rows,
+            unit_price_before_quantity=unit_price_before_quantity,
+        )
         table_rows = _filter_invalid_amount_table_rows(table_rows)
         table_rows = _renumber_local_restarted_article_rows(table_rows)
         table_rows = _renumber_decimal_at_layout_rows(table_rows)
@@ -337,6 +349,153 @@ def parse_budget_rows_from_text(text: str) -> list[PricingBudgetRow]:
     blocks = _budget_row_blocks(text)
     rows = [row for block in blocks if (row := _parse_budget_block(block)) is not None]
     return rows
+
+
+def _apply_at_unit_prices_from_text(
+    text: str,
+    rows: list[PricingBudgetRow],
+    *,
+    unit_price_before_quantity: bool,
+) -> list[PricingBudgetRow]:
+    unit_prices = _extract_at_unit_prices(text)
+    if not unit_prices:
+        return rows
+    adjusted: list[PricingBudgetRow] = []
+    for row in rows:
+        if row.row_number is None or row.row_number not in unit_prices:
+            adjusted.append(row)
+            continue
+        quantity = _quantity_from_budget_row_raw_text(row, unit_price_before_quantity=unit_price_before_quantity)
+        unit_price = unit_prices[row.row_number]
+        if quantity is None or unit_price is None:
+            adjusted.append(row)
+            continue
+        amount = round(float(quantity) * float(unit_price), 2)
+        current_amount = row.amount
+        if current_amount is not None and abs(float(current_amount) - amount) <= 0.02:
+            adjusted.append(row)
+            continue
+        adjusted.append(
+            replace(
+                row,
+                quantity=quantity,
+                unit_price=unit_price,
+                amount=amount,
+                confidence=max(row.confidence, 0.92),
+            )
+        )
+    return adjusted
+
+
+def _complete_budget_lines_with_at_unit_prices(
+    text: str,
+    unit_prices: dict[int, float],
+    *,
+    unit_price_before_quantity: bool,
+) -> str:
+    if not unit_prices:
+        return text
+    completed_lines: list[str] = []
+    for line in text.splitlines():
+        match = TABLE_ROW_RE.match(line)
+        if not match:
+            completed_lines.append(line)
+            continue
+        tokens = _clean_text(match.group("rest")).split()
+        numeric_positions = [index for index, token in enumerate(tokens) if NUMERIC_RE.match(token)]
+        if len(numeric_positions) >= 3:
+            completed_lines.append(line)
+            continue
+        at_index = next(
+            (
+                index
+                for index, token in enumerate(tokens)
+                if re.fullmatch(r"\d{3}", _clean_token(token)) and int(_clean_token(token)) in unit_prices
+            ),
+            None,
+        )
+        if at_index is None:
+            completed_lines.append(line)
+            continue
+        unit_end = _find_unit_end(tokens, len(tokens))
+        if unit_end is None:
+            completed_lines.append(line)
+            continue
+        unit_index, _unit = unit_end
+        numeric_after_unit = [
+            token
+            for token in tokens[unit_index + 1 :]
+            if NUMERIC_RE.match(token)
+        ]
+        if not numeric_after_unit:
+            completed_lines.append(line)
+            continue
+        quantity_token = numeric_after_unit[1] if unit_price_before_quantity and len(numeric_after_unit) > 1 else numeric_after_unit[0]
+        quantity = parse_greek_decimal(quantity_token)
+        unit_price = unit_prices[int(_clean_token(tokens[at_index]))]
+        if quantity is None:
+            completed_lines.append(line)
+            continue
+        amount = round(float(quantity) * float(unit_price), 2)
+        completed_lines.append(f"{line} {_number_token(unit_price)} {_number_token(amount)}")
+    return "\n".join(completed_lines)
+
+
+def _number_token(value: float) -> str:
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+def _extract_at_unit_prices(text: str) -> dict[int, float]:
+    lines = text.splitlines()
+    at_indexes: list[tuple[int, int]] = []
+    for index, line in enumerate(lines):
+        match = re.search(r"\bA\.?\s*T\.?\s*:\s*(\d{1,3})\b", line, flags=re.IGNORECASE)
+        if not match:
+            continue
+        at_indexes.append((index, int(match.group(1))))
+    unit_prices: dict[int, float] = {}
+    for position, (start, at_number) in enumerate(at_indexes):
+        end = at_indexes[position + 1][0] if position + 1 < len(at_indexes) else min(len(lines), start + 80)
+        block = "\n".join(lines[start:end])
+        match = re.search(r"\(Αριθμητικώς\)\s*:\s*(\d+(?:[.,]\d{1,3})*)", block, flags=re.IGNORECASE)
+        if not match:
+            continue
+        unit_price = parse_greek_decimal(match.group(1))
+        if unit_price is not None:
+            unit_prices[at_number] = float(unit_price)
+    return unit_prices
+
+
+def _quantity_from_budget_row_raw_text(
+    row: PricingBudgetRow,
+    *,
+    unit_price_before_quantity: bool,
+) -> float | None:
+    if row.row_number is None or not row.unit:
+        return None
+    tokens = _clean_text(row.raw_text).split()
+    row_token = f"{row.row_number:03d}"
+    row_indexes = [
+        index
+        for index, token in enumerate(tokens)
+        if _clean_token(token) == row_token or _clean_token(token) == str(row.row_number)
+    ]
+    clean_unit = row.unit.lower().rstrip(".")
+    for row_index in row_indexes:
+        for unit_index in range(row_index + 1, min(len(tokens), row_index + 14)):
+            if tokens[unit_index].lower().rstrip(".") != clean_unit:
+                continue
+            numeric_after_unit = [
+                token
+                for token in tokens[unit_index + 1 : min(len(tokens), unit_index + 6)]
+                if NUMERIC_RE.match(token)
+            ]
+            if unit_price_before_quantity:
+                if len(numeric_after_unit) >= 2:
+                    return parse_greek_decimal(numeric_after_unit[1])
+            elif numeric_after_unit:
+                return parse_greek_decimal(numeric_after_unit[0])
+    return None
 
 
 def _unit_price_before_quantity(text: str) -> bool:
@@ -425,15 +584,19 @@ def _parse_budget_table_line(
     revision_tokens: list[str] = []
     article_code: str | None = None
     description_tokens: list[str] = []
-    wrapped_article = _split_wrapped_article_across_lines(
-        prefix_tokens,
-        previous_lines or ([previous_line] if previous_line else []),
-        next_lines or ([next_line] if next_line else []),
-    )
-    if wrapped_article is not None:
-        row_number, article_code, description_tokens, revision_tokens = wrapped_article
-        next_line = ""
-        previous_line = ""
+    at_first_article = _split_at_first_article_prefix(prefix_tokens)
+    if at_first_article is not None:
+        row_number, article_code, description_tokens, revision_tokens = at_first_article
+    else:
+        wrapped_article = _split_wrapped_article_across_lines(
+            prefix_tokens,
+            previous_lines or ([previous_line] if previous_line else []),
+            next_lines or ([next_line] if next_line else []),
+        )
+        if wrapped_article is not None:
+            row_number, article_code, description_tokens, revision_tokens = wrapped_article
+            next_line = ""
+            previous_line = ""
     if article_code is None:
         local_after_unit = _split_local_article_budget_prefix(post_unit_tokens, allow_empty_description=True)
         if local_after_unit is not None:
@@ -616,6 +779,19 @@ def _split_work_budget_prefix(tokens: list[str], *, next_line: str = "") -> tupl
             consumed_next_line = True
     article_code = " ".join(article_tokens)
     return row_number, article_code, description_tokens, revision_tokens, consumed_next_line
+
+
+def _split_at_first_article_prefix(tokens: list[str]) -> tuple[int, str, list[str], list[str]] | None:
+    if len(tokens) < 3 or not re.fullmatch(r"\d{3}", _clean_token(tokens[0])):
+        return None
+    article_tokens = tokens[1:]
+    article_start = _find_work_budget_article_start(article_tokens)
+    if article_start is None:
+        return None
+    article_code = " ".join(article_tokens[article_start:])
+    if not re.search(r"\d", article_code):
+        return None
+    return int(_clean_token(tokens[0])), article_code, article_tokens[:article_start], []
 
 
 def _split_local_article_budget_prefix(

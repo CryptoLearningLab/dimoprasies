@@ -392,6 +392,36 @@ def test_parse_budget_rows_handles_inline_article_fragment_before_at_with_later_
     assert row.amount == 85800
 
 
+def test_parse_budget_rows_uses_at_unit_price_when_table_row_has_only_quantity() -> None:
+    text = """
+       Εγκατάσταση πρασίνου. Άνοιγμα λάκκων σε χαλαρά εδάφη με
+  7                                                                       119    ΝΕΤ ΠΡΣ Ε1.1        Τεμ.          35
+       εργαλεία χειρός. Άνοιγμα λάκκων διαστάσεων 0,30 x 0,30 x 0,30 m
+       Εγκατάσταση πρασίνου. Άνοιγμα λάκκων με χρήση εκσκαπτικού
+  8                                                                       120    ΝΕΤ ΠΡΣ Ε4.3        Τεμ.          80
+       μηχανήματος. Άνοιγμα λάκκων διαστάσεων 1,00 x 1,00 x 1,00 m
+  9    Φυτικό υλικό. Δένδρα. Δένδρα κατηγορίας Δ9                         121    ΝΕΤ ΠΡΣ Δ1.9        Τεμ.          60
+
+  A.T.:                   120
+
+  ΝΕΤ ΠΡΣ Ε4.3            Εγκατάσταση πρασίνου. Άνοιγμα λάκκων με χρήση εκσκαπτικού
+                          μηχανήματος. Άνοιγμα λάκκων διαστάσεων 1,00 x 1,00 x 1,00 m
+
+  ΕΥΡΩ          (Ολογράφως):     ΤΕΣΣΕΡΑ
+                (Αριθμητικώς):   4,00
+
+  A.T.:                    121
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    row = next(row for row in rows if row.row_number == 120)
+    assert row.article_code == "ΝΕΤ ΠΡΣ Ε4.3"
+    assert row.quantity == 80
+    assert row.unit_price == 4
+    assert row.amount == 320
+
+
 def test_parse_budget_rows_drops_invalid_complete_ocr_table_rows_when_valid_rows_exist() -> None:
     text = """
       1 001 Τομή οδοστρώματος με ασφαλτοκόπτη ΝΕΤ ΟΔΟ-ΜΕ Δ-1 m 600 1 600,00
