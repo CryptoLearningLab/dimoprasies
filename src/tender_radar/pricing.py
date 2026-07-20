@@ -4453,14 +4453,14 @@ def _index_pricing_document_path(
 
 def _is_pricing_candidate_document(document_name: str, local_path: Path, *, mode: str = "standard") -> bool:
     suffix = local_path.suffix.lower()
-    if suffix in {".txt", ".text"}:
-        return True
-    if suffix != ".pdf":
-        return False
     if mode == "budget_filename_only":
         return _pricing_document_name_has_budget_signal(document_name, local_path)
     if mode != "standard":
         raise ValueError(f"Unsupported pricing document filter: {mode}")
+    if suffix in {".txt", ".text"}:
+        return True
+    if suffix != ".pdf":
+        return False
     normalized_name = document_name.replace("\\", "/")
     leaf_name = PurePosixPath(normalized_name).name or local_path.name
     normalized_leaf = strip_accents(f"{leaf_name} {local_path.name}").upper()
