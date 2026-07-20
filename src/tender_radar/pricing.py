@@ -771,7 +771,7 @@ def _parse_collapsed_ocr_budget_stream(text: str) -> list[PricingBudgetRow]:
     stream = _clean_text(text)
     if len(stream) < 250 or "ΠΡΟΥΠΟΛΟΓΙΣ" not in strip_accents(stream).upper():
         return []
-    row_markers = list(re.finditer(r"(?<![A-Za-zΑ-Ωα-ω0-9])(?P<row>\d{1,3})\s*[\]\|]\s*", stream))
+    row_markers = list(re.finditer(r"(?<![A-Za-zΑ-Ωα-ω0-9])(?P<row>\d{1,3})\s*[\]\|\[]\s*", stream))
     if len(row_markers) < 3:
         return []
     rows: list[PricingBudgetRow] = []
