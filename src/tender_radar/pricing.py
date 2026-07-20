@@ -1246,21 +1246,17 @@ def _budget_total_candidates_for_project(
     eshidis_id: str,
     source_documents: list[str],
 ) -> list[dict[str, Any]]:
-    if not source_documents:
-        return []
     connection = connect(db_path)
     connection.row_factory = sqlite3.Row
     try:
-        placeholders = ",".join("?" for _ in source_documents)
         rows = connection.execute(
-            f"""
+            """
             SELECT document_name, text_path
             FROM pricing_documents
             WHERE eshidis_id = ?
-              AND document_name IN ({placeholders})
               AND text_path IS NOT NULL
             """,
-            (eshidis_id, *source_documents),
+            (eshidis_id,),
         ).fetchall()
     finally:
         connection.close()
@@ -1530,7 +1526,22 @@ def _pricing_project_is_complete(db_path: Path, *, eshidis_id: str) -> bool:
         ).fetchone()
         if row is None:
             return False
-        return int(row[0] or 0) > 0 and int(row[1] or 0) > 0 and int(row[2] or 0) > 0
+        if not (int(row[0] or 0) > 0 and int(row[1] or 0) > 0 and int(row[2] or 0) > 0):
+            return False
+        audit_row = connection.execute(
+            "SELECT metadata_json FROM pricing_projects WHERE eshidis_id = ?",
+            (eshidis_id,),
+        ).fetchone()
+        if audit_row is None:
+            return False
+        try:
+            metadata = json.loads(str(audit_row[0] or "{}"))
+        except json.JSONDecodeError:
+            return False
+        audit = metadata.get("pricing_budget_audit") or {}
+        amount_validation = audit.get("amount_validation") or {}
+        document_total_validation = audit.get("document_total_validation") or {}
+        return bool(amount_validation.get("ok") is True and document_total_validation.get("ok") is True)
     finally:
         connection.close()
 

@@ -214,6 +214,47 @@ def test_consolidate_validates_merged_sum_against_document_total(tmp_path: Path)
     assert audit["amount_total"] == 115290
 
 
+def test_consolidate_validates_against_offer_total_when_budget_lacks_total(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    budget_text_path = tmp_path / "budget.txt"
+    budget_text_path.write_text("ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ\n1 ΝΑΟΔΟ Α02 Γενικές εκσκαφές m3 10,00 3,55 35,50\n", encoding="utf-8")
+    offer_text_path = tmp_path / "offer.txt"
+    offer_text_path.write_text(
+        "ΟΙΚΟΝΟΜΙΚΗ ΠΡΟΣΦΟΡΑ\nΣύνολο Κόστους Εργασιών Σ1: 35,50 Π1:\n",
+        encoding="utf-8",
+    )
+    upsert_pricing_project(db_path, eshidis_id="221689")
+    document_id = upsert_pricing_document(
+        db_path,
+        eshidis_id="221689",
+        document_name="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        document_type="budget",
+        text_path=str(budget_text_path),
+    )
+    upsert_pricing_document(
+        db_path,
+        eshidis_id="221689",
+        document_name="Οικονομική_προσφορά_Έργου.pdf",
+        document_type="offer",
+        text_path=str(offer_text_path),
+    )
+    upsert_pricing_budget_rows(
+        db_path,
+        eshidis_id="221689",
+        document_id=document_id,
+        source_document="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        rows=[
+            PricingBudgetRow(1, "ΝΑΟΔΟ Α02", "ΝΑΟΔΟΑ02", "Γενικές εκσκαφές", [], "m3", 10, 3.55, 35.5, "", 0.9),
+        ],
+    )
+
+    summary = consolidate_pricing_project_budget(db_path, eshidis_id="221689")
+
+    assert summary["document_total_validation"]["ok"] is True
+    assert summary["document_total_validation"]["reference_total"] == 35.5
+    assert summary["document_total_validation"]["reference"]["source_document"] == "Οικονομική_προσφορά_Έργου.pdf"
+
+
 def test_parse_budget_rows_handles_split_backslash_articles_and_special_units() -> None:
     text = """
                                                                                                        Τιμή            Δαπάνη (Ευρώ)
@@ -777,7 +818,7 @@ def test_active_pricing_batch_skips_already_complete_projects(tmp_path: Path, mo
         db_path,
         eshidis_id="221001",
         document_id=document_id,
-            source_document="__PROJECT_BUDGET_MERGED__",
+        source_document="__PROJECT_BUDGET_MERGED__",
         rows=[
             PricingBudgetRow(
                 row_number=1,
@@ -794,6 +835,27 @@ def test_active_pricing_batch_skips_already_complete_projects(tmp_path: Path, mo
             )
         ],
     )
+    import sqlite3
+
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute(
+            "UPDATE pricing_projects SET metadata_json = ? WHERE eshidis_id = ?",
+            (
+                json.dumps(
+                    {
+                        "pricing_budget_audit": {
+                            "amount_validation": {"ok": True},
+                            "document_total_validation": {"ok": True},
+                        }
+                    }
+                ),
+                "221001",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
 
     def fail_ingest(*args, **kwargs):
         raise AssertionError("already complete project must not be re-ingested")
@@ -903,6 +965,27 @@ def test_active_pricing_batch_max_new_skips_existing_and_continues(tmp_path: Pat
             )
         ],
     )
+    import sqlite3
+
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute(
+            "UPDATE pricing_projects SET metadata_json = ? WHERE eshidis_id = ?",
+            (
+                json.dumps(
+                    {
+                        "pricing_budget_audit": {
+                            "amount_validation": {"ok": True},
+                            "document_total_validation": {"ok": True},
+                        }
+                    }
+                ),
+                "221001",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
     calls: list[str] = []
 
     def fake_ingest(db_path_arg, *, eshidis_id, **kwargs):
