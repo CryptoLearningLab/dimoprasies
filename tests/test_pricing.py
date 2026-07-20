@@ -2,6 +2,7 @@ from pathlib import Path
 
 from tender_radar.pricing import (
     _is_pricing_candidate_document,
+    PricingBudgetRow,
     canonical_article_code,
     canonical_revision_code,
     consolidate_pricing_project_budget,
@@ -436,3 +437,56 @@ def test_ingest_eshidis_project_skips_existing_download_and_index(tmp_path: Path
     assert second["summary"]["skipped_indexed"] == 1
     assert second["summary"]["merged_budget_rows"] == 1
     assert download_calls["count"] == 1
+
+
+def test_ingest_eshidis_project_recovers_partial_rows_without_refetch(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    work_dir = tmp_path / "pricing"
+    upsert_pricing_project(db_path, eshidis_id="221566", title="Partial project")
+    document_id = upsert_pricing_document(
+        db_path,
+        eshidis_id="221566",
+        document_name="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        document_type="pdf",
+        extraction_status="TEXT_EXTRACTED",
+        text_path=str(tmp_path / "budget.txt"),
+    )
+    upsert_pricing_budget_rows(
+        db_path,
+        eshidis_id="221566",
+        document_id=document_id,
+        source_document="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        rows=[
+            PricingBudgetRow(
+                row_number=1,
+                article_code="ΝΑΟΔΟ Α02",
+                canonical_article_code="ΝΑΟΔΟΑ02",
+                description="Γενικές εκσκαφές",
+                revision_codes=["ΝΟΔΟ-1123"],
+                unit="m3",
+                quantity=100,
+                unit_price=3.55,
+                amount=355,
+                raw_text="1 ΝΑΟΔΟ Α02 Γενικές εκσκαφές ΝΟΔΟ-1123 m3 100,00 3,55 355,00",
+                confidence=0.9,
+            )
+        ],
+    )
+
+    def fail_fetch(*args, **kwargs):
+        raise AssertionError("partial recovery must not refetch ESHIDIS")
+
+    monkeypatch.setattr("tender_radar.pricing.fetch_resource_audit", fail_fetch)
+    monkeypatch.setattr("tender_radar.pricing.download_attachment_audit", fail_fetch)
+
+    payload = ingest_pricing_eshidis_project(
+        db_path,
+        eshidis_id="221566",
+        work_dir=work_dir,
+        allow_insecure_tls=True,
+    )
+
+    assert payload["summary"]["partial_recovered"] is True
+    assert payload["summary"]["downloaded"] == 0
+    assert payload["summary"]["merged_budget_rows"] == 1
+    assert payload["guard"]["status"] == "PARTIAL_PROJECT_RECOVERED_WITHOUT_REFETCH"

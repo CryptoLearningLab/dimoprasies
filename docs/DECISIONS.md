@@ -876,3 +876,15 @@ For Greek budget layouts with a separate `Α.Τ.` or `Αρ. Τιμ.` column, tha
 column is the stable project row identifier. The leftmost local row number may
 restart inside every category and must not be used as the final merged budget
 row number.
+
+## D-075 - Reverse pricing recovers partial indexed state before network
+**Status:** Accepted
+
+If `pricing ingest-eshidis` finds persisted raw pricing rows for a project but
+no merged project budget, it first performs a cheap local consolidation and
+returns `PARTIAL_PROJECT_RECOVERED_WITHOUT_REFETCH`.
+
+This prevents interrupted or timed-out runs from forcing a new browser,
+download or OCR cycle when enough structured rows already exist to rebuild the
+merged budget. Operators can still pass `--force` when they deliberately want a
+full official refetch and re-index.

@@ -10,6 +10,26 @@
 `tasks/NEXT_TASK.md`
 
 ## Completed Milestones
+- Reverse-pricing ingest now has a partial-state recovery guard. If a previous
+  run has already persisted raw pricing budget rows but was interrupted before
+  writing the merged project budget, a repeated `pricing ingest-eshidis` run
+  consolidates those rows and returns without re-entering the browser/download
+  loop.
+- Live partial-recovery smoke for ESHIDIS `221566` completed without refetch:
+  `downloaded 0`, `skipped_download 28`, `skipped_indexed 28`,
+  `raw_budget_rows_reused 56`, `merged_budget_rows 36`,
+  `merged_budget_amount_total 2.466.374,00`, no missing row numbers, guard
+  status `PARTIAL_PROJECT_RECOVERED_WITHOUT_REFETCH`.
+- Seven-id pricing batch smoke included repeat ids `221326` and `221271`,
+  which both skipped existing downloads/indexes. New ids `221473`, `221689`,
+  `221691` and `221744` completed full ingest with zero failed attachments and
+  no missing merged row numbers. `221566` exposed the partial-state case that
+  the new guard now handles.
+- Manual quality audit of the new budget documents confirmed that merged
+  budget totals match each document's works subtotal before GE/OE,
+  contingencies, revision and VAT: `221473` `138.253,83`, `221689`
+  `422.052,75`, `221691` `1.062.649,50`, `221744` `1.440.932,40`.
+  No omitted row ranges were found in those four budgets.
 - Independent reverse-pricing ESHIDIS ingest now downloads official ESHIDIS
   attachments into pricing-specific storage, expands ZIP/RAR bundles, extracts
   text with layout-aware PDF parsing/OCR fallback, stores raw document rows for

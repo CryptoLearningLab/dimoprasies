@@ -1104,6 +1104,97 @@ def _pricing_document_is_indexed(db_path: Path, *, eshidis_id: str, document_nam
         connection.close()
 
 
+def _recover_partial_pricing_project(db_path: Path, *, eshidis_id: str) -> dict[str, Any] | None:
+    """Finish cheap consolidation for projects that already have parsed rows.
+
+    This protects batch runs from re-entering expensive browser/download/OCR
+    work when a previous process was interrupted after raw budget rows were
+    persisted but before the project-level merged budget was written.
+    """
+    ensure_pricing_tables(db_path)
+    connection = connect(db_path)
+    try:
+        raw_rows = int(
+            connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM pricing_budget_rows
+                WHERE eshidis_id = ?
+                  AND source_document != ?
+                """,
+                (eshidis_id, MERGED_BUDGET_SOURCE_DOCUMENT),
+            ).fetchone()[0]
+        )
+        merged_rows = int(
+            connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM pricing_budget_rows
+                WHERE eshidis_id = ?
+                  AND source_document = ?
+                """,
+                (eshidis_id, MERGED_BUDGET_SOURCE_DOCUMENT),
+            ).fetchone()[0]
+        )
+        document_count = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM pricing_documents WHERE eshidis_id = ?",
+                (eshidis_id,),
+            ).fetchone()[0]
+        )
+    finally:
+        connection.close()
+
+    if raw_rows <= 0 or merged_rows > 0:
+        return None
+
+    merged_budget = consolidate_pricing_project_budget(db_path, eshidis_id=eshidis_id)
+    return {
+        "ok": True,
+        "eshidis_id": eshidis_id,
+        "summary": {
+            "attachments_found": None,
+            "attachments_requested": 0,
+            "downloaded": 0,
+            "skipped_download": document_count,
+            "skipped_indexed": document_count,
+            "failed": 0,
+            "pricing_budget_rows_upserted": 0,
+            "merged_budget_rows": merged_budget["rows_merged"],
+            "merged_budget_amount_total": merged_budget["amount_total"],
+            "merged_budget_missing_row_numbers": merged_budget["missing_row_numbers"],
+            "heavy_files_deleted": 0,
+            "partial_recovered": True,
+            "raw_budget_rows_reused": raw_rows,
+        },
+        "project": _pricing_project_snapshot(db_path, eshidis_id=eshidis_id),
+        "documents": [],
+        "merged_budget": merged_budget,
+        "guard": {
+            "status": "PARTIAL_PROJECT_RECOVERED_WITHOUT_REFETCH",
+            "reason": "raw budget rows existed but merged project budget was missing",
+        },
+    }
+
+
+def _pricing_project_snapshot(db_path: Path, *, eshidis_id: str) -> dict[str, Any]:
+    ensure_pricing_tables(db_path)
+    connection = connect(db_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        row = connection.execute(
+            """
+            SELECT title, authority_name, region, budget_display, deadline_at
+            FROM pricing_projects
+            WHERE eshidis_id = ?
+            """,
+            (eshidis_id,),
+        ).fetchone()
+        return dict(row) if row else {}
+    finally:
+        connection.close()
+
+
 def ingest_pricing_budget_pdf(
     db_path: Path,
     *,
@@ -1155,6 +1246,12 @@ def ingest_pricing_eshidis_project(
     if limit < 1:
         raise ValueError("limit must be positive.")
     ensure_pricing_tables(db_path)
+    if not force:
+        recovered = _recover_partial_pricing_project(db_path, eshidis_id=eshidis_id)
+        if recovered is not None:
+            recovered["db_path"] = str(db_path)
+            recovered["work_dir"] = str(work_dir)
+            return recovered
     audit_dir = work_dir / "source_audit"
     download_dir = work_dir / "downloads" / eshidis_id
     text_dir = work_dir / "extracted_text" / eshidis_id
