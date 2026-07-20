@@ -6,6 +6,7 @@ from tender_radar.pricing import (
     _extract_zip_with_greek_filename_repair,
     _guard_official_standalone_budget_route,
     _is_pricing_candidate_document,
+    _pricing_document_should_preserve_until_deadline,
     _pricing_budget_router_documents,
     _pricing_rows_from_ai_payload,
     _repair_zip_member_name,
@@ -713,6 +714,31 @@ def test_pricing_candidate_document_accepts_meleti_budget_bundle() -> None:
         "ΜΕΛΕΤΗ συντηρηση και επισκευη αυλειων χωρων 7_2021_Π_Μ_Π.pdf",
         Path("ΜΕΛΕΤΗ συντηρηση και επισκευη αυλειων χωρων 7_2021_Π_Μ_Π.pdf"),
     )
+
+
+def test_pricing_retention_preserves_only_essential_operational_documents() -> None:
+    preserved = [
+        "ΠΡΟΣΚΛΗΣΗ.pdf",
+        "ΔΙΑΚΗΡΥΞΗ ΕΡΓΟΥ.pdf",
+        "ΤΕΧΝΙΚΗ ΕΚΘΕΣΗ.pdf",
+        "ΤΕΧΝΙΚΗ ΠΕΡΙΓΡΑΦΗ.pdf",
+        "ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        "ΤΙΜΟΛΟΓΙΟ ΜΕΛΕΤΗΣ.pdf",
+    ]
+    for name in preserved:
+        assert _pricing_document_should_preserve_until_deadline(name), name
+
+    secondary = [
+        "ΓΕΩΛΟΓΙΚΗ ΜΕΛΕΤΗ.pdf",
+        "ΠΕΡΙΒΑΛΛΟΝΤΙΚΗ ΜΕΛΕΤΗ.pdf",
+        "ΣΑΥ.pdf",
+        "ΦΑΥ.pdf",
+        "ΟΙΚΟΔΟΜΙΚΗ ΑΔΕΙΑ.zip",
+        "ΜΕΛΕΤΗ ΕΦΑΡΜΟΓΗΣ.zip",
+        "ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ.pdf",
+    ]
+    for name in secondary:
+        assert not _pricing_document_should_preserve_until_deadline(name), name
 
 
 def test_mark_pricing_document_heavy_file_deleted_clears_stale_local_path(tmp_path: Path) -> None:

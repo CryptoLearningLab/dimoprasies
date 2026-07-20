@@ -10,6 +10,12 @@
 `tasks/NEXT_TASK.md`
 
 ## Completed Milestones
+- Reverse-pricing `v0.1.43` adds deadline-retention rules for heavy ESHIDIS
+  attachments. Essential operational documents such as invitations,
+  declarations, technical reports/descriptions, budgets, pro-measurements and
+  price schedules remain stored locally while the project is active; secondary
+  studies, administrative forms and archives keep provenance/download links and
+  extracted text/rows without retaining every heavy file.
 - Reverse-pricing `v0.1.42` adds a deterministic AI-router guard for official
   standalone ESHIDIS budget/pro-measurement attachments. If AI selects a nested
   archive summary while an official standalone `ΠΡΟΜΕΤΡΗΣΗ`/`ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`

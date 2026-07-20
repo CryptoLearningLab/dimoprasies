@@ -5,7 +5,7 @@ Execute:
 
 ## Current Input
 
-The independent reverse-pricing workflow is deployed on commit `3f52737`.
+The independent reverse-pricing workflow is deployed on commit `2f392b0`.
 It remains disconnected from cron.
 
 The repair command is:
@@ -85,6 +85,9 @@ Important validation fixes already deployed:
 - local standalone official budget/pro-measurement route priority;
 - local stale heavy-file path cleanup after deleted downloaded PDFs;
 - local Greek filename repair for ZIP members.
+- local essential-document heavy file retention rule for invitations,
+  declarations, technical descriptions/reports, budgets, pro-measurements and
+  price schedules.
 
 ## Instruction
 

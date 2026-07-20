@@ -1,5 +1,15 @@
 # Decision Log
 
+## D-086 — Reverse-pricing heavy file retention is essential-doc only
+**Status:** Accepted
+
+Reverse-pricing may download every ESHIDIS attachment for indexing, OCR and
+provenance, but it keeps heavy files locally only for essential operational
+documents while the tender is active: invitation, declaration, technical
+report/description, budget, pro-measurement and price schedule. Secondary
+studies, administrative forms, drawings and archive bundles keep source links,
+text artifacts and parsed rows where useful, but not every downloaded binary.
+
 ## D-085 — Official standalone budget route guard
 **Status:** Accepted
 

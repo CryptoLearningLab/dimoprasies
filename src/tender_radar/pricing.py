@@ -731,6 +731,45 @@ def _official_budget_document_priority(document_name: str, document_type: str | 
     return 0
 
 
+def _pricing_document_should_preserve_until_deadline(document_name: str, document_type: str | None = None) -> bool:
+    suffix = Path(document_name.replace("\\", "/")).suffix.lower()
+    if suffix in {".zip", ".rar", ".7z"} or str(document_type or "").lower() == "archive":
+        return False
+    normalized = strip_accents(f"{document_name} {document_type or ''}").upper()
+    secondary_markers = {
+        "ΓΕΩΛΟΓ",
+        "ΓΕΩΤΕΧΝ",
+        "ΠΕΡΙΒΑΛ",
+        "ΣΑΥ",
+        "ΦΑΥ",
+        "ΣΧΕΔ",
+        "ΑΔΕΙΑ",
+        "ΑΠΟΧΕΤΕΥΣ",
+        "ΟΜΒΡΙ",
+        "ΥΔΡΕΥΣ",
+        "ΗΛΕΚΤΡΟΜΗΧΑΝΟΛ",
+        "ΔΙΟΙΚΗΤ",
+    }
+    if any(marker in normalized for marker in secondary_markers):
+        return False
+    if "ΟΙΚΟΝΟΜΙΚ" in normalized and "ΠΡΟΣΦΟΡ" in normalized:
+        return False
+    essential_markers = {
+        "ΠΡΟΣΚΛΗΣ",
+        "ΔΙΑΚΗΡΥΞ",
+        "ΔΙΑΚΗΡ",
+        "ΤΕΧΝΙΚΗ ΕΚΘΕΣ",
+        "ΤΕΧΝΙΚΗ ΠΕΡΙΓΡΑΦ",
+        "ΤΕΧΝΙΚΕΣ ΠΡΟΔΙΑΓΡΑΦ",
+        "ΠΡΟΥΠΟΛΟΓ",
+        "ΠΡΟΜΕΤΡΗΣ",
+        "ΤΙΜΟΛΟΓ",
+    }
+    if any(marker in normalized for marker in essential_markers):
+        return True
+    return "ΜΕΛΕΤΗ" in normalized
+
+
 def _pricing_budget_router_document_summary(row: sqlite3.Row, *, max_pages: int) -> dict[str, Any]:
     document_name = str(row["document_name"] or "")
     document_type = str(row["document_type"] or "")
@@ -2520,6 +2559,25 @@ def mark_pricing_document_heavy_file_deleted(
         connection.close()
 
 
+def _drop_pricing_local_file_if_unpreserved(
+    db_path: Path,
+    *,
+    eshidis_id: str,
+    document_name: str,
+    local_path: Path,
+    keep_heavy_files: bool,
+) -> bool:
+    if keep_heavy_files:
+        return False
+    try:
+        local_path.unlink()
+        deleted = True
+    except FileNotFoundError:
+        deleted = False
+    mark_pricing_document_heavy_file_deleted(db_path, eshidis_id=eshidis_id, document_name=document_name)
+    return deleted
+
+
 def upsert_pricing_budget_rows(
     db_path: Path,
     *,
@@ -3691,7 +3749,7 @@ def ingest_pricing_eshidis_project(
         if download_payload:
             downloaded += 1
         local_path = Path(str(downloaded_file["path"]))
-        preserve_local_file = keep_heavy_files or _official_budget_document_priority(filename) > 0
+        preserve_local_file = keep_heavy_files or _pricing_document_should_preserve_until_deadline(filename)
         if not force and _pricing_document_is_indexed(db_path, eshidis_id=eshidis_id, document_name=filename):
             skipped_indexed += 1
             indexed = {
@@ -4060,7 +4118,7 @@ def _index_pricing_document_path(
                 row_index=row_index,
                 text_dir=text_dir,
                 archive_dir=archive_dir,
-                keep_heavy_files=True,
+                keep_heavy_files=keep_heavy_files or _pricing_document_should_preserve_until_deadline(child_name),
                 metadata={**(metadata or {}), "archive_path": str(local_path)},
                 force=force,
             )
@@ -4076,6 +4134,13 @@ def _index_pricing_document_path(
             extraction_status=str(extracted.get("status") or "ARCHIVE_EXTRACTED"),
             metadata={**(metadata or {}), "archive_error": extracted.get("error"), "extracted_files": len(child_reports)},
         )
+        deleted = _drop_pricing_local_file_if_unpreserved(
+            db_path,
+            eshidis_id=eshidis_id,
+            document_name=document_name,
+            local_path=local_path,
+            keep_heavy_files=keep_heavy_files,
+        )
         return {
             "document_type": "archive",
             "extraction_status": str(extracted.get("status") or "ARCHIVE_EXTRACTED"),
@@ -4084,6 +4149,7 @@ def _index_pricing_document_path(
             "rows_extracted": rows_total,
             "rows_upserted": rows_total,
             "extracted_documents": child_reports,
+            "heavy_file_deleted": deleted,
         }
 
     if not _is_pricing_candidate_document(document_name, local_path):
@@ -4091,11 +4157,18 @@ def _index_pricing_document_path(
             db_path,
             eshidis_id=eshidis_id,
             document_name=document_name,
-            local_path=str(local_path),
+            local_path=str(local_path) if keep_heavy_files else None,
             source_url=source_url,
             document_type=local_path.suffix.lower().lstrip(".") or "unknown",
             extraction_status="SKIPPED_NON_PRICING_DOCUMENT",
             metadata=metadata or {},
+        )
+        deleted = _drop_pricing_local_file_if_unpreserved(
+            db_path,
+            eshidis_id=eshidis_id,
+            document_name=document_name,
+            local_path=local_path,
+            keep_heavy_files=keep_heavy_files,
         )
         return {
             "document_name": document_name,
@@ -4106,6 +4179,7 @@ def _index_pricing_document_path(
             "text_path": None,
             "rows_extracted": 0,
             "rows_upserted": 0,
+            "heavy_file_deleted": deleted,
         }
 
     analysis = analyze_document(local_path, original_name=document_name)
@@ -4118,7 +4192,7 @@ def _index_pricing_document_path(
         db_path,
         eshidis_id=eshidis_id,
         document_name=document_name,
-        local_path=str(local_path),
+        local_path=str(local_path) if keep_heavy_files else None,
         source_url=source_url,
         document_type=analysis.document_type,
         extraction_status=extraction_status,
@@ -4142,6 +4216,13 @@ def _index_pricing_document_path(
             source_document=document_name,
             rows=budget_rows,
         )
+    deleted = _drop_pricing_local_file_if_unpreserved(
+        db_path,
+        eshidis_id=eshidis_id,
+        document_name=document_name,
+        local_path=local_path,
+        keep_heavy_files=keep_heavy_files,
+    )
     return {
         "document_name": document_name,
         "document_type": analysis.document_type,
@@ -4150,6 +4231,7 @@ def _index_pricing_document_path(
         "text_path": str(text_path) if text_path else None,
         "rows_extracted": len(budget_rows),
         "rows_upserted": rows_inserted,
+        "heavy_file_deleted": deleted,
     }
 
 
