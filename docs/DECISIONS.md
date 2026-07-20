@@ -1,5 +1,13 @@
 # Decision Log
 
+## D-085 — Official standalone budget route guard
+**Status:** Accepted
+
+When reverse-pricing AI routing considers both an official standalone ESHIDIS
+budget/pro-measurement attachment and a nested archive summary, the standalone
+official attachment wins deterministically. AI evidence is still recorded, but
+it cannot route parsing away from the higher-provenance official budget file.
+
 ## D-001 — Repo-native knowledge
 **Status:** Accepted
 

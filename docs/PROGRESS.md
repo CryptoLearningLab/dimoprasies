@@ -10,6 +10,11 @@
 `tasks/NEXT_TASK.md`
 
 ## Completed Milestones
+- Reverse-pricing `v0.1.42` adds a deterministic AI-router guard for official
+  standalone ESHIDIS budget/pro-measurement attachments. If AI selects a nested
+  archive summary while an official standalone `ΠΡΟΜΕΤΡΗΣΗ`/`ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`
+  attachment is present, the route is overridden to the official attachment and
+  the override is recorded in route warnings/evidence.
 - Reverse-pricing now has a UI and CLI active-ESHIDIS batch controller. The
   pricing button starts an authenticated background job that discovers active
   ESHIDIS public works, processes every returned candidate unless an explicit

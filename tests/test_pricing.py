@@ -4,6 +4,7 @@ import sqlite3
 
 from tender_radar.pricing import (
     _extract_zip_with_greek_filename_repair,
+    _guard_official_standalone_budget_route,
     _is_pricing_candidate_document,
     _pricing_budget_router_documents,
     _pricing_rows_from_ai_payload,
@@ -776,6 +777,56 @@ def test_pricing_budget_router_prioritizes_standalone_official_budget_over_zip_s
 
     assert documents[0]["document_id"] == official_id
     assert documents[0]["official_budget_priority"] > documents[1]["official_budget_priority"]
+
+
+def test_pricing_budget_router_guard_overrides_nested_summary_when_official_budget_exists() -> None:
+    route = {
+        "budget_document": "ΜΕΛΕΤΗ ΕΦΑΡΜΟΓΗΣ.zip/ΣΥΝΟΠΤΙΚΟΣ ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        "budget_document_id": 232,
+        "page_start": 16,
+        "page_end": 17,
+        "section_start_hint": "ΣΥΝΟΠΤΙΚΟΣ ΠΡΟΫΠΟΛΟΓΙΣΜΟΣ",
+        "section_end_hint": "ΓΕΝΙΚΟ ΣΥΝΟΛΟ",
+        "offer_document": None,
+        "offer_document_id": None,
+        "ignore_documents": [],
+        "budget_shape": {
+            "row_number_column": "Α/Α",
+            "article_column": "ΑΡΘΡΟ",
+            "description_column": "ΠΕΡΙΓΡΑΦΗ",
+            "unit_column": "ΜΟΝΑΔΑ",
+            "quantity_column": "ΠΟΣΟΤΗΤΑ",
+            "unit_price_column": "ΤΙΜΗ",
+            "amount_column": "ΔΑΠΑΝΗ",
+            "likely_table_layout": "nested summary",
+        },
+        "confidence": 0.95,
+        "evidence": "AI chose the nested archive summary because it had snippets.",
+        "warnings": [],
+    }
+    documents = [
+        {
+            "document_id": 300,
+            "document_name": "ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+            "official_budget_priority": 90,
+            "score": 106,
+        },
+        {
+            "document_id": 232,
+            "document_name": "ΜΕΛΕΤΗ ΕΦΑΡΜΟΓΗΣ.zip/ΣΥΝΟΠΤΙΚΟΣ ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+            "official_budget_priority": 0,
+            "score": 23,
+        },
+    ]
+
+    guarded = _guard_official_standalone_budget_route(route, documents)
+
+    assert guarded["budget_document_id"] == 300
+    assert guarded["budget_document"] == "ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf"
+    assert guarded["page_start"] is None
+    assert guarded["page_end"] is None
+    assert guarded["confidence"] == 0.8
+    assert "OFFICIAL_STANDALONE_BUDGET_ROUTE_OVERRIDE" in guarded["warnings"][-1]
 
 
 def test_zip_greek_filename_repair_handles_legacy_cp737_names(tmp_path: Path) -> None:

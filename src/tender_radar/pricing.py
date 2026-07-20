@@ -614,6 +614,7 @@ def route_pricing_budget_documents_with_ai(
     with urlopen(request, timeout=timeout_seconds) as response:
         response_payload = json.loads(response.read().decode("utf-8", errors="replace"))
     parsed = json.loads(_strip_json_fence(_response_text(response_payload)))
+    parsed = _guard_official_standalone_budget_route(parsed, documents)
     return {
         "ok": True,
         "eshidis_id": eshidis_id,
@@ -624,6 +625,44 @@ def route_pricing_budget_documents_with_ai(
         "document_previews": documents,
         "route": parsed,
     }
+
+
+def _guard_official_standalone_budget_route(route: dict[str, Any], documents: list[dict[str, Any]]) -> dict[str, Any]:
+    if not isinstance(route, dict):
+        return route
+    official_candidates = [document for document in documents if int(document.get("official_budget_priority") or 0) > 0]
+    if not official_candidates:
+        return route
+    official_candidates.sort(key=lambda item: (-int(item.get("official_budget_priority") or 0), -int(item.get("score") or 0)))
+    best_official = official_candidates[0]
+    selected_id = route.get("budget_document_id")
+    if selected_id == best_official.get("document_id"):
+        return route
+    selected = next((document for document in documents if document.get("document_id") == selected_id), None)
+    selected_name = str(selected.get("document_name") if selected else route.get("budget_document") or "")
+    if selected and _is_standalone_pricing_document_name(selected_name) and int(selected.get("official_budget_priority") or 0) > 0:
+        return route
+    guarded = dict(route)
+    guarded["budget_document"] = best_official.get("document_name")
+    guarded["budget_document_id"] = best_official.get("document_id")
+    guarded["page_start"] = None
+    guarded["page_end"] = None
+    guarded["section_start_hint"] = None
+    guarded["section_end_hint"] = None
+    guarded["confidence"] = min(float(route.get("confidence") or 0.0), 0.8)
+    warnings = list(route.get("warnings") if isinstance(route.get("warnings"), list) else [])
+    warnings.append(
+        "OFFICIAL_STANDALONE_BUDGET_ROUTE_OVERRIDE: preferred standalone ESHIDIS budget/pro-measurement attachment over nested archive summary."
+    )
+    guarded["warnings"] = warnings
+    evidence = str(route.get("evidence") or "").strip()
+    guarded["evidence"] = (
+        "Deterministic guard selected the official standalone ESHIDIS budget/pro-measurement attachment "
+        f"{best_official.get('document_name')} before nested archive candidates. "
+        f"AI originally selected: {selected_name or 'UNKNOWN'}. "
+        f"Original evidence: {evidence}"
+    ).strip()
+    return guarded
 
 
 def _pricing_budget_router_documents(
