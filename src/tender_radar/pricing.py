@@ -697,11 +697,10 @@ def _split_wrapped_article_across_lines(
     if at_index > 0:
         fragment_start = _find_article_fragment_suffix_start(tokens[:at_index])
         if fragment_start is None:
-            return None
-        current_description_tokens = tokens[:fragment_start]
-        current_article_tokens = tokens[fragment_start:at_index]
-    if at_index > 0 and not current_article_tokens:
-        return None
+            current_description_tokens = tokens[:at_index]
+        else:
+            current_description_tokens = tokens[:fragment_start]
+            current_article_tokens = tokens[fragment_start:at_index]
     suffix_tokens: list[str] = []
     suffix_line_index: int | None = None
     suffix_index: int | None = None
@@ -754,7 +753,7 @@ def _find_wrapped_article_prefix_index(tokens: list[str]) -> int | None:
         clean = strip_accents(_clean_token(token)).upper().rstrip(".")
         if clean == "ΝΕΤ":
             return index
-        if clean in {"ΝΕΟ", "ΝΕΟ_ΗΛΜ", "ΝΕΟΗΛΜ", "ΣΧΕΤ_ΟΔΟ"}:
+        if clean in {"ΝΕΟ", "ΝΕΟ_ΗΛΜ", "ΝΕΟΗΛΜ", "ΣΧΕΤ_ΟΔΟ", "ΣΧΕΤ_ΟΔ", "ΣΧΕΤΟΔ"}:
             return index
     return None
 
@@ -767,7 +766,7 @@ def _tokens_look_like_article_fragment(tokens: list[str]) -> bool:
     text = strip_accents(" ".join(tokens)).upper()
     if any(prefix in text for prefix in ARTICLE_CODE_PREFIXES):
         return True
-    return bool(re.fullmatch(r"[A-ZΑ-ΩΒ.\\/_ -]+", text))
+    return bool(re.fullmatch(r"[A-ZΑ-ΩΒ0-9.\\/_ -]+", text))
 
 
 def _find_article_fragment_suffix_start(tokens: list[str]) -> int | None:
