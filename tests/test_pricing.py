@@ -330,7 +330,7 @@ def test_parse_budget_rows_handles_neighbor_article_code_with_at_before_unit() -
 
     rows = parse_budget_rows_from_text(text)
 
-    assert [row.row_number for row in rows] == [23, 26, 27, 28, 29]
+    assert [row.row_number for row in rows] == [68, 138, 139, 140, 141]
     assert [row.article_code for row in rows] == [
         "ΝΕΤ ΟΔΟ- ΜΕ Β-35",
         "ΝΕΤ ΠΡΣ ΣΤ3.1",

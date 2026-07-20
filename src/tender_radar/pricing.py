@@ -438,7 +438,7 @@ def _parse_budget_table_line(
     if not article_code:
         surrounding_article = _split_article_from_surrounding_lines(prefix_tokens, previous_line, next_line)
         if surrounding_article is not None:
-            article_code, description_tokens, revision_tokens = surrounding_article
+            row_number, article_code, description_tokens, revision_tokens = surrounding_article
             next_line = ""
             previous_line = ""
     if not article_code:
@@ -676,7 +676,7 @@ def _split_article_from_surrounding_lines(
     tokens: list[str],
     previous_line: str,
     next_line: str,
-) -> tuple[str, list[str], list[str]] | None:
+) -> tuple[int, str, list[str], list[str]] | None:
     if len(tokens) < 2 or not re.fullmatch(r"\d{3}", _clean_token(tokens[-1])):
         return None
     previous_tokens = _clean_text(previous_line).split()
@@ -704,12 +704,13 @@ def _split_article_from_surrounding_lines(
         description_suffix_tokens: list[str] = []
     else:
         description_suffix_tokens = connector_tokens
+    row_number = int(_clean_token(tokens[-1]))
     article_code = " ".join([*article_tokens, next_tokens[suffix_index]])
     description_tokens = [*tokens[:-1], *description_suffix_tokens]
     if not description_tokens:
         return None
     revision_tokens = previous_tokens[prefix_index + 2 :]
-    return article_code, description_tokens, revision_tokens
+    return row_number, article_code, description_tokens, revision_tokens
 
 
 def _tokens_look_like_article_connector(tokens: list[str]) -> bool:
