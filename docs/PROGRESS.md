@@ -259,6 +259,46 @@
   confirmed that `refs/heads/main` exists on GitHub.
 - `.venv/bin/tender-radar-ui --host 0.0.0.0 --port 8765` started the local UI
   server.
+
+### 2026-07-20 - Reverse-pricing total validation tightened
+
+The reverse-pricing repair pass now rejects additional false-positive budget
+audits instead of inflating the completed count. Generic validation fixes were
+deployed in three commits:
+
+- `2659116` tightened official subtotal candidate ranking and de-prioritized
+  non-budget source documents.
+- `406f353` fixed total amount selection for lines such as
+  `Σύνολο Δαπάνης ... Π2: 0,00`, so the validator chooses the project total
+  instead of the trailing zero column.
+- `25aeebd` ignores quantity-only totals with glued units such as
+  `170,51τμ`, preventing area/quantity summaries from being treated as
+  official monetary subtotals.
+
+Evidence:
+
+```bash
+.venv/bin/python -m pytest tests/test_pricing.py
+# 44 passed
+```
+
+Production deploy evidence:
+
+- GitHub Actions deploy runs for commits `2659116`, `406f353` and `25aeebd`
+  completed successfully.
+- Droplet HEAD after the latest deploy: `25aeebd`.
+- Droplet focused pricing tests: `tests/test_pricing.py` -> `44 passed`.
+- Live reprocess report:
+  `work/reports/pricing_reprocess_v0143_quantity_total_guard.json`.
+- Current live reverse-pricing audit remains:
+  - `OK`: `9`
+  - `NEEDS_REVIEW`: `10`
+
+The count did not increase because the pass corrected unsafe audit behavior.
+`221006` and `221452` are no longer allowed to look complete with zero parsed
+rows, and `220675` no longer compares its parsed total against the non-monetary
+quantity line `ΣΥΝΟΛΟ ΧΩΡΩΝ ... 170,51τμ`; it is now correctly
+`NO_REFERENCE_TOTAL_FOUND`.
 - `curl -L -s https://b608b69a6b7e08.lhr.life` returned the Tender Radar UI
   HTML through a temporary tunnel.
 - The temporary tunnel URL is not permanent infrastructure.

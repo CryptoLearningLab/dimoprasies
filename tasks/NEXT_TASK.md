@@ -1,50 +1,38 @@
 # NEXT TASK
 
 Execute:
-`Repair reverse-pricing projects until budget audits are OK`
+`Classify the 10 remaining reverse-pricing review projects`
 
 ## Current Input
 
-The independent reverse-pricing workflow is moving to runtime version
-`0.1.40` and remains disconnected from cron.
+The independent reverse-pricing workflow is deployed on commit `25aeebd`.
+It remains disconnected from cron.
 
-Production deploy on commit `6a88b18` made pricing completion strict and added
-a download-free repair command:
+The repair command is:
 
 ```bash
 tender-radar pricing reprocess-existing --db data/tender_radar.sqlite \
   --report work/reports/pricing_reprocess_existing_YYYYMMDD.json
 ```
 
-The repair command reuses existing `pricing_documents.text_path` artifacts,
-rebuilds raw `pricing_budget_rows`, reconsolidates the merged budget and
-updates the persisted audit. It skips projects that already have a full OK
-audit unless `--all` is supplied.
+Optional guarded AI fallback exists, but it is only row extraction support:
 
-Strict completion rules:
+```bash
+tender-radar pricing reprocess-existing --db data/tender_radar.sqlite \
+  --use-ai-fallback --ai-fallback-mode empty
+```
 
-- A project is skipped as `SKIPPED_ALREADY_COMPLETE` only when it has
-  downloaded/indexed documents, merged budget rows, and a persisted
-  `pricing_budget_audit` where both:
-  - `amount_validation.ok = true`
-  - `document_total_validation.ok = true`
-- Projects with row arithmetic failures, document subtotal mismatches,
-  missing subtotal references or no merged budget audit are not considered
-  complete and remain eligible for a later bounded run or force reprocess.
-- The document subtotal validator now scans all extracted text documents for
-  the project, so subtotals found in οικονομική προσφορά documents can validate
-  rows parsed from budget/study documents.
-- Generic parser repairs already deployed:
-  - category-prefixed budget rows such as
-    `ΟΔΟ Α-2 1 Α1 ... ΟΔΟ-1123Α m3 300 3,55 1.065,00`;
-  - split `m2`/`m3` where OCR places the exponent on an adjacent line;
-  - Greek dot thousands such as `1.200` -> `1200`.
+AI output must still pass local row arithmetic and official document subtotal
+validation before rows can complete a project.
 
-Live SQLite re-audit after deploy:
+## Latest Live Audit
 
-- `OK`: `9` projects
-  - `221233`
+After deploy and live reprocess report
+`work/reports/pricing_reprocess_v0143_quantity_total_guard.json`:
+
+- `OK`: `9`
   - `221148`
+  - `221233`
   - `221369`
   - `221580`
   - `221615`
@@ -52,64 +40,62 @@ Live SQLite re-audit after deploy:
   - `221689`
   - `221691`
   - `221695`
-- `NEEDS_REVIEW`: `5` projects with parsed rows but non-OK audit
+- `NEEDS_REVIEW`: `10`
   - `219795`
-  - `220220`
-  - `220675`
-  - `221368`
-  - `221720`
-- `ZERO_ROW_NEEDS_PARSER_OR_SOURCE`: `5` projects with no parsed budget rows
   - `220133`
+  - `220220`
   - `220423`
+  - `220675`
   - `221006`
+  - `221368`
   - `221381`
   - `221452`
+  - `221720`
 
-Latest generic repairs:
+Important validation fixes already deployed:
 
-- archive-backed wrapped budget rows repaired `221148`;
-- sparse OCR budget rows with missing unit/unit-price columns repaired `221695`;
-- English-style totals such as `72,649.57` are parsed correctly;
-- OCR-corrupted subtotal label `ΣWΝ ΟΛΟ` is recognized.
-- collapsed OCR budget streams with markers such as `1]`, `2|`, `3 [` are
-  parsed as guarded fallback rows. This improved `220423` from zero-row to
-  partial parsed state, but it remains `NEEDS_REVIEW` because the parsed total
-  does not reconcile with the official offer total.
-- optional OpenAI fallback has been added for OCR-damaged pricing documents.
-  It is only row extraction support; local arithmetic and same-document
-  subtotal validation remain mandatory.
+- category-prefixed budget rows;
+- split `m2`/`m3` units;
+- Greek dot thousands;
+- wrapped numeric-prefix rows from archived documents;
+- sparse OCR rows;
+- OCR-corrupted `ΣΥΝΟΛΟ`;
+- collapsed OCR stream rows;
+- official subtotal candidate ranking;
+- project-total selection before trailing `Π2: 0,00`;
+- rejection of quantity-only totals such as `170,51τμ`.
 
 ## Instruction
 
-Repair the reverse-pricing database before building new pricing features:
+Before building new reverse-pricing features, classify the remaining 10 review
+projects into evidence-backed buckets.
 
-1. Pick a small batch from `ZERO_ROW_NEEDS_PARSER_OR_SOURCE` or `NEEDS_REVIEW`.
-2. For each project, inspect the source budget/offer text and the merged rows.
-3. Fix only generic parser or audit rules. Do not hardcode project-specific
-   values.
-4. Re-run consolidation or force reprocess only for the affected projects.
-5. Report each project as:
-   - `OK`
-   - `NEEDS_PARSER_FIX`
-   - `SOURCE_NOT_PRICING`
-   - `NO_PUBLIC_ATTACHMENTS`
-   - `MANUAL_REVIEW_REQUIRED`
+For each project, report one of:
 
-Do not mark a project OK unless the database sum reconciles to an official
-source subtotal.
+- `OK`
+- `NEEDS_PARSER_FIX`
+- `SOURCE_NOT_PRICING`
+- `NO_PUBLIC_ATTACHMENTS`
+- `MANUAL_REVIEW_REQUIRED`
 
-Suggested next gate:
+Do not mark a project `OK` unless:
 
-1. Inspect `220423` missing/false rows after the collapsed parser.
-2. If a generic parser repair is possible, add a focused regression test and
-   reprocess only `220423`.
-3. If not, classify it as `MANUAL_REVIEW_REQUIRED` with evidence.
-4. Then inspect parsed subtotal mismatches (`219795`, `220220`, `220675`,
-   `221368`, `221720`) one small batch at a time.
+1. merged row arithmetic passes, and
+2. merged row sum reconciles with an official monetary subtotal from the
+   extracted source documents.
 
-`221452` and `221006` already passed through the guarded AI fallback on
-`v0.1.40`; no subtotal-valid rows were produced, and SQLite contains no
-persisted budget rows for those ids after the guarded reprocess.
+## Suggested Next Gate
+
+1. Inspect `220675` first. It now has parsed rows but no trusted reference
+   total after quantity-total rejection. Determine whether a monetary subtotal
+   exists in another extracted document or the source is not parseable enough.
+2. Inspect `221720` next. It has many parsed rows but appears to be reading a
+   price-list/table with many `quantity = 1` rows rather than the actual
+   project budget. Add a generic guard if this pattern is confirmed.
+3. Then inspect the zero/near-zero row cases: `220133`, `221006`, `221381`,
+   `221452`.
+4. Only after classification, add targeted parser or AI fallback improvements
+   for one confirmed generic layout at a time.
 
 ## Required Tests
 
@@ -119,7 +105,7 @@ persisted budget rows for those ids after the guarded reprocess.
 
 ## Required Closeout
 
-1. Update `docs/PROGRESS.md` with fixed project ids and evidence.
+1. Update `docs/PROGRESS.md` with fixed/classified project ids and evidence.
 2. Update `docs/DECISIONS.md` only for a real product/architecture decision.
 3. Update `docs/HANDOFF.md` if production/deployment state changes.
 4. Update this file with the next single executable gate.

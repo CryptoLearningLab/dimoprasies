@@ -876,6 +876,15 @@ The system `python` command is not present in the remote environment; use
   Targeted AI fallback for `221452` and `221006` rejected all candidate rows and
   left both projects in `NEEDS_REVIEW`; SQLite has no persisted budget rows for
   those two ids after the guarded reprocess.
+- Production deploys on commits `2659116`, `406f353` and `25aeebd` passed.
+  Reverse-pricing subtotal validation is now stricter: it ranks official
+  monetary subtotal candidates more carefully, chooses the project total before
+  trailing `Π2: 0,00` columns, and rejects quantity/area totals with glued units
+  such as `170,51τμ`. Droplet HEAD is `25aeebd` and focused pricing tests
+  report `44 passed`. Live reprocess
+  `work/reports/pricing_reprocess_v0143_quantity_total_guard.json` leaves
+  `9` projects fully `OK` and `10` in `NEEDS_REVIEW`; this is intentional
+  correctness, not a regression.
 
 ## Next Work
 
@@ -883,8 +892,8 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Continue with the remaining reverse-pricing review set. `221452` and `221006`
-now require source-quality/manual review or improved OCR, not looser parsing:
-the guarded AI fallback did not produce subtotal-valid rows. Next priority is
-`220423`, then parsed subtotal mismatches (`219795`, `220220`, `220675`,
-`221368`, `221720`).
+Classify the 10 remaining reverse-pricing review projects before adding new
+features. Start with `220675` (parsed rows but no trusted monetary reference
+after quantity-total rejection), then `221720` (likely price-list rows with many
+`quantity = 1` values), then the zero/near-zero row cases `220133`, `221006`,
+`221381` and `221452`.

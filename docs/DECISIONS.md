@@ -974,3 +974,16 @@ Projects with `MISMATCH`, `NO_REFERENCE_TOTAL_FOUND`, row arithmetic failures
 or no audit remain eligible for the next bounded pricing run. This prevents
 bad or partial extractions from being frozen into the database as if they were
 verified.
+
+## D-082 - Reverse-pricing audits prefer review over false OK
+**Status:** Accepted
+
+Reverse-pricing budget audits must not mark a project complete by matching an
+irrelevant or ambiguous total. Quantity/area totals, trailing `Π2: 0,00`
+columns and totals from weaker non-budget documents must be guarded against
+even when this keeps the project in `NEEDS_REVIEW`.
+
+The accepted behavior is to leave a project incomplete until the merged
+database rows reconcile with an official monetary subtotal from the source
+documents. A lower `OK` count is preferable to a false completed audit that
+would later pollute the deep-analysis database.
