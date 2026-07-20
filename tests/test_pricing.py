@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import sqlite3
 
 from tender_radar.pricing import (
     _is_pricing_candidate_document,
@@ -199,6 +200,18 @@ def test_consolidate_validates_merged_sum_against_document_total(tmp_path: Path)
     assert summary["document_total_validation"]["ok"] is True
     assert summary["document_total_validation"]["reference_total"] == 115290
     assert summary["document_total_validation"]["reference"]["source_document"] == "1_ΜΕΛΕΤΗ ΕΡΓΟΥ.pdf"
+    connection = sqlite3.connect(db_path)
+    try:
+        stored = connection.execute(
+            "SELECT metadata_json FROM pricing_projects WHERE eshidis_id = ?",
+            ("221233",),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert stored is not None
+    audit = json.loads(stored[0])["pricing_budget_audit"]
+    assert audit["document_total_validation"]["status"] == "OK"
+    assert audit["amount_total"] == 115290
 
 
 def test_parse_budget_rows_handles_split_backslash_articles_and_special_units() -> None:

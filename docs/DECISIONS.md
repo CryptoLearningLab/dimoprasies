@@ -957,4 +957,5 @@ The validation result is explicit:
 
 This keeps later runs skip/read-only friendly: once a project has extracted
 rows plus an `OK` document-total validation, future runs can trust that audit
-state unless the source changes or a force reprocess is requested.
+state from `pricing_projects.metadata_json` unless the source changes or a
+force reprocess is requested.

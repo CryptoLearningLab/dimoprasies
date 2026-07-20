@@ -3747,7 +3747,8 @@ against subtotal lines found in the source budget/study text, such as
 `ΣΥΝΟΛΟ Α+Β`, `ΣΥΝΟΛΟ ΚΟΣΤΟΥΣ ΕΡΓΑΣΙΩΝ`, `ΔΑΠΑΝΗ ΕΡΓΑΣΙΩΝ` and
 `ΣΥΝΟΛΟ ΕΡΓΑΣΙΩΝ`. The returned merge summary includes
 `document_total_validation` with `OK`, `MISMATCH` or
-`NO_REFERENCE_TOTAL_FOUND`.
+`NO_REFERENCE_TOTAL_FOUND`, and the same audit is persisted in
+`pricing_projects.metadata_json` under `pricing_budget_audit`.
 
 The parser also now handles budget layouts like ESHIDIS `221233`, where a
 bundled `ΜΕΛΕΤΗ ΕΡΓΟΥ` document contains a budget table with columns ordered as

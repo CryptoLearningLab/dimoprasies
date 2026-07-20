@@ -90,7 +90,8 @@ Local version `0.1.36` starts the independent reverse-pricing foundation:
   expires. Logout deletes the persistent session.
 - Reverse-pricing budget consolidation now returns
   `document_total_validation`, comparing the merged database amount sum against
-  official subtotal lines found in the source budget/study text.
+  official subtotal lines found in the source budget/study text. The audit is
+  persisted in `pricing_projects.metadata_json` as `pricing_budget_audit`.
 - The parser now covers the `221233` bundled `ΜΕΛΕΤΗ ΕΡΓΟΥ` layout where rows
   use unit, local `ΑΤ`, revision, unit price, quantity and amount columns; this
   layout previously produced zero budget rows.

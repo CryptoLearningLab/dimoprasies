@@ -1101,7 +1101,7 @@ def consolidate_pricing_project_budget(db_path: Path, *, eshidis_id: str) -> dic
         amount_total=amount_total,
         source_documents=source_documents,
     )
-    return {
+    summary = {
         "rows_merged": len(merged_rows),
         "rows_upserted": inserted,
         "row_number_min": min(row_numbers) if row_numbers else None,
@@ -1112,6 +1112,46 @@ def consolidate_pricing_project_budget(db_path: Path, *, eshidis_id: str) -> dic
         "document_total_validation": document_total_validation,
         "source_documents": source_documents,
     }
+    _store_pricing_project_budget_audit(db_path, eshidis_id=eshidis_id, summary=summary)
+    return summary
+
+
+def _store_pricing_project_budget_audit(db_path: Path, *, eshidis_id: str, summary: dict[str, Any]) -> None:
+    ensure_pricing_tables(db_path)
+    connection = connect(db_path)
+    try:
+        row = connection.execute(
+            "SELECT metadata_json FROM pricing_projects WHERE eshidis_id = ?",
+            (eshidis_id,),
+        ).fetchone()
+        if row is None:
+            return
+        try:
+            metadata = json.loads(str(row[0] or "{}"))
+        except json.JSONDecodeError:
+            metadata = {}
+        metadata["pricing_budget_audit"] = {
+            "audited_at": _utc_now_iso(),
+            "rows_merged": summary["rows_merged"],
+            "row_number_min": summary["row_number_min"],
+            "row_number_max": summary["row_number_max"],
+            "missing_row_numbers": summary["missing_row_numbers"],
+            "amount_total": summary["amount_total"],
+            "amount_validation": summary["amount_validation"],
+            "document_total_validation": summary["document_total_validation"],
+            "source_documents": summary["source_documents"],
+        }
+        connection.execute(
+            """
+            UPDATE pricing_projects
+            SET metadata_json = ?, updated_at = ?
+            WHERE eshidis_id = ?
+            """,
+            (json.dumps(metadata, ensure_ascii=False), _utc_now_iso(), eshidis_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def validate_budget_row_amounts(
