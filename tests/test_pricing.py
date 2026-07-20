@@ -6,12 +6,14 @@ from tender_radar.pricing import (
     _extract_zip_with_greek_filename_repair,
     _guard_official_standalone_budget_route,
     _is_pricing_candidate_document,
+    _pricing_document_text_contains_budget,
     _pricing_document_should_preserve_until_deadline,
     _pricing_budget_router_documents,
     _pricing_rows_from_ai_payload,
     _repair_zip_member_name,
     _validate_ai_budget_rows_against_text_total,
     _unit_price_before_quantity,
+    audit_pricing_document_storage,
     mark_pricing_document_heavy_file_deleted,
     PricingBudgetRow,
     canonical_article_code,
@@ -23,6 +25,7 @@ from tender_radar.pricing import (
     ingest_pricing_eshidis_project,
     parse_greek_decimal,
     parse_budget_rows_from_text,
+    repair_pricing_document_storage,
     reprocess_existing_pricing_projects,
     reprocess_pricing_project_from_texts,
     search_pricing_rows,
@@ -758,6 +761,25 @@ def test_pricing_candidate_document_skips_drawings_inside_meleti_archive() -> No
         "ΜΕΛΕΤΗ 1.zip/1.ΚΤΙΡΙΟ Β ΕΚΑΒ/ΤΕΥΧΗ/13_ΚΤΙΡΙΟ_Β_ΜΕΛΕΤΗ_ΚΛΙΜΑΤΙΣΜΟΥ_FAN_COILS.pdf",
         Path("13_ΚΤΙΡΙΟ_Β_ΜΕΛΕΤΗ_ΚΛΙΜΑΤΙΣΜΟΥ_FAN_COILS.pdf"),
     )
+    assert not _is_pricing_candidate_document(
+        "ΣΤΑΤΙΚΗ ΜΕΛΕΤΗ.pdf",
+        Path("ΣΤΑΤΙΚΗ ΜΕΛΕΤΗ.pdf"),
+    )
+    assert not _is_pricing_candidate_document(
+        "ΗΛΕΚΤΡΟΜΗΧΑΝΟΛΟΓΙΚΗ ΜΕΛΕΤΗ.pdf",
+        Path("ΗΛΕΚΤΡΟΜΗΧΑΝΟΛΟΓΙΚΗ ΜΕΛΕΤΗ.pdf"),
+    )
+    assert not _is_pricing_candidate_document(
+        "ΣΧΕΔΙΑ.zip/Σ08 ΟΠΛΙΣΜΟΙ.pdf",
+        Path("Σ08 ΟΠΛΙΣΜΟΙ.pdf"),
+    )
+
+
+def test_pricing_candidate_document_accepts_plain_meleti_as_budget_fallback() -> None:
+    assert _is_pricing_candidate_document(
+        "ΜΕΛΕΤΗ.pdf",
+        Path("ΜΕΛΕΤΗ.pdf"),
+    )
 
 
 def test_pricing_candidate_document_accepts_budget_inside_archive() -> None:
@@ -773,8 +795,8 @@ def test_pricing_retention_preserves_only_essential_operational_documents() -> N
         "ΔΙΑΚΗΡΥΞΗ ΕΡΓΟΥ.pdf",
         "ΤΕΧΝΙΚΗ ΕΚΘΕΣΗ.pdf",
         "ΤΕΧΝΙΚΗ ΠΕΡΙΓΡΑΦΗ.pdf",
-        "ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
-        "ΤΙΜΟΛΟΓΙΟ ΜΕΛΕΤΗΣ.pdf",
+        "04_ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        "2_-προυπολογισμός-4.pdf.pdf",
     ]
     for name in preserved:
         assert _pricing_document_should_preserve_until_deadline(name), name
@@ -787,9 +809,31 @@ def test_pricing_retention_preserves_only_essential_operational_documents() -> N
         "ΟΙΚΟΔΟΜΙΚΗ ΑΔΕΙΑ.zip",
         "ΜΕΛΕΤΗ ΕΦΑΡΜΟΓΗΣ.zip",
         "ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ.pdf",
+        "ΠΡΟΜΕΤΡΗΣΗ.pdf",
+        "ΤΙΜΟΛΟΓΙΟ ΜΕΛΕΤΗΣ.pdf",
+        "ΣΤΑΤΙΚΗ ΜΕΛΕΤΗ.pdf",
+        "ΗΛΕΚΤΡΟΜΗΧΑΝΟΛΟΓΙΚΗ ΜΕΛΕΤΗ.pdf",
     ]
     for name in secondary:
         assert not _pricing_document_should_preserve_until_deadline(name), name
+
+
+def test_pricing_document_text_contains_budget_for_embedded_budget_section() -> None:
+    assert _pricing_document_text_contains_budget(
+        """
+        ΤΕΧΝΙΚΗ ΜΕΛΕΤΗ
+        ΠΡΟΫΠΟΛΟΓΙΣΜΟΣ ΜΕΛΕΤΗΣ
+        Α/Α ΑΡΘΡΟ ΠΕΡΙΓΡΑΦΗ ΜΟΝΑΔΑ ΠΟΣΟΤΗΤΑ ΤΙΜΗ ΜΟΝΑΔΑΣ ΔΑΠΑΝΗ
+        1 ΝΑΟΔΟ Α02 Γενικές εκσκαφές m3 100,00 4,00 400,00
+        """
+    )
+    assert not _pricing_document_text_contains_budget(
+        """
+        ΠΡΟΜΕΤΡΗΣΗ ΕΡΓΑΣΙΩΝ
+        Α/Α ΑΡΘΡΟ ΠΕΡΙΓΡΑΦΗ ΜΟΝΑΔΑ ΠΟΣΟΤΗΤΑ
+        1 ΝΑΟΔΟ Α02 Γενικές εκσκαφές m3 100,00
+        """
+    )
 
 
 def test_mark_pricing_document_heavy_file_deleted_clears_stale_local_path(tmp_path: Path) -> None:
@@ -819,6 +863,74 @@ def test_mark_pricing_document_heavy_file_deleted_clears_stale_local_path(tmp_pa
     assert row is not None
     assert row[0] is None
     assert row[1]
+
+
+def test_pricing_storage_audit_marks_missing_essential_for_refetch(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    text_path = tmp_path / "budget.txt"
+    text_path.write_text("ΠΡΟΫΠΟΛΟΓΙΣΜΟΣ ΜΕΛΕΤΗΣ", encoding="utf-8")
+    upsert_pricing_project(db_path, eshidis_id="221566")
+    upsert_pricing_document(
+        db_path,
+        eshidis_id="221566",
+        document_name="04_ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        local_path=str(tmp_path / "missing_budget.pdf"),
+        text_path=str(text_path),
+        document_type="pdf",
+    )
+    upsert_pricing_document(
+        db_path,
+        eshidis_id="221566",
+        document_name="ΤΙΜΟΛΟΓΙΟ ΜΕΛΕΤΗΣ.pdf",
+        local_path=str(tmp_path / "missing_secondary.pdf"),
+        document_type="pdf",
+    )
+    upsert_pricing_document(
+        db_path,
+        eshidis_id="221566",
+        document_name="ΜΕΛΕΤΗ.pdf",
+        local_path=str(tmp_path / "missing_embedded.pdf"),
+        document_type="pdf",
+        metadata={"budget_text_detected": True},
+    )
+
+    audit = audit_pricing_document_storage(db_path)
+
+    assert audit["summary"]["documents"] == 3
+    assert audit["summary"]["text_exists"] == 1
+    assert audit["summary"]["needs_refetch"] == 2
+    assert audit["summary"]["stale_non_preserved"] == 1
+    project = audit["projects"][0]
+    assert project["needs_refetch"] == ["04_ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf", "ΜΕΛΕΤΗ.pdf"]
+    assert project["stale_non_preserved"] == ["ΤΙΜΟΛΟΓΙΟ ΜΕΛΕΤΗΣ.pdf"]
+
+
+def test_pricing_storage_repair_dry_run_does_not_mutate_stale_paths(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    upsert_pricing_project(db_path, eshidis_id="221566")
+    upsert_pricing_document(
+        db_path,
+        eshidis_id="221566",
+        document_name="ΤΙΜΟΛΟΓΙΟ ΜΕΛΕΤΗΣ.pdf",
+        local_path=str(tmp_path / "missing_secondary.pdf"),
+        document_type="pdf",
+    )
+
+    report = repair_pricing_document_storage(db_path, work_dir=tmp_path / "pricing", apply=False)
+
+    assert report["apply"] is False
+    assert report["projects_targeted"] == 1
+    assert report["stale_paths_marked_deleted"] == 0
+    connection = sqlite3.connect(db_path)
+    try:
+        row = connection.execute(
+            "SELECT local_path FROM pricing_documents WHERE eshidis_id = ? AND document_name = ?",
+            ("221566", "ΤΙΜΟΛΟΓΙΟ ΜΕΛΕΤΗΣ.pdf"),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    assert row[0] == str(tmp_path / "missing_secondary.pdf")
 
 
 def test_pricing_budget_router_prioritizes_standalone_official_budget_over_zip_summary(tmp_path: Path) -> None:

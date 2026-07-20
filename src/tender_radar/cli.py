@@ -28,10 +28,12 @@ from tender_radar.evaluation import evaluate_documents, load_evaluation_profile,
 from tender_radar.logging_config import configure_logging
 from tender_radar.matching import load_search_profile, match_profile, render_search_markdown
 from tender_radar.pricing import (
+    audit_pricing_document_storage,
     ingest_pricing_active_candidates,
     ingest_pricing_active_eshidis,
     ingest_pricing_budget_pdf,
     ingest_pricing_eshidis_project,
+    repair_pricing_document_storage,
     reprocess_existing_pricing_projects,
     route_pricing_budget_documents_with_ai,
     search_pricing_rows,
@@ -277,6 +279,24 @@ def build_parser() -> argparse.ArgumentParser:
     pricing_route_budget.add_argument("--max-documents", type=int, default=5)
     pricing_route_budget.add_argument("--max-pages-per-document", type=int, default=4)
     pricing_route_budget.add_argument("--timeout", type=int, default=90, help="OpenAI request timeout in seconds.")
+    pricing_storage_audit = pricing_sub.add_parser(
+        "storage-audit",
+        help="Audit pricing document local-file retention and stale/missing essential files.",
+    )
+    pricing_storage_audit.add_argument("--db", default="data/tender_radar.sqlite", help="SQLite database path.")
+    pricing_storage_audit.add_argument("--eshidis-id", action="append", default=None, help="Specific ESHIDIS id to audit. Repeatable.")
+    pricing_storage_audit.add_argument("--report", default=None, help="JSON report output path.")
+    pricing_storage_repair = pricing_sub.add_parser(
+        "storage-repair",
+        help="Dry-run or apply cleanup/refetch for pricing document local-file retention.",
+    )
+    pricing_storage_repair.add_argument("--db", default="data/tender_radar.sqlite", help="SQLite database path.")
+    pricing_storage_repair.add_argument("--work-dir", default="work/pricing", help="Pricing-specific work directory.")
+    pricing_storage_repair.add_argument("--eshidis-id", action="append", default=None, help="Specific ESHIDIS id to repair. Repeatable.")
+    pricing_storage_repair.add_argument("--limit-projects", type=int, default=None)
+    pricing_storage_repair.add_argument("--allow-insecure-tls", action="store_true")
+    pricing_storage_repair.add_argument("--apply", action="store_true", help="Actually mutate SQLite and refetch files. Omitted means dry-run.")
+    pricing_storage_repair.add_argument("--report", default=None, help="JSON report output path.")
 
     sources_parser = subparsers.add_parser("sources", help="Source audit commands.")
     sources_sub = sources_parser.add_subparsers(dest="sources_command")
@@ -561,6 +581,10 @@ def main(argv: list[str] | None = None) -> int:
         return _pricing_reprocess_existing(args)
     if args.command == "pricing" and args.pricing_command == "route-budget":
         return _pricing_route_budget(args)
+    if args.command == "pricing" and args.pricing_command == "storage-audit":
+        return _pricing_storage_audit(args)
+    if args.command == "pricing" and args.pricing_command == "storage-repair":
+        return _pricing_storage_repair(args)
     if args.command == "sources" and args.sources_command == "health":
         return _sources_health(args.allow_insecure_tls)
     if args.command == "sources" and args.sources_command == "audit-whitelist":
@@ -745,6 +769,38 @@ def _pricing_route_budget(args: argparse.Namespace) -> int:
         timeout_seconds=int(args.timeout),
         max_documents=int(args.max_documents),
         max_pages_per_document=int(args.max_pages_per_document),
+    )
+    if args.report:
+        report_path = Path(args.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = {**payload, "report_path": str(report_path)}
+    _emit_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def _pricing_storage_audit(args: argparse.Namespace) -> int:
+    payload = audit_pricing_document_storage(
+        Path(args.db),
+        eshidis_ids=[str(value) for value in args.eshidis_id] if args.eshidis_id else None,
+    )
+    if args.report:
+        report_path = Path(args.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = {**payload, "report_path": str(report_path)}
+    _emit_json(payload)
+    return 0
+
+
+def _pricing_storage_repair(args: argparse.Namespace) -> int:
+    payload = repair_pricing_document_storage(
+        Path(args.db),
+        work_dir=Path(args.work_dir),
+        eshidis_ids=[str(value) for value in args.eshidis_id] if args.eshidis_id else None,
+        allow_insecure_tls=bool(args.allow_insecure_tls),
+        apply=bool(args.apply),
+        limit_projects=args.limit_projects,
     )
     if args.report:
         report_path = Path(args.report)

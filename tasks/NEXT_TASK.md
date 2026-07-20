@@ -1,22 +1,45 @@
 # NEXT TASK
 
 Execute:
-`Classify remaining reverse-pricing review projects after strict filename-only rollback`
+`Run production reverse-pricing storage audit before any cleanup/refetch apply`
 
 ## Current Input
 
-The independent reverse-pricing workflow remains disconnected from cron.
-The experimental strict budget filename-only mode was rolled back. It avoided
-some OCR cost, but it was too lossy: the isolated live smoke completed only
-`1/20` projects. ESHIDIS `221566` proved that strict filename-only parsing can
-break a project that the previous broader guarded flow reconciles correctly
-(`36` rows, subtotal `2.466.374,00`, validation `OK`).
+The independent reverse-pricing workflow remains disconnected from cron. The
+current baseline is the broader guarded parsing flow plus the new essential
+heavy-file retention policy:
 
-Use the previous broader reverse-pricing flow as the baseline. Keep the
-existing nested-archive/drawing OCR guards, completion validation and progress
-logging.
+- keep local heavy files only for invitations, declarations, technical
+  reports/descriptions, standalone budgets, and documents whose extracted text
+  proves they contain the analytical budget;
+- keep source URLs, text artifacts and provenance for secondary material;
+- skip drawings and non-budget studies as pricing candidates unless they
+  contain explicit budget evidence in extracted text.
 
-The repair command is:
+Use storage audit before any live mutation:
+
+```bash
+tender-radar pricing storage-audit --db data/tender_radar.sqlite \
+  --report work/reports/pricing_storage_audit_YYYYMMDD.json
+```
+
+Then dry-run cleanup/refetch:
+
+```bash
+tender-radar pricing storage-repair --db data/tender_radar.sqlite \
+  --work-dir work/pricing \
+  --report work/reports/pricing_storage_repair_dry_run_YYYYMMDD.json
+```
+
+Only after reviewing the report and taking a SQLite backup, use:
+
+```bash
+tender-radar pricing storage-repair --db data/tender_radar.sqlite \
+  --work-dir work/pricing --apply \
+  --report work/reports/pricing_storage_repair_apply_YYYYMMDD.json
+```
+
+After storage cleanup/refetch, the reprocess command remains:
 
 ```bash
 tender-radar pricing reprocess-existing --db data/tender_radar.sqlite \
@@ -135,14 +158,22 @@ Do not mark a project `OK` unless:
 
 ## Suggested Next Gate
 
+1. Deploy `v0.1.49`, then run production read-only `storage-audit`.
+2. If the audit is sane, create a SQLite backup and run dry-run
+   `storage-repair`.
+3. Apply storage repair only after the dry-run identifies exact affected
+   projects and attachments.
+4. Reprocess affected projects and classify remaining review projects.
+5. Continue with the review set: `219795`, `220133`, `220220`,
+   `220423`, `220675`, `221006`, `221368`, `221381`, `221452`, `221720`.
+
+Previous next gate, still relevant after storage repair:
+
 1. Clean or refetch stale `pricing_documents.local_path` rows for older
-   reverse-pricing projects, prioritizing essential budget/pro-measurement,
-   price-list, declaration and technical documents.
+   reverse-pricing projects, prioritizing essential documents.
 2. Keep `219930` as the accepted lump-sum regression fixture: it is `OK` with
    one merged row totaling `2.988.598,87`.
-3. Continue with the remaining review set: `219795`, `220133`, `220220`,
-   `220423`, `220675`, `221006`, `221368`, `221381`, `221452`, `221720`.
-4. Add parser or AI-assisted fixes only for confirmed generic layouts, one at
+3. Add parser or AI-assisted fixes only for confirmed generic layouts, one at
    a time.
 
 ## Required Tests

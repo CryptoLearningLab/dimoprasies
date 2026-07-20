@@ -805,21 +805,7 @@ def _pricing_document_should_preserve_until_deadline(document_name: str, documen
     if suffix in {".zip", ".rar", ".7z"} or str(document_type or "").lower() == "archive":
         return False
     normalized = strip_accents(f"{document_name} {document_type or ''}").upper()
-    secondary_markers = {
-        "ΓΕΩΛΟΓ",
-        "ΓΕΩΤΕΧΝ",
-        "ΠΕΡΙΒΑΛ",
-        "ΣΑΥ",
-        "ΦΑΥ",
-        "ΣΧΕΔ",
-        "ΑΔΕΙΑ",
-        "ΑΠΟΧΕΤΕΥΣ",
-        "ΟΜΒΡΙ",
-        "ΥΔΡΕΥΣ",
-        "ΗΛΕΚΤΡΟΜΗΧΑΝΟΛ",
-        "ΔΙΟΙΚΗΤ",
-    }
-    if any(marker in normalized for marker in secondary_markers):
+    if _pricing_name_has_non_budget_study_or_drawing_signal(normalized):
         return False
     if "ΟΙΚΟΝΟΜΙΚ" in normalized and "ΠΡΟΣΦΟΡ" in normalized:
         return False
@@ -829,14 +815,77 @@ def _pricing_document_should_preserve_until_deadline(document_name: str, documen
         "ΔΙΑΚΗΡ",
         "ΤΕΧΝΙΚΗ ΕΚΘΕΣ",
         "ΤΕΧΝΙΚΗ ΠΕΡΙΓΡΑΦ",
-        "ΤΕΧΝΙΚΕΣ ΠΡΟΔΙΑΓΡΑΦ",
         "ΠΡΟΥΠΟΛΟΓ",
-        "ΠΡΟΜΕΤΡΗΣ",
-        "ΤΙΜΟΛΟΓ",
     }
     if any(marker in normalized for marker in essential_markers):
         return True
-    return "ΜΕΛΕΤΗ" in normalized
+    return False
+
+
+def _pricing_name_has_non_budget_study_or_drawing_signal(normalized_name: str) -> bool:
+    if "ΠΡΟΥΠΟΛΟΓ" in normalized_name:
+        return False
+    drawing_markers = {
+        "ΣΧΕΔ",
+        "DRAWING",
+        "ΚΑΤΟΨ",
+        "ΤΟΜΗ",
+        "ΟΨΗ",
+        "ΟΠΛΙΣΜ",
+        "ΛΕΠΤΟΜΕΡ",
+        "ΑΡΧΙΤΕΚΤΟΝΙΚ",
+        "LAYOUT",
+    }
+    non_budget_study_markers = {
+        "ΣΤΑΤΙΚΗ",
+        "Η/Μ",
+        "ΗΛΕΚΤΡΟΜΗΧΑΝΟΛ",
+        "ΚΛΙΜΑΤΙΣΜ",
+        "FAN COIL",
+        "FAN_COIL",
+        "ΓΕΩΛΟΓ",
+        "ΓΕΩΤΕΧΝ",
+        "ΠΕΡΙΒΑΛ",
+        "ΦΥΤΟΤΕΧΝ",
+        "ΣΑΥ",
+        "ΦΑΥ",
+        "ΑΔΕΙΑ",
+        "ΔΙΟΙΚΗΤ",
+    }
+    return any(marker in normalized_name for marker in (*drawing_markers, *non_budget_study_markers))
+
+
+def _pricing_document_text_contains_budget(text: str) -> bool:
+    normalized = strip_accents(text).upper()
+    if "ΠΡΟΥΠΟΛΟΓΙΣ" not in normalized:
+        return False
+    budget_phrases = (
+        "ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΜΕΛΕΤΗΣ",
+        "ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΕΡΓΑΣΙΩΝ",
+        "ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΕΡΓΟΥ",
+        "ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΚΑΤΑΣΚΕΥΗΣ",
+        "ΑΝΑΛΥΤΙΚΟΣ ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ",
+        "ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΔΗΜΟΠΡΑΤΗΣΗΣ",
+    )
+    if any(strip_accents(phrase).upper() in normalized for phrase in budget_phrases):
+        return True
+    return (
+        "ΤΙΜΗ ΜΟΝΑΔΑΣ" in normalized
+        and "ΠΟΣΟΤΗΤΑ" in normalized
+        and ("ΔΑΠΑΝΗ" in normalized or "ΣΥΝΟΛΙΚΗ ΔΑΠΑΝΗ ΕΡΓΑΣΙΩΝ" in normalized)
+    )
+
+
+def _pricing_budget_text_hints(text: str, *, limit: int = 5) -> list[dict[str, Any]]:
+    hints: list[dict[str, Any]] = []
+    for index, line in enumerate(text.splitlines(), start=1):
+        normalized = strip_accents(line).upper()
+        if "ΠΡΟΥΠΟΛΟΓΙΣ" not in normalized:
+            continue
+        hints.append({"line": index, "text": _clean_text(line)[:240]})
+        if len(hints) >= limit:
+            break
+    return hints
 
 
 def _pricing_budget_router_document_summary(row: sqlite3.Row, *, max_pages: int) -> dict[str, Any]:
@@ -877,6 +926,274 @@ def _absolute_existing_path(value: Any) -> Path | None:
     if not path.is_absolute():
         path = Path.cwd() / path
     return path if path.exists() else None
+
+
+def audit_pricing_document_storage(
+    db_path: Path,
+    *,
+    eshidis_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    ensure_pricing_tables(db_path)
+    connection = connect(db_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        params: list[Any] = []
+        where = ""
+        if eshidis_ids:
+            placeholders = ",".join("?" for _ in eshidis_ids)
+            where = f"WHERE eshidis_id IN ({placeholders})"
+            params.extend(eshidis_ids)
+        rows = connection.execute(
+            f"""
+            SELECT eshidis_id, document_name, document_type, local_path, text_path,
+                   extraction_status, metadata_json, heavy_file_deleted_at
+            FROM pricing_documents
+            {where}
+            ORDER BY eshidis_id, id
+            """,
+            params,
+        ).fetchall()
+    finally:
+        connection.close()
+    summary = {
+        "documents": 0,
+        "desired_preserved": 0,
+        "local_path_set": 0,
+        "local_exists": 0,
+        "stale_local_path": 0,
+        "text_exists": 0,
+        "needs_refetch": 0,
+        "stale_non_preserved": 0,
+    }
+    projects: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        status = _pricing_document_storage_row_status(row)
+        project = projects.setdefault(
+            str(row["eshidis_id"]),
+            {
+                "eshidis_id": str(row["eshidis_id"]),
+                "documents": 0,
+                "desired_preserved": 0,
+                "local_exists": 0,
+                "stale_local_path": 0,
+                "text_exists": 0,
+                "needs_refetch": [],
+                "stale_non_preserved": [],
+            },
+        )
+        summary["documents"] += 1
+        project["documents"] += 1
+        for key in ("desired_preserved", "local_path_set", "local_exists", "stale_local_path", "text_exists"):
+            if status[key]:
+                summary[key] += 1
+                if key in project:
+                    project[key] += 1
+        if status["needs_refetch"]:
+            summary["needs_refetch"] += 1
+            project["needs_refetch"].append(status["document_name"])
+        if status["stale_non_preserved"]:
+            summary["stale_non_preserved"] += 1
+            project["stale_non_preserved"].append(status["document_name"])
+    return {"summary": summary, "projects": list(projects.values())}
+
+
+def repair_pricing_document_storage(
+    db_path: Path,
+    *,
+    work_dir: Path,
+    eshidis_ids: list[str] | None = None,
+    allow_insecure_tls: bool = False,
+    apply: bool = False,
+    limit_projects: int | None = None,
+) -> dict[str, Any]:
+    audit = audit_pricing_document_storage(db_path, eshidis_ids=eshidis_ids)
+    target_projects = [
+        project
+        for project in audit["projects"]
+        if project.get("needs_refetch") or project.get("stale_non_preserved")
+    ]
+    if limit_projects is not None:
+        target_projects = target_projects[:limit_projects]
+    report: dict[str, Any] = {
+        "ok": True,
+        "apply": apply,
+        "audit_summary": audit["summary"],
+        "projects_seen": len(audit["projects"]),
+        "projects_targeted": len(target_projects),
+        "stale_paths_marked_deleted": 0,
+        "attachments_refetched": 0,
+        "attachments_missing_from_listing": 0,
+        "projects": [],
+    }
+    for project in target_projects:
+        eshidis_id = str(project["eshidis_id"])
+        project_report: dict[str, Any] = {
+            "eshidis_id": eshidis_id,
+            "needs_refetch": list(project.get("needs_refetch") or []),
+            "stale_non_preserved": list(project.get("stale_non_preserved") or []),
+            "marked_deleted": [],
+            "refetched": [],
+            "missing_from_listing": [],
+            "errors": [],
+        }
+        project_refetched = False
+        if apply:
+            for document_name in project_report["stale_non_preserved"]:
+                mark_pricing_document_heavy_file_deleted(db_path, eshidis_id=eshidis_id, document_name=document_name)
+                project_report["marked_deleted"].append(document_name)
+                report["stale_paths_marked_deleted"] += 1
+        root_targets = sorted({_pricing_root_attachment_name(name) for name in project_report["needs_refetch"]})
+        if root_targets:
+            try:
+                listing = _pricing_fetch_attachment_listing(
+                    eshidis_id,
+                    work_dir=work_dir,
+                    allow_insecure_tls=allow_insecure_tls,
+                )
+            except Exception as exc:  # pragma: no cover - live network guard
+                project_report["errors"].append(str(exc))
+                report["ok"] = False
+                report["projects"].append(project_report)
+                continue
+            by_name = {name: index for index, name in enumerate(listing)}
+            for root_name in root_targets:
+                if root_name not in by_name:
+                    project_report["missing_from_listing"].append(root_name)
+                    report["attachments_missing_from_listing"] += 1
+                    continue
+                if not apply:
+                    project_report["refetched"].append({"document_name": root_name, "dry_run": True})
+                    continue
+                try:
+                    refetch_report = _pricing_refetch_attachment_by_index(
+                        db_path,
+                        eshidis_id=eshidis_id,
+                        source_url=None,
+                        document_name=root_name,
+                        row_index=int(by_name[root_name]),
+                        work_dir=work_dir,
+                        allow_insecure_tls=allow_insecure_tls,
+                    )
+                    project_report["refetched"].append(refetch_report)
+                    report["attachments_refetched"] += 1
+                    project_refetched = True
+                except Exception as exc:  # pragma: no cover - live network guard
+                    project_report["errors"].append(f"{root_name}: {exc}")
+                    report["ok"] = False
+        if apply and project_refetched:
+            try:
+                project_report["consolidation"] = consolidate_pricing_project_budget(db_path, eshidis_id=eshidis_id)
+            except Exception as exc:  # pragma: no cover - live repair guard
+                project_report["errors"].append(f"consolidation: {exc}")
+                report["ok"] = False
+        report["projects"].append(project_report)
+    return report
+
+
+def _pricing_document_storage_row_status(row: sqlite3.Row) -> dict[str, Any]:
+    metadata = _safe_json_object(row["metadata_json"])
+    local_path = _absolute_existing_path(row["local_path"])
+    text_path = _absolute_existing_path(row["text_path"])
+    local_path_set = bool(row["local_path"])
+    desired_preserved = _pricing_document_desired_preserved(
+        str(row["document_name"] or ""),
+        str(row["document_type"] or ""),
+        metadata,
+    )
+    stale_local_path = local_path_set and local_path is None
+    return {
+        "eshidis_id": str(row["eshidis_id"]),
+        "document_name": str(row["document_name"] or ""),
+        "desired_preserved": desired_preserved,
+        "local_path_set": local_path_set,
+        "local_exists": local_path is not None,
+        "stale_local_path": stale_local_path,
+        "text_exists": text_path is not None,
+        "needs_refetch": desired_preserved and local_path is None,
+        "stale_non_preserved": stale_local_path and not desired_preserved,
+    }
+
+
+def _pricing_document_desired_preserved(document_name: str, document_type: str, metadata: dict[str, Any]) -> bool:
+    return _pricing_document_should_preserve_until_deadline(document_name, document_type) or bool(metadata.get("budget_text_detected"))
+
+
+def _pricing_root_attachment_name(document_name: str) -> str:
+    return document_name.replace("\\", "/").split("/", 1)[0]
+
+
+def _safe_json_object(value: Any) -> dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        data = json.loads(str(value))
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _pricing_fetch_attachment_listing(
+    eshidis_id: str,
+    *,
+    work_dir: Path,
+    allow_insecure_tls: bool,
+) -> list[str]:
+    audit_dir = work_dir / "source_audit"
+    audit_path = audit_dir / f"eshidis_resource_audit_{eshidis_id}_storage_repair.json"
+    payload = fetch_resource_audit(eshidis_id, audit_path, allow_insecure_tls=allow_insecure_tls)
+    body = _find_attachment_body(payload)
+    listing = parse_eshidis_attachment_xml(body) if body else None
+    return list(listing.filenames if listing else ())
+
+
+def _pricing_refetch_attachment_by_index(
+    db_path: Path,
+    *,
+    eshidis_id: str,
+    source_url: str | None,
+    document_name: str,
+    row_index: int,
+    work_dir: Path,
+    allow_insecure_tls: bool,
+) -> dict[str, Any]:
+    audit_dir = work_dir / "source_audit"
+    download_dir = work_dir / "downloads" / eshidis_id
+    text_dir = work_dir / "extracted_text" / eshidis_id
+    archive_dir = work_dir / "archives" / eshidis_id
+    download_audit_path = audit_dir / f"eshidis_download_audit_{eshidis_id}_{row_index}_storage_repair.json"
+    payload = download_attachment_audit(
+        eshidis_id,
+        row_index,
+        download_audit_path,
+        download_dir,
+        allow_insecure_tls=allow_insecure_tls,
+    )
+    downloaded_file = payload.get("downloaded_file")
+    if not isinstance(downloaded_file, dict) or not downloaded_file.get("path"):
+        raise RuntimeError(str(payload.get("download_error") or "download failed"))
+    local_path = Path(str(downloaded_file["path"]))
+    indexed = _index_pricing_document_path(
+        db_path,
+        eshidis_id=eshidis_id,
+        source_url=source_url,
+        document_name=document_name,
+        local_path=local_path,
+        row_index=row_index,
+        text_dir=text_dir,
+        archive_dir=archive_dir,
+        keep_heavy_files=_pricing_document_should_preserve_until_deadline(document_name),
+        metadata={"download_audit_path": str(download_audit_path), "storage_repair": True, "size_bytes": downloaded_file.get("size_bytes")},
+        force=True,
+    )
+    return {
+        "document_name": document_name,
+        "row_index": row_index,
+        "downloaded_path": str(local_path),
+        "index_status": indexed.get("extraction_status"),
+        "rows_upserted": indexed.get("rows_upserted"),
+        "heavy_file_preserved": indexed.get("heavy_file_preserved"),
+        "heavy_file_deleted": indexed.get("heavy_file_deleted"),
+    }
 
 
 def _pricing_budget_router_page_snippets(local_path: Path | None, *, full_text: str, max_pages: int) -> list[dict[str, Any]]:
@@ -4463,13 +4780,14 @@ def _index_pricing_document_path(
     full_text = extract_budget_text(local_path)
     if not full_text.strip():
         full_text = analysis.full_text or ""
+    preserve_after_text = keep_heavy_files or _pricing_document_text_contains_budget(full_text or "")
     text_path = _write_pricing_text_artifact(text_dir, eshidis_id, row_index, document_name, full_text)
     extraction_status = analysis.extraction_status if analysis.full_text else ("TEXT_EXTRACTED" if full_text.strip() else analysis.extraction_status)
     document_id = upsert_pricing_document(
         db_path,
         eshidis_id=eshidis_id,
         document_name=document_name,
-        local_path=str(local_path) if keep_heavy_files else None,
+        local_path=str(local_path) if preserve_after_text else None,
         source_url=source_url,
         document_type=analysis.document_type,
         extraction_status=extraction_status,
@@ -4481,6 +4799,8 @@ def _index_pricing_document_path(
             "ocr_error": analysis.ocr_error,
             "extraction_error": analysis.extraction_error,
             "page_or_sheet_count": analysis.page_or_sheet_count,
+            "budget_text_detected": _pricing_document_text_contains_budget(full_text or ""),
+            "budget_text_hints": _pricing_budget_text_hints(full_text or ""),
         },
     )
     budget_rows = parse_budget_rows_from_text(full_text or "")
@@ -4498,7 +4818,7 @@ def _index_pricing_document_path(
         eshidis_id=eshidis_id,
         document_name=document_name,
         local_path=local_path,
-        keep_heavy_files=keep_heavy_files,
+        keep_heavy_files=preserve_after_text,
     )
     return {
         "document_name": document_name,
@@ -4509,6 +4829,7 @@ def _index_pricing_document_path(
         "rows_extracted": len(budget_rows),
         "rows_upserted": rows_inserted,
         "heavy_file_deleted": deleted,
+        "heavy_file_preserved": preserve_after_text,
     }
 
 
@@ -4522,6 +4843,8 @@ def _is_pricing_candidate_document(document_name: str, local_path: Path) -> bool
     leaf_name = PurePosixPath(normalized_name).name or local_path.name
     normalized_leaf = strip_accents(f"{leaf_name} {local_path.name}").upper()
     compact_leaf = re.sub(r"[^A-ZΑ-Ω0-9]+", "", normalized_leaf)
+    if _pricing_name_has_non_budget_study_or_drawing_signal(normalized_leaf):
+        return False
     strong_candidate_terms = (
         "ΠΡΟΥΠΟΛΟΓ",
         "ΤΙΜΟΛΟΓ",

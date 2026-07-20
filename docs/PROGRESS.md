@@ -4235,6 +4235,68 @@ The stale local paths are from older projects created before the current
 heavy-file retention cleanup. They should be cleaned/refetched separately and
 must not be interpreted as true current downloads.
 
+## 2026-07-20 - Reverse-pricing essential-file retention and storage audit CLI
+
+Implemented a guarded reverse-pricing storage policy for the next cleanup /
+refetch pass.
+
+Accepted retention behavior:
+
+- preserve heavy local files until deadline only for:
+  `ΠΡΟΣΚΛΗΣΗ`, `ΔΙΑΚΗΡΥΞΗ`, `ΤΕΧΝΙΚΗ ΕΚΘΕΣΗ`,
+  `ΤΕΧΝΙΚΗ ΠΕΡΙΓΡΑΦΗ`, and `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`;
+- preserve an embedded document when extracted text proves it contains an
+  actual budget section such as `ΠΡΟΫΠΟΛΟΓΙΣΜΟΣ ΜΕΛΕΤΗΣ` or budget table
+  columns with quantity, unit price and amount;
+- do not preserve broad secondary files such as `ΠΡΟΜΕΤΡΗΣΗ`,
+  `ΤΙΜΟΛΟΓΙΟ ΜΕΛΕΤΗΣ`, economic-offer templates, archives, drawings, static /
+  electromechanical / environmental / geological studies, ΣΑΥ, ΦΑΥ and other
+  non-budget material by filename alone;
+- keep text/provenance for all indexed pricing documents even when the heavy
+  PDF/ZIP is not retained locally.
+
+Added CLI gates:
+
+```bash
+tender-radar pricing storage-audit --db data/tender_radar.sqlite \
+  --report work/reports/pricing_storage_audit_latest.json
+
+tender-radar pricing storage-repair --db data/tender_radar.sqlite \
+  --work-dir work/pricing \
+  --report work/reports/pricing_storage_repair_dry_run_latest.json
+
+tender-radar pricing storage-repair --db data/tender_radar.sqlite \
+  --work-dir work/pricing --apply \
+  --report work/reports/pricing_storage_repair_apply_latest.json
+```
+
+`storage-repair` is dry-run by default. With `--apply` it clears stale
+non-preserved `local_path` values, refetches missing essential root
+attachments from the official ESHIDIS listing, re-indexes them, and
+reconsolidates affected project budgets.
+
+Local verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/pricing.py src/tender_radar/cli.py
+# passed
+
+.venv/bin/python -m pytest tests/test_pricing.py
+# 59 passed
+
+.venv/bin/python -m tender_radar pricing storage-audit --db data/tender_radar.sqlite \
+  --report work/reports/pricing_storage_audit_local.json
+# documents=97 desired_preserved=21 local_exists=97 needs_refetch=0 stale_non_preserved=0
+
+.venv/bin/python -m tender_radar pricing storage-repair --db data/tender_radar.sqlite \
+  --work-dir work/pricing --limit-projects 2 \
+  --report work/reports/pricing_storage_repair_dry_run_local.json
+# apply=false projects_targeted=0
+```
+
+The local fixture/workspace database is clean. The production SQLite still
+needs a read-only `storage-audit` after deploy before any `--apply` cleanup.
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

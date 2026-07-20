@@ -1102,3 +1102,28 @@ priced with a lump-sum amount, the parser may persist one budget row with:
 This is preferred over parsing unrelated nested study schedules from ZIP
 attachments that contain broad words such as `ΜΕΛΕΤΗ` but are not themselves
 pricing documents.
+
+## D-086 - Reverse-pricing keeps only essential heavy files by default
+**Status:** Accepted
+
+Reverse-pricing must not keep every downloaded PDF/ZIP locally after text
+extraction. Heavy local retention is reserved for operationally important
+source files until the tender deadline:
+
+- invitation / `ΠΡΟΣΚΛΗΣΗ`;
+- declaration / `ΔΙΑΚΗΡΥΞΗ`;
+- technical report / description;
+- standalone budget files;
+- embedded files whose extracted text proves they contain the analytical
+  budget section.
+
+Secondary files such as drawings, ΣΑΥ/ΦΑΥ, static/electromechanical/
+environmental/geological studies, broad archives, economic-offer templates,
+pro-measurements and price schedules are not retained by filename alone.
+They remain represented by extracted text, source URLs, archive-child names
+and provenance.
+
+Cleanup/refetch must be audited before mutation. The accepted workflow is
+`pricing storage-audit`, then dry-run `pricing storage-repair`, then
+backup-and-apply only when the report shows the exact affected projects and
+attachments.

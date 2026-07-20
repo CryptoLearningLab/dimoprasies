@@ -903,8 +903,29 @@ v0.1.48 is deployed and `219930` is fixed. It now parses the standalone
 `ΝΕΟΣ ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΜΕΛΕΤΗΣ.pdf` as one lump-sum row with official works
 subtotal `2.988.598,87` and document-total validation `OK`.
 
-Next, clean/refetch stale `pricing_documents.local_path` rows for older
-reverse-pricing projects before continuing parser work. Post-fix audit found
-`706` pricing documents, `392` true local files, `196` extracted text artifacts
-and `209` stale local paths. `219930` itself is clean: `124/124` local files
-exist and `0` stale paths.
+Local v0.1.49 prepares that cleanup/refetch work with guarded storage rules
+and CLI:
+
+- `pricing storage-audit`
+- `pricing storage-repair` dry-run by default
+- `pricing storage-repair --apply` only after backup and report review
+
+The new retention policy keeps heavy files for invitations, declarations,
+technical descriptions/reports, standalone budgets and documents whose
+extracted text proves an embedded budget section. It does not keep drawings,
+ΣΑΥ/ΦΑΥ, static/electromechanical/environmental/geological studies, archives,
+economic-offer templates, pro-measurements or price schedules by filename
+alone.
+
+Local verification passed:
+
+- `py_compile src/tender_radar/pricing.py src/tender_radar/cli.py`
+- `tests/test_pricing.py`: `59 passed`
+- local storage audit: `97` documents, `21` desired preserved,
+  `0` refetch targets and `0` stale non-preserved paths.
+
+Next, deploy v0.1.49 and run production read-only `storage-audit`. If sane,
+take a SQLite backup, run `storage-repair` dry-run, then consider `--apply`.
+Post-v0.1.48 live audit found `706` pricing documents, `392` true local files,
+`196` extracted text artifacts and `209` stale local paths. `219930` itself is
+clean: `124/124` local files exist and `0` stale paths.
