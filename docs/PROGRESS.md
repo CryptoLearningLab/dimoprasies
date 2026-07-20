@@ -3792,6 +3792,51 @@ gh run watch 29736834659 --repo CryptoLearningLab/dimoprasies --exit-status
 # Deploy Tender Radar: success
 ```
 
+### 2026-07-20 - Reverse-pricing text reprocess repairs existing budgets
+
+Reverse-pricing now has a download-free repair path for already fetched/OCRed
+pricing projects:
+
+```bash
+tender-radar pricing reprocess-existing --db data/tender_radar.sqlite \
+  --report work/reports/pricing_reprocess_existing_20260720_6a88b18.json
+```
+
+The command rebuilds raw `pricing_budget_rows` from stored
+`pricing_documents.text_path`, reconsolidates the merged project budget, and
+updates `pricing_projects.metadata_json.pricing_budget_audit`. It skips projects
+that already have a full OK audit unless `--all` is supplied.
+
+Generic parser fixes added in this repair pass:
+
+- category-prefixed Greek budget tables such as
+  `ΟΔΟ Α-2 1 Α1 ... ΟΔΟ-1123Α m3 300 3,55 1.065,00`;
+- split `m2`/`m3` where OCR places the exponent on an adjacent line;
+- Greek thousand tokens without decimal comma, e.g. `1.200` as `1200`.
+
+Live production evidence after deploy on commit `6a88b18`:
+
+- Droplet HEAD: `6a88b18`.
+- `tender-radar-ui.service`: `active`.
+- Droplet tests: `tests/test_pricing.py` -> `34 passed`.
+- Live reprocess summary:
+  - `projects_seen`: `19`
+  - `skipped_complete`: `6`
+  - `completed`: `1`
+  - `needs_review_or_failed`: `12`
+- Newly repaired project: `221580`, now `OK` with `15` merged rows and
+  `document_total_validation.status = OK`.
+
+Current fully OK/complete reverse-pricing projects after this pass:
+
+- `221233`
+- `221369`
+- `221580`
+- `221615`
+- `221639`
+- `221689`
+- `221691`
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

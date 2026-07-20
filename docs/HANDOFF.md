@@ -842,6 +842,13 @@ The system `python` command is not present in the remote environment; use
   has 3 fully OK pricing projects (`221233`, `221689`, `221691`), 8 parsed
   projects requiring review/reprocess, and 8 projects with no merged budget
   audit yet.
+- Production deploy on commit `6a88b18` passed. Reverse-pricing now has
+  `tender-radar pricing reprocess-existing`, a download-free repair command
+  that rebuilds pricing rows from existing extracted text and reconsolidates
+  audits. Parser fixes for category-prefixed budget rows and Greek dot
+  thousands repaired `221580` to `OK`. Current complete reverse-pricing
+  projects: `221233`, `221369`, `221580`, `221615`, `221639`, `221689`,
+  `221691`; `12` projects still require parser/source review.
 
 ## Next Work
 
@@ -849,6 +856,9 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Reprocess the reverse-pricing `NEEDS_REVIEW` and `NO_BUDGET_AUDIT` projects in
-small batches. A project can be reported as pricing-complete only after row
+Continue repairing the remaining reverse-pricing `NEEDS_REVIEW` /
+`NO_BUDGET_AUDIT` projects from stored extracted text. Prioritize zero-row
+layouts (`220423`, `221006`, `221148`, `221452`, `221695`) and subtotal
+mismatches with parsed rows (`219795`, `220220`, `220675`, `221368`,
+`221720`). A project can be reported as pricing-complete only after row
 arithmetic and document subtotal validation both pass `OK`.
