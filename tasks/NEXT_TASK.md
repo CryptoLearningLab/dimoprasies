@@ -6,9 +6,9 @@ Execute:
 ## Current Input
 
 The independent reverse-pricing workflow remains disconnected from cron.
-`v0.1.44` adds a completion guard: active-batch items are only `COMPLETED` when
-they have parsed budget rows and pass official document-total validation.
-Budget-total mismatches must remain partial/review.
+`v0.1.45` adds incremental JSONL progress logs for pricing active ingest and
+existing-project reprocess. Use `--progress-log` for any long refetch/reprocess
+run and monitor it with `tail -f`.
 
 The repair command is:
 

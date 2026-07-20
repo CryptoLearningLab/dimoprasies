@@ -10,6 +10,13 @@
 `tasks/NEXT_TASK.md`
 
 ## Completed Milestones
+- Reverse-pricing `v0.1.45` adds incremental JSONL progress logging for the
+  long-running pricing maintenance paths. `pricing ingest-active`,
+  `pricing ingest-active-report` and `pricing reprocess-existing` now accept
+  `--progress-log`, emitting start/done events per ESHIDIS id with parsed row
+  counts, download counts, validation status and running counters. This makes
+  full refetch/reprocess runs observable with `tail -f` instead of waiting for
+  the final JSON report.
 - Reverse-pricing `v0.1.44` tightens active-batch completion status. A project
   can no longer be counted as `COMPLETED` just because budget rows exist; the
   merged budget must also pass local row arithmetic where available and official

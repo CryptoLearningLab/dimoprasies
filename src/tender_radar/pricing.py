@@ -11,7 +11,7 @@ import subprocess
 import unicodedata
 import uuid
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 import zipfile
@@ -2906,6 +2906,7 @@ def reprocess_existing_pricing_projects(
     use_ai_budget_router: bool = False,
     ai_router_timeout_seconds: int = 90,
     ai_router_min_confidence: float = 0.7,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     ensure_pricing_tables(db_path)
     connection = connect(db_path)
@@ -2924,6 +2925,17 @@ def reprocess_existing_pricing_projects(
     skipped_complete = 0
     failed = 0
     inspected = 0
+    if progress_callback:
+        progress_callback(
+            {
+                "event": "reprocess_start",
+                "projects_seen": len(projects),
+                "limit": limit,
+                "only_incomplete": only_incomplete,
+                "use_ai_budget_router": use_ai_budget_router,
+                "use_ai_fallback": use_ai_fallback,
+            }
+        )
     for project in projects:
         if limit is not None and inspected >= limit:
             break
@@ -2933,8 +2945,28 @@ def reprocess_existing_pricing_projects(
         if only_incomplete and _pricing_project_is_complete(db_path, eshidis_id=eshidis_id):
             skipped_complete += 1
             items.append({"eshidis_id": eshidis_id, "status": "SKIPPED_ALREADY_COMPLETE"})
+            if progress_callback:
+                progress_callback(
+                    {
+                        "event": "project_skipped",
+                        "eshidis_id": eshidis_id,
+                        "status": "SKIPPED_ALREADY_COMPLETE",
+                        "completed": completed,
+                        "needs_review_or_failed": failed,
+                        "skipped_complete": skipped_complete,
+                    }
+                )
             continue
         inspected += 1
+        if progress_callback:
+            progress_callback(
+                {
+                    "event": "project_start",
+                    "index": inspected,
+                    "projects_seen": len(projects),
+                    "eshidis_id": eshidis_id,
+                }
+            )
         try:
             result = reprocess_pricing_project_from_texts(
                 db_path,
@@ -2948,19 +2980,59 @@ def reprocess_existing_pricing_projects(
         except Exception as exc:  # pragma: no cover - maintenance boundary
             failed += 1
             items.append({"eshidis_id": eshidis_id, "status": "FAILED_EXCEPTION", "error": repr(exc)})
+            if progress_callback:
+                progress_callback(
+                    {
+                        "event": "project_done",
+                        "index": inspected,
+                        "projects_seen": len(projects),
+                        "eshidis_id": eshidis_id,
+                        "status": "FAILED_EXCEPTION",
+                        "error": repr(exc),
+                        "completed": completed,
+                        "needs_review_or_failed": failed,
+                        "skipped_complete": skipped_complete,
+                    }
+                )
             continue
         status = "OK" if result.get("ok") else "NEEDS_REVIEW"
         if status == "OK":
             completed += 1
         else:
             failed += 1
+        summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
         items.append(
             {
                 "eshidis_id": eshidis_id,
                 "status": status,
-                "summary": result.get("summary"),
+                "summary": summary,
             }
         )
+        if progress_callback:
+            document_total_validation = summary.get("merged_budget_document_total_validation")
+            if not isinstance(document_total_validation, dict):
+                document_total_validation = {}
+            amount_validation = summary.get("merged_budget_amount_validation")
+            if not isinstance(amount_validation, dict):
+                amount_validation = {}
+            progress_callback(
+                {
+                    "event": "project_done",
+                    "index": inspected,
+                    "projects_seen": len(projects),
+                    "eshidis_id": eshidis_id,
+                    "status": status,
+                    "documents_seen": summary.get("documents_seen"),
+                    "merged_budget_rows": summary.get("merged_budget_rows"),
+                    "merged_budget_amount_total": summary.get("merged_budget_amount_total"),
+                    "row_amount_validation_ok": amount_validation.get("ok"),
+                    "document_total_validation_status": document_total_validation.get("status"),
+                    "document_total_validation_ok": document_total_validation.get("ok"),
+                    "completed": completed,
+                    "needs_review_or_failed": failed,
+                    "skipped_complete": skipped_complete,
+                }
+            )
 
     summary = {
         "projects_seen": len(projects),
@@ -2972,6 +3044,8 @@ def reprocess_existing_pricing_projects(
         "only_incomplete": only_incomplete,
         "use_ai_budget_router": use_ai_budget_router,
     }
+    if progress_callback:
+        progress_callback({"event": "reprocess_done", **summary})
     return {
         "ok": failed == 0,
         "summary": summary,
@@ -3869,6 +3943,7 @@ def ingest_pricing_active_candidates(
     keep_heavy_files: bool = False,
     force: bool = False,
     run_id: str | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Ingest a whole active ESHIDIS candidate list with explicit run accounting."""
     if attachment_limit < 1:
@@ -3897,6 +3972,19 @@ def ingest_pricing_active_candidates(
     attempted_new = 0
     target_reached = False
     inspected_count = 0
+    if progress_callback:
+        progress_callback(
+            {
+                "event": "active_ingest_start",
+                "run_id": run_id,
+                "candidate_count": candidate_count,
+                "selected_count": len(selected),
+                "max_new_projects": max_new_projects,
+                "project_limit": project_limit,
+                "force": force,
+                "keep_heavy_files": keep_heavy_files,
+            }
+        )
 
     for candidate in selected:
         if max_new_projects is not None and attempted_new >= max_new_projects:
@@ -3914,6 +4002,22 @@ def ingest_pricing_active_candidates(
                     "candidate": candidate,
                 }
             )
+            if progress_callback:
+                progress_callback(
+                    {
+                        "event": "active_candidate_done",
+                        "run_id": run_id,
+                        "index": inspected_count,
+                        "candidate_count": candidate_count,
+                        "eshidis_id": eshidis_id,
+                        "status": "SKIPPED_INVALID_IDENTIFIER",
+                        "completed": completed,
+                        "partial": partial,
+                        "failed": failed,
+                        "skipped_existing": skipped_existing,
+                        "skipped_invalid": skipped_invalid,
+                    }
+                )
             continue
         eshidis_id = str(eshidis_id)
         if not force and _pricing_project_is_complete(db_path, eshidis_id=eshidis_id):
@@ -3927,8 +4031,36 @@ def ingest_pricing_active_candidates(
                     "candidate": candidate,
                 }
             )
+            if progress_callback:
+                progress_callback(
+                    {
+                        "event": "active_candidate_done",
+                        "run_id": run_id,
+                        "index": inspected_count,
+                        "candidate_count": candidate_count,
+                        "eshidis_id": eshidis_id,
+                        "status": "SKIPPED_ALREADY_COMPLETE",
+                        "completed": completed,
+                        "partial": partial,
+                        "failed": failed,
+                        "skipped_existing": skipped_existing,
+                        "skipped_invalid": skipped_invalid,
+                    }
+                )
             continue
         attempted_new += 1
+        if progress_callback:
+            progress_callback(
+                {
+                    "event": "active_candidate_start",
+                    "run_id": run_id,
+                    "index": inspected_count,
+                    "candidate_count": candidate_count,
+                    "attempted_new": attempted_new,
+                    "eshidis_id": eshidis_id,
+                    "deadline": candidate.get("submission_deadline"),
+                }
+            )
         try:
             result = ingest_pricing_eshidis_project(
                 db_path,
@@ -3949,6 +4081,24 @@ def ingest_pricing_active_candidates(
                     "candidate": candidate,
                 }
             )
+            if progress_callback:
+                progress_callback(
+                    {
+                        "event": "active_candidate_done",
+                        "run_id": run_id,
+                        "index": inspected_count,
+                        "candidate_count": candidate_count,
+                        "attempted_new": attempted_new,
+                        "eshidis_id": eshidis_id,
+                        "status": "FAILED_EXCEPTION",
+                        "error": repr(exc),
+                        "completed": completed,
+                        "partial": partial,
+                        "failed": failed,
+                        "skipped_existing": skipped_existing,
+                        "skipped_invalid": skipped_invalid,
+                    }
+                )
             continue
 
         summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
@@ -3970,6 +4120,41 @@ def ingest_pricing_active_candidates(
                 "error": result.get("error"),
             }
         )
+        if progress_callback:
+            amount_validation = summary.get("merged_budget_amount_validation")
+            if not isinstance(amount_validation, dict):
+                amount_validation = {}
+            document_total_validation = summary.get("merged_budget_document_total_validation")
+            if not isinstance(document_total_validation, dict):
+                document_total_validation = {}
+            progress_callback(
+                {
+                    "event": "active_candidate_done",
+                    "run_id": run_id,
+                    "index": inspected_count,
+                    "candidate_count": candidate_count,
+                    "attempted_new": attempted_new,
+                    "eshidis_id": eshidis_id,
+                    "status": item_status,
+                    "ok": bool(result.get("ok")),
+                    "attachments_found": summary.get("attachments_found"),
+                    "downloaded": summary.get("downloaded"),
+                    "skipped_download": summary.get("skipped_download"),
+                    "skipped_indexed": summary.get("skipped_indexed"),
+                    "failed_attachments": summary.get("failed"),
+                    "heavy_files_deleted": summary.get("heavy_files_deleted"),
+                    "merged_budget_rows": summary.get("merged_budget_rows"),
+                    "merged_budget_amount_total": summary.get("merged_budget_amount_total"),
+                    "row_amount_validation_ok": amount_validation.get("ok"),
+                    "document_total_validation_status": document_total_validation.get("status"),
+                    "document_total_validation_ok": document_total_validation.get("ok"),
+                    "completed": completed,
+                    "partial": partial,
+                    "failed": failed,
+                    "skipped_existing": skipped_existing,
+                    "skipped_invalid": skipped_invalid,
+                }
+            )
 
     not_selected = max(candidate_count - inspected_count, 0)
     if project_limit is not None:
@@ -4003,6 +4188,8 @@ def ingest_pricing_active_candidates(
     else:
         status = "COMPLETED" if failed == 0 and partial == 0 and skipped_invalid == 0 and not_selected == 0 else "INCOMPLETE"
     _pricing_run_finish(db_path, run_id=run_id, status=status, summary={**summary, "items": items})
+    if progress_callback:
+        progress_callback({"event": "active_ingest_done", "run_id": run_id, "status": status, **summary})
     return {
         "ok": status == "COMPLETED",
         "run_id": run_id,
@@ -4024,6 +4211,7 @@ def ingest_pricing_active_eshidis(
     keep_heavy_files: bool = False,
     force: bool = False,
     report_path: Path = Path("work/reports/pricing_active_candidates.json"),
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     if discovery_limit < 1:
         raise ValueError("discovery_limit must be positive.")
@@ -4043,6 +4231,7 @@ def ingest_pricing_active_eshidis(
         allow_insecure_tls=allow_insecure_tls,
         keep_heavy_files=keep_heavy_files,
         force=force,
+        progress_callback=progress_callback,
     )
     return {
         **batch,

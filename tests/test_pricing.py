@@ -1366,10 +1366,14 @@ def test_reprocess_existing_skips_complete_projects(tmp_path: Path) -> None:
     )
     consolidate_pricing_project_budget(db_path, eshidis_id="221566")
 
-    payload = reprocess_existing_pricing_projects(db_path)
+    events: list[dict[str, object]] = []
+    payload = reprocess_existing_pricing_projects(db_path, progress_callback=events.append)
 
     assert payload["summary"]["skipped_complete"] == 1
     assert payload["items"][0]["status"] == "SKIPPED_ALREADY_COMPLETE"
+    assert [event["event"] for event in events] == ["reprocess_start", "project_skipped", "reprocess_done"]
+    assert events[1]["eshidis_id"] == "221566"
+    assert events[1]["status"] == "SKIPPED_ALREADY_COMPLETE"
 
 
 def test_reprocess_with_ai_budget_router_uses_only_selected_document(tmp_path: Path, monkeypatch) -> None:
@@ -1572,6 +1576,7 @@ def test_active_pricing_batch_records_every_candidate_outcome(tmp_path: Path, mo
 
     monkeypatch.setattr("tender_radar.pricing.ingest_pricing_eshidis_project", fake_ingest)
 
+    events: list[dict[str, object]] = []
     payload = ingest_pricing_active_candidates(
         db_path,
         candidates_payload={
@@ -1583,6 +1588,7 @@ def test_active_pricing_batch_records_every_candidate_outcome(tmp_path: Path, mo
             ],
         },
         run_id="test-run",
+        progress_callback=events.append,
     )
 
     assert payload["ok"] is False
@@ -1593,6 +1599,11 @@ def test_active_pricing_batch_records_every_candidate_outcome(tmp_path: Path, mo
     assert [item["eshidis_id"] for item in payload["items"]] == ["221001", "221002", "221003"]
     assert [item["status"] for item in payload["items"]] == ["COMPLETED", "PARTIAL_OR_FAILED", "COMPLETED"]
     assert calls == ["221001", "221002", "221003"]
+    assert events[0]["event"] == "active_ingest_start"
+    done_events = [event for event in events if event["event"] == "active_candidate_done"]
+    assert [event["eshidis_id"] for event in done_events] == ["221001", "221002", "221003"]
+    assert [event["status"] for event in done_events] == ["COMPLETED", "PARTIAL_OR_FAILED", "COMPLETED"]
+    assert events[-1]["event"] == "active_ingest_done"
 
     import sqlite3
 

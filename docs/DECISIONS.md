@@ -1,5 +1,13 @@
 # Decision Log
 
+## D-088 — Long pricing maintenance commands must expose incremental progress
+**Status:** Accepted
+
+Reverse-pricing commands that can spend minutes downloading, routing, OCRing or
+reprocessing budgets must emit machine-readable per-project progress when a
+progress log is requested. Final JSON reports are still required, but they are
+not enough for operational visibility during long runs.
+
 ## D-087 — Reverse-pricing completion requires budget total validation
 **Status:** Accepted
 

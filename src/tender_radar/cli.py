@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import date
+from datetime import datetime, timezone
 import json
 import logging
 import sys
@@ -217,6 +218,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Process up to this many incomplete/new projects, skipping already complete candidates first.",
     )
     pricing_ingest_active_report.add_argument("--report", default=None, help="JSON report output path.")
+    pricing_ingest_active_report.add_argument("--progress-log", default=None, help="JSONL incremental progress log path.")
     pricing_ingest_active_report.add_argument("--allow-insecure-tls", action="store_true")
     pricing_ingest_active_report.add_argument("--force", action="store_true")
     pricing_ingest_active_report.add_argument("--keep-heavy-files", action="store_true")
@@ -237,6 +239,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pricing_ingest_active.add_argument("--candidates-report", default="work/reports/pricing_active_candidates.json")
     pricing_ingest_active.add_argument("--report", default=None, help="JSON report output path.")
+    pricing_ingest_active.add_argument("--progress-log", default=None, help="JSONL incremental progress log path.")
     pricing_ingest_active.add_argument("--allow-insecure-tls", action="store_true")
     pricing_ingest_active.add_argument("--force", action="store_true")
     pricing_ingest_active.add_argument("--keep-heavy-files", action="store_true")
@@ -263,6 +266,7 @@ def build_parser() -> argparse.ArgumentParser:
     pricing_reprocess.add_argument("--ai-router-timeout", type=int, default=90)
     pricing_reprocess.add_argument("--ai-router-min-confidence", type=float, default=0.7)
     pricing_reprocess.add_argument("--report", default=None, help="JSON report output path.")
+    pricing_reprocess.add_argument("--progress-log", default=None, help="JSONL incremental progress log path.")
     pricing_route_budget = pricing_sub.add_parser(
         "route-budget",
         help="Use AI to identify the budget document/page range without writing pricing rows.",
@@ -652,6 +656,7 @@ def _pricing_ingest_eshidis(args: argparse.Namespace) -> int:
 
 def _pricing_ingest_active_report(args: argparse.Namespace) -> int:
     candidates_report = Path(args.candidates_report)
+    progress_callback = _jsonl_progress_callback(Path(args.progress_log)) if args.progress_log else None
     payload = ingest_pricing_active_candidates(
         Path(args.db),
         candidates_payload=json.loads(candidates_report.read_text(encoding="utf-8")),
@@ -662,6 +667,7 @@ def _pricing_ingest_active_report(args: argparse.Namespace) -> int:
         allow_insecure_tls=bool(args.allow_insecure_tls),
         keep_heavy_files=bool(args.keep_heavy_files),
         force=bool(args.force),
+        progress_callback=progress_callback,
     )
     if args.report:
         report_path = Path(args.report)
@@ -673,6 +679,7 @@ def _pricing_ingest_active_report(args: argparse.Namespace) -> int:
 
 
 def _pricing_ingest_active(args: argparse.Namespace) -> int:
+    progress_callback = _jsonl_progress_callback(Path(args.progress_log)) if args.progress_log else None
     payload = ingest_pricing_active_eshidis(
         Path(args.db),
         work_dir=Path(args.work_dir),
@@ -684,6 +691,7 @@ def _pricing_ingest_active(args: argparse.Namespace) -> int:
         keep_heavy_files=bool(args.keep_heavy_files),
         force=bool(args.force),
         report_path=Path(args.candidates_report),
+        progress_callback=progress_callback,
     )
     if args.report:
         report_path = Path(args.report)
@@ -695,6 +703,7 @@ def _pricing_ingest_active(args: argparse.Namespace) -> int:
 
 
 def _pricing_reprocess_existing(args: argparse.Namespace) -> int:
+    progress_callback = _jsonl_progress_callback(Path(args.progress_log)) if args.progress_log else None
     payload = reprocess_existing_pricing_projects(
         Path(args.db),
         eshidis_ids=[str(value) for value in args.eshidis_id] if args.eshidis_id else None,
@@ -705,6 +714,7 @@ def _pricing_reprocess_existing(args: argparse.Namespace) -> int:
         use_ai_budget_router=bool(args.use_ai_budget_router),
         ai_router_timeout_seconds=int(args.ai_router_timeout),
         ai_router_min_confidence=float(args.ai_router_min_confidence),
+        progress_callback=progress_callback,
     )
     if args.report:
         report_path = Path(args.report)
@@ -713,6 +723,19 @@ def _pricing_reprocess_existing(args: argparse.Namespace) -> int:
         payload = {**payload, "report_path": str(report_path)}
     _emit_json(payload)
     return 0 if payload.get("ok") else 1
+
+
+def _jsonl_progress_callback(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("", encoding="utf-8")
+
+    def write_event(event: dict[str, object]) -> None:
+        payload = {"logged_at": datetime.now(timezone.utc).isoformat(), **event}
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+            handle.flush()
+
+    return write_event
 
 
 def _pricing_route_budget(args: argparse.Namespace) -> int:
