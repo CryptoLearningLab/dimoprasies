@@ -369,6 +369,29 @@ def test_parse_budget_rows_handles_neighbor_article_code_when_numeric_line_has_o
     assert row.amount == 112.5
 
 
+def test_parse_budget_rows_handles_inline_article_fragment_before_at_with_later_suffix() -> None:
+    text = """
+       σώματος τεχνολογίας τύπου          ΝΕΟ ΗΛΜ
+                                                              ΗΛΜ 103
+  5     LED ασύμμετρης δέσμης, ισχύος      ΑΤΗΕ.60.     073                           Τεμ.      33     2600      85.800,00
+                                                              100,00%
+       έως και 30,5W, επί κορυφής           10.1
+       ιστού.
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.row_number == 73
+    assert row.article_code == "ΝΕΟ ΗΛΜ ΑΤΗΕ.60. 10.1"
+    assert row.revision_codes == ["ΗΛΜ-103"]
+    assert "LED ασύμμετρης δέσμης" in row.description
+    assert row.quantity == 33
+    assert row.unit_price == 2600
+    assert row.amount == 85800
+
+
 def test_parse_budget_rows_drops_invalid_complete_ocr_table_rows_when_valid_rows_exist() -> None:
     text = """
       1 001 Τομή οδοστρώματος με ασφαλτοκόπτη ΝΕΤ ΟΔΟ-ΜΕ Δ-1 m 600 1 600,00
