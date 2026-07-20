@@ -3889,6 +3889,46 @@ Live production evidence after deploy on commit `e3c2992`:
   - `NEEDS_REVIEW`: `10`
   - `NO_BUDGET_AUDIT`: `0`
 
+### 2026-07-20 - Reverse-pricing parser recognizes collapsed OCR budget streams
+
+Added a guarded fallback parser for OCR outputs where a budget table is
+collapsed into a long text stream instead of line-oriented rows. The parser
+splits row markers such as `1]`, `2|`, `3 [` and only accepts candidate rows
+when:
+
+- a known unit is followed by a plausible numeric tail;
+- row arithmetic reconciles;
+- article/revision evidence can be found in the segment.
+
+The rule also normalizes OCR variants such as `YAP`/`ΥΑΡ` for `ΥΔΡ` revision
+codes and `ΙΝΑΟΔΟ` for `ΝΑΟΔΟ` article prefixes. This is deliberately a
+fallback after the structured parsers fail or produce too few rows.
+
+Evidence:
+
+```bash
+.venv/bin/python -m pytest tests/test_pricing.py
+# 40 passed
+
+.venv/bin/python -m py_compile src/tender_radar/pricing.py
+# passed
+```
+
+Live production evidence after deploy on commit `bd62d0a`:
+
+- Droplet HEAD: `bd62d0a`.
+- Droplet focused tests: `tests/test_pricing.py` -> `40 passed`.
+- `220423` improved from zero-row to partial parsed state:
+  `19` raw rows, `15` merged rows, amount total `129.128,20`.
+- `220423` remains `NEEDS_REVIEW` because document-total validation correctly
+  rejects the partial parse against official reference total `1.510.058,05`.
+- `221452` remains `NEEDS_REVIEW` with zero parsed rows; the available OCR text
+  has row markers but loses enough numeric/unit data that the arithmetic guard
+  rejects it.
+- Current reverse-pricing SQLite audit:
+  - `OK`: `9`
+  - `NEEDS_REVIEW`: `10`
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

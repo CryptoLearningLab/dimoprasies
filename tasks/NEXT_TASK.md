@@ -71,6 +71,10 @@ Latest generic repairs:
 - sparse OCR budget rows with missing unit/unit-price columns repaired `221695`;
 - English-style totals such as `72,649.57` are parsed correctly;
 - OCR-corrupted subtotal label `ΣWΝ ΟΛΟ` is recognized.
+- collapsed OCR budget streams with markers such as `1]`, `2|`, `3 [` are
+  parsed as guarded fallback rows. This improved `220423` from zero-row to
+  partial parsed state, but it remains `NEEDS_REVIEW` because the parsed total
+  does not reconcile with the official offer total.
 
 ## Instruction
 
@@ -90,6 +94,16 @@ Repair the reverse-pricing database before building new pricing features:
 
 Do not mark a project OK unless the database sum reconciles to an official
 source subtotal.
+
+Suggested next gate:
+
+1. Inspect `221452` and `221006` extraction quality first. If OCR has lost unit
+   and amount columns, classify as `MANUAL_REVIEW_REQUIRED` or route to an AI
+   extraction fallback rather than weakening deterministic parser guards.
+2. Inspect `220423` missing/false rows after the collapsed parser. Keep it in
+   `NEEDS_REVIEW` unless the merged amount reaches the official reference total.
+3. Then work on parsed subtotal mismatches with narrow deltas, starting from
+   `221720`.
 
 ## Required Tests
 

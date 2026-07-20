@@ -855,6 +855,14 @@ The system `python` command is not present in the remote environment; use
   `221695` to `OK`. Current complete reverse-pricing projects: `9`; remaining
   review set: `5` parsed mismatch projects and `5` zero-row parser/source
   projects.
+- Production deploy on commit `bd62d0a` passed. The collapsed OCR fallback
+  parser recognizes long stream rows with markers like `1]`, `2|`, `3 [` and
+  keeps arithmetic/document-total validation strict. Droplet pricing tests now
+  report `40 passed`. `220423` improved from zero-row to partial parsed
+  (`19` raw rows, `15` merged rows) but correctly remains `NEEDS_REVIEW` because
+  it does not reconcile to the official reference total. `221452` still has
+  zero accepted rows because the OCR text loses enough numeric/unit columns that
+  deterministic guards reject it.
 
 ## Next Work
 
@@ -863,7 +871,8 @@ Follow `tasks/NEXT_TASK.md`.
 Current intended next gate:
 
 Continue repairing the remaining reverse-pricing projects from stored extracted
-text. Prioritize zero-row layouts (`220133`, `220423`, `221006`, `221381`,
-`221452`) and parsed subtotal mismatches (`219795`, `220220`, `220675`,
-`221368`, `221720`). A project can be reported as pricing-complete only after
-row arithmetic and document subtotal validation both pass `OK`.
+text. Prioritize extraction-quality/source decisions for `221452` and `221006`,
+then inspect `220423` missing/false rows after the collapsed parser, then parsed
+subtotal mismatches (`219795`, `220220`, `220675`, `221368`, `221720`). A
+project can be reported as pricing-complete only after row arithmetic and
+document subtotal validation both pass `OK`.
