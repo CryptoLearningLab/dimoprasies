@@ -527,6 +527,13 @@ def test_consolidate_validates_against_offer_total_when_budget_lacks_total(tmp_p
     assert summary["document_total_validation"]["reference"]["source_document"] == "Οικονομική_προσφορά_Έργου.pdf"
 
 
+def test_extract_budget_total_candidates_prefers_euro_amount_before_percentage() -> None:
+    candidates = extract_budget_total_candidates("ΣΥΝΟΛΟ 1.148.787,69 € 100,00%\n")
+
+    assert candidates
+    assert candidates[0]["amount"] == 1148787.69
+
+
 def test_parse_budget_rows_handles_split_backslash_articles_and_special_units() -> None:
     text = """
                                                                                                        Τιμή            Δαπάνη (Ευρώ)

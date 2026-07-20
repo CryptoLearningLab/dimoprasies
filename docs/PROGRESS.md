@@ -10,6 +10,26 @@
 `tasks/NEXT_TASK.md`
 
 ## Completed Milestones
+- Reverse-pricing `v0.1.50` fixes monetary subtotal selection when an official
+  total line also contains a trailing percentage. Lines such as
+  `ΣΥΝΟΛΟ 1.148.787,69 € 100,00%` now use the euro amount as the reference
+  total instead of the `100,00%` percentage. Regression coverage was added in
+  `tests/test_pricing.py`.
+- Production `v0.1.49` storage cleanup/refetch was executed after a SQLite
+  backup:
+  `data/backups/tender_radar_before_storage_repair_v0149_20260720T225736Z.sqlite`.
+  The live dry-run targeted 17 projects with 51 missing desired-preserved
+  attachments available from official ESHIDIS listings. The live apply
+  completed with `stale_paths_marked_deleted=158`,
+  `attachments_refetched=51` and `attachments_missing_from_listing=0`.
+  A post-apply storage audit is clean: `706` pricing documents,
+  `65` desired-preserved, `443` local files, `0` stale local paths,
+  `0` `needs_refetch`, and `0` stale non-preserved local paths.
+- Post-cleanup live reprocess inspected only the incomplete/review projects:
+  `projects_seen=23`, `skipped_complete=10`, `projects_inspected=13`,
+  `completed=0`, `needs_review_or_failed=13`. This confirms complete projects
+  were not reprocessed, while the remaining review set still needs parser or
+  source classification work.
 - The experimental strict `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ` filename-only reverse-pricing path
   was reverted after live isolated testing. The 20-candidate smoke found 156
   active ESHIDIS candidates and avoided an OCR storm, but completed only

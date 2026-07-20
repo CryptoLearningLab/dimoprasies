@@ -1,12 +1,23 @@
 # NEXT TASK
 
 Execute:
-`Run production reverse-pricing storage audit before any cleanup/refetch apply`
+`Classify and fix remaining reverse-pricing review projects after clean storage`
 
 ## Current Input
 
-The independent reverse-pricing workflow remains disconnected from cron. The
-current baseline is the broader guarded parsing flow plus the new essential
+The independent reverse-pricing workflow remains disconnected from cron.
+Production storage cleanup/refetch has now run successfully on `v0.1.49`.
+
+Current live storage state after apply:
+
+- `706` pricing documents
+- `65` desired-preserved documents
+- `443` local files
+- `0` stale local paths
+- `0` `needs_refetch`
+- `0` stale non-preserved paths
+
+The current baseline is the broader guarded parsing flow plus the essential
 heavy-file retention policy:
 
 - keep local heavy files only for invitations, declarations, technical
@@ -16,7 +27,7 @@ heavy-file retention policy:
 - skip drawings and non-budget studies as pricing candidates unless they
   contain explicit budget evidence in extracted text.
 
-Use storage audit before any live mutation:
+Use storage audit before any future live mutation:
 
 ```bash
 tender-radar pricing storage-audit --db data/tender_radar.sqlite \
@@ -158,14 +169,14 @@ Do not mark a project `OK` unless:
 
 ## Suggested Next Gate
 
-1. Deploy `v0.1.49`, then run production read-only `storage-audit`.
-2. If the audit is sane, create a SQLite backup and run dry-run
-   `storage-repair`.
-3. Apply storage repair only after the dry-run identifies exact affected
-   projects and attachments.
-4. Reprocess affected projects and classify remaining review projects.
-5. Continue with the review set: `219795`, `220133`, `220220`,
-   `220423`, `220675`, `221006`, `221368`, `221381`, `221452`, `221720`.
+1. Deploy `v0.1.50` subtotal-percentage guard.
+2. Re-run `pricing reprocess-existing --only-incomplete` on production.
+3. Classify the remaining review projects from the clean-storage base into:
+   `NEEDS_PARSER_FIX`, `SOURCE_NOT_PRICING`, `NO_PUBLIC_ATTACHMENTS` or
+   `MANUAL_REVIEW_REQUIRED`.
+4. Continue with the current review set after storage cleanup:
+   `219795`, `220133`, `220220`, `220423`, `220675`, `221006`, `221155`,
+   `221314`, `221325`, `221368`, `221381`, `221452`, `221720`.
 
 Previous next gate, still relevant after storage repair:
 

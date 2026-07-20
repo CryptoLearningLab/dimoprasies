@@ -3751,8 +3751,26 @@ def _select_budget_total_amount(line: str, amounts: list[float | int]) -> float 
     if not amounts:
         return None
     normalized = strip_accents(line).upper()
+    euro_prefixed_amounts: list[float | int] = []
+    for match in re.finditer(r"\d{1,3}(?:,\d{3})+\.\d{2}|\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}", line):
+        suffix = line[match.end() : match.end() + 8]
+        if "%" in suffix:
+            continue
+        if "€" in suffix or "EUR" in strip_accents(suffix).upper():
+            parsed = parse_greek_decimal(match.group(0))
+            if parsed is not None:
+                euro_prefixed_amounts.append(parsed)
+    if euro_prefixed_amounts:
+        return euro_prefixed_amounts[-1]
     if "ΣΥΝΟΛΟ ΔΑΠΑΝΗΣ" in normalized or "ΣΥΝΟΛΟ ΚΟΣΤΟΥΣ" in normalized:
         return amounts[0]
+    non_percentage_amounts: list[float | int] = []
+    matches = list(re.finditer(r"\d{1,3}(?:,\d{3})+\.\d{2}|\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}", line))
+    for match, amount in zip(matches, amounts):
+        if "%" not in line[match.end() : match.end() + 4]:
+            non_percentage_amounts.append(amount)
+    if non_percentage_amounts:
+        return non_percentage_amounts[-1]
     return amounts[-1]
 
 

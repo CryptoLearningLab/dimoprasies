@@ -899,12 +899,14 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-v0.1.48 is deployed and `219930` is fixed. It now parses the standalone
-`ΝΕΟΣ ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΜΕΛΕΤΗΣ.pdf` as one lump-sum row with official works
-subtotal `2.988.598,87` and document-total validation `OK`.
+v0.1.49 is deployed and the guarded storage cleanup/refetch gate has run in
+production.
 
-Local v0.1.49 prepares that cleanup/refetch work with guarded storage rules
-and CLI:
+`219930` remains the accepted lump-sum regression fixture. It parses the
+standalone `ΝΕΟΣ ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΜΕΛΕΤΗΣ.pdf` as one lump-sum row with official
+works subtotal `2.988.598,87` and document-total validation `OK`.
+
+The storage gate uses:
 
 - `pricing storage-audit`
 - `pricing storage-repair` dry-run by default
@@ -917,15 +919,27 @@ extracted text proves an embedded budget section. It does not keep drawings,
 economic-offer templates, pro-measurements or price schedules by filename
 alone.
 
-Local verification passed:
+Local verification passed before deploy:
 
 - `py_compile src/tender_radar/pricing.py src/tender_radar/cli.py`
 - `tests/test_pricing.py`: `59 passed`
 - local storage audit: `97` documents, `21` desired preserved,
   `0` refetch targets and `0` stale non-preserved paths.
 
-Next, deploy v0.1.49 and run production read-only `storage-audit`. If sane,
-take a SQLite backup, run `storage-repair` dry-run, then consider `--apply`.
-Post-v0.1.48 live audit found `706` pricing documents, `392` true local files,
-`196` extracted text artifacts and `209` stale local paths. `219930` itself is
-clean: `124/124` local files exist and `0` stale paths.
+Production verification:
+
+- SQLite backup:
+  `data/backups/tender_radar_before_storage_repair_v0149_20260720T225736Z.sqlite`
+- dry-run repair: `17` targeted projects, `51` missing desired-preserved
+  attachments available from official ESHIDIS listings, `0` listing misses
+- apply repair: `158` stale non-preserved local paths cleared, `51`
+  desired-preserved attachments refetched, `0` listing misses
+- post-apply storage audit: `706` pricing documents, `65` desired-preserved,
+  `443` local files, `0` stale local paths, `0` `needs_refetch`, `0` stale
+  non-preserved local paths
+
+Local v0.1.50 adds a subtotal-percentage guard so lines like
+`ΣΥΝΟΛΟ 1.148.787,69 € 100,00%` use the euro amount, not the trailing
+percentage, as the validation reference. Deploy v0.1.50 next, then reprocess
+only incomplete pricing projects and continue parser/source classification on
+the remaining review set.
