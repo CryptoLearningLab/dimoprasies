@@ -17,6 +17,13 @@
   ESHIDIS candidates, selected exactly one new project (`221155`) and stopped
   correctly, but exposed a budget-total `MISMATCH`; this now reports as partial
   so full-base reruns cannot overstate completion.
+- After the `v0.1.44` deploy, a deterministic full reprocess of the current
+  reverse-pricing SQLite base completed in about 14 seconds. It inspected 20
+  projects and reported 9 `OK` and 11 `NEEDS_REVIEW`; no runtime crash occurred.
+  The two zero-document projects are `220133` and `221381`, which need fetch
+  recovery rather than parsing repair. An attempted `--all --use-ai-budget-router`
+  run was stopped after it produced no progress report/log for several minutes;
+  the pre-run SQLite backup was restored before the deterministic audit.
 - Reverse-pricing `v0.1.43` adds deadline-retention rules for heavy ESHIDIS
   attachments. Essential operational documents such as invitations,
   declarations, technical reports/descriptions, budgets, pro-measurements and

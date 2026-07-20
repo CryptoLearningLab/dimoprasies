@@ -46,6 +46,25 @@ stopped as intended. Fetch/index finished, but the merged budget validation was
 `MISMATCH`; under the new guard this must be counted as partial/review rather
 than completed.
 
+After deploy, deterministic reprocess of the current SQLite base reported:
+
+- `projects_seen`: `20`
+- `completed`: `9`
+- `needs_review_or_failed`: `11`
+- `documents`: `515`
+- `merged_rows`: `1082`
+
+Review buckets:
+
+- no documents: `220133`, `221381`
+- row arithmetic or document-total mismatch: `219795`, `220220`, `220423`,
+  `220675`, `221006`, `221155`, `221368`, `221452`, `221720`
+
+Before running AI router across the full base again, add per-project progress
+logging/checkpoint reporting or run it in small explicit batches. The previous
+full AI-router attempt was stopped after several minutes with no progress
+report, and the SQLite backup was restored.
+
 Previous budget extraction state:
 
 - `OK`: `9`
