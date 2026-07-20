@@ -1754,7 +1754,7 @@ def extract_budget_total_candidates(text: str) -> list[dict[str, Any]]:
     return candidates
 
 
-def _budget_row_score(row: PricingBudgetRow, source_document: str) -> tuple[int, int, float, int]:
+def _budget_row_score(row: PricingBudgetRow, source_document: str) -> tuple[int, int, int, float, int]:
     source_upper = strip_accents(source_document).upper()
     source_score = 0
     if "ΠΡΟΥΠΟΛΟΓΙΣ" in source_upper:
