@@ -5,7 +5,7 @@ Execute:
 
 ## Current Input
 
-The independent reverse-pricing workflow is deployed on commit `3079206`.
+The independent reverse-pricing workflow is deployed on commit `3f52737`.
 It remains disconnected from cron.
 
 The repair command is:
@@ -43,7 +43,10 @@ After deploy of `v0.1.41`, the read-only router shortlist correctly ranked
 selected a nested ZIP summary because the standalone file had no extracted
 snippets in the current database. Local `v0.1.42` adds a deterministic
 post-AI guard that overrides this case to the standalone official attachment.
-It still needs live deployment evidence before `220675` can be reclassified:
+Live `v0.1.42` smoke on the droplet selected `document_id 300`
+`ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf`. It still needs targeted re-ingest/reprocess
+before `220675` can be reclassified because the standalone local PDF path is
+missing from earlier heavy-file cleanup:
 
 - `OK`: `9`
   - `221148`
@@ -104,12 +107,10 @@ Do not mark a project `OK` unless:
 
 ## Suggested Next Gate
 
-1. Deploy `v0.1.42`, then run read-only `pricing route-budget 220675` and
-   verify the route selects `ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf` with
-   `OFFICIAL_STANDALONE_BUDGET_ROUTE_OVERRIDE` if AI tries to choose a nested
-   archive summary.
-2. Re-ingest/re-route `220675` only after confirming the guard. The standalone
-   official PDF must be preserved locally before row extraction/reconciliation.
+1. Targeted re-ingest/re-route `220675`. The standalone official PDF must be
+   preserved locally before row extraction/reconciliation.
+2. Reprocess `220675` from `ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf` and determine
+   whether it can reconcile to a trusted monetary subtotal.
 3. Inspect `221720` next. It has many parsed rows but appears to be reading a
    price-list/table with many `quantity = 1` rows rather than the actual
    project budget. Add a generic guard if this pattern is confirmed.

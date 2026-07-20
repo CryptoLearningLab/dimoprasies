@@ -15,6 +15,11 @@
   archive summary while an official standalone `ΠΡΟΜΕΤΡΗΣΗ`/`ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`
   attachment is present, the route is overridden to the official attachment and
   the override is recorded in route warnings/evidence.
+- Live `v0.1.42` route smoke for ESHIDIS `220675` now selects
+  `ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf` (`document_id 300`) instead of the nested ZIP
+  summary (`document_id 232`). The current database still has the standalone
+  local file missing from earlier heavy-file cleanup, so the next gate is
+  targeted re-ingest/reprocess from the preserved official standalone PDF.
 - Reverse-pricing now has a UI and CLI active-ESHIDIS batch controller. The
   pricing button starts an authenticated background job that discovers active
   ESHIDIS public works, processes every returned candidate unless an explicit
