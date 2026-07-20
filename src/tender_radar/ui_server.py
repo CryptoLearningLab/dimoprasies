@@ -33,11 +33,14 @@ from tender_radar.config import load_config
 from tender_radar.db import (
     admin_hidden_events_by_key,
     count_enabled_admin_users,
+    create_admin_session,
     create_admin_invite,
+    delete_admin_session,
     delete_stale_verified_tender_links,
     dismiss_tender as dismiss_tender_in_db,
     dismiss_user_tender,
     get_admin_invite,
+    get_admin_session,
     get_admin_user,
     get_admin_user_by_id,
     get_source_document,
@@ -180,6 +183,13 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/entalmata":
             self._send_json(entalmata_payload())
+            return
+        if parsed.path == "/api/pricing/ingest-status":
+            session = self._admin_session()
+            if not session or session.get("role") not in {"admin", "pricing"}:
+                self._send_json({"ok": False, "error": "Pricing access required."}, status=403)
+                return
+            self._send_json(pricing_ingest_status_payload())
             return
         if parsed.path == "/api/admin/audit":
             if not self._admin_authenticated():
@@ -586,6 +596,15 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
 
     def _send_admin_session(self, *, email: str, role: str) -> None:
         token = secrets.token_urlsafe(32)
+        expires_at = (datetime.now(timezone.utc) + timedelta(seconds=43200)).isoformat()
+        token_hash = hash_reset_token(token)
+        create_admin_session(
+            runtime_db_path(),
+            token_hash=token_hash,
+            email=email,
+            role=role,
+            expires_at=expires_at,
+        )
         with ADMIN_SESSIONS_LOCK:
             ADMIN_SESSIONS[token] = {"email": email, "role": role}
         body = {"ok": True, "authenticated": True, "admin": admin_status_payload(), "session": {"email": email, "role": role}}
@@ -597,6 +616,7 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
         if token:
             with ADMIN_SESSIONS_LOCK:
                 ADMIN_SESSIONS.pop(token, None)
+            delete_admin_session(runtime_db_path(), hash_reset_token(token))
         body = {"ok": True, "authenticated": False}
         self._send_json(body, extra_headers={"Set-Cookie": "tr_admin_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"})
         return {}
@@ -631,7 +651,16 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
         if not token:
             return None
         with ADMIN_SESSIONS_LOCK:
-            return ADMIN_SESSIONS.get(token)
+            session = ADMIN_SESSIONS.get(token)
+        if session:
+            return session
+        persisted = get_admin_session(runtime_db_path(), hash_reset_token(token))
+        if not persisted:
+            return None
+        session = {"email": persisted.email, "role": persisted.role}
+        with ADMIN_SESSIONS_LOCK:
+            ADMIN_SESSIONS[token] = session
+        return session
 
     def _send_html(self, html: str) -> None:
         self._send_text(html, "text/html; charset=utf-8")
@@ -3716,6 +3745,100 @@ def pricing_search_payload(payload: dict[str, Any]) -> dict[str, Any]:
         }
     limit = min(max(int(payload.get("limit") or 50), 1), 200)
     return search_pricing_rows(runtime_db_path(), query, limit=limit)
+
+
+def pricing_ingest_status_payload() -> dict[str, Any]:
+    db_path = runtime_db_path()
+    if not db_path.exists():
+        return {"ok": True, "exists": False, "run": None, "summary": {}}
+    connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        run = connection.execute(
+            """
+            SELECT run_id, mode, started_at, finished_at, status, summary_json
+              FROM pricing_runs
+             ORDER BY started_at DESC
+             LIMIT 1
+            """
+        ).fetchone()
+        if run is None:
+            return {"ok": True, "exists": False, "run": None, "summary": {}}
+        summary = json.loads(run["summary_json"] or "{}")
+        live_counts = pricing_live_counts_for_run(connection, started_at=str(run["started_at"] or ""))
+        return {
+            "ok": True,
+            "exists": True,
+            "run": {
+                "run_id": run["run_id"],
+                "mode": run["mode"],
+                "started_at": run["started_at"],
+                "finished_at": run["finished_at"],
+                "status": run["status"],
+            },
+            "summary": summary if isinstance(summary, dict) else {},
+            "live_counts": live_counts,
+        }
+    except sqlite3.OperationalError:
+        return {"ok": True, "exists": False, "run": None, "summary": {}, "live_counts": {}}
+    finally:
+        connection.close()
+
+
+def pricing_live_counts_for_run(connection: sqlite3.Connection, *, started_at: str) -> dict[str, Any]:
+    if not started_at:
+        return {}
+    projects = connection.execute(
+        """
+        SELECT COUNT(*) AS projects
+          FROM pricing_projects
+         WHERE first_seen_at >= ?
+        """,
+        (started_at,),
+    ).fetchone()[0]
+    documents = connection.execute(
+        """
+        SELECT COUNT(*) AS documents
+          FROM pricing_documents
+         WHERE fetched_at >= ?
+        """,
+        (started_at,),
+    ).fetchone()[0]
+    text_docs = connection.execute(
+        """
+        SELECT COUNT(*) AS text_docs
+          FROM pricing_documents
+         WHERE fetched_at >= ?
+           AND text_path IS NOT NULL
+        """,
+        (started_at,),
+    ).fetchone()[0]
+    merged_rows = connection.execute(
+        """
+        SELECT COUNT(*) AS merged_rows
+          FROM pricing_budget_rows
+         WHERE source_document = ?
+           AND extracted_at >= ?
+        """,
+        ("__PROJECT_BUDGET_MERGED__", started_at),
+    ).fetchone()[0]
+    latest_projects = connection.execute(
+        """
+        SELECT eshidis_id, title, deadline_at
+          FROM pricing_projects
+         WHERE first_seen_at >= ?
+         ORDER BY first_seen_at DESC
+         LIMIT 5
+        """,
+        (started_at,),
+    ).fetchall()
+    return {
+        "projects": int(projects or 0),
+        "documents": int(documents or 0),
+        "text_docs": int(text_docs or 0),
+        "merged_rows": int(merged_rows or 0),
+        "latest_projects": [dict(row) for row in latest_projects],
+    }
 
 
 def reverse_search_documents_by_eshidis(rows: list[dict[str, Any]]) -> dict[str, list[Any]]:
@@ -7368,6 +7491,9 @@ async function refresh() {
   await loadDashboard();
   await loadSourcePolling();
   await loadEntalmata();
+  if (state.session && ['admin', 'pricing'].includes(state.session.role)) {
+    await loadPricingIngestStatus();
+  }
   if (!state.evaluationConfig && $('ruleProfileSelect').value) {
     await loadRules();
   }
@@ -7439,6 +7565,42 @@ async function runPricingActiveIngest() {
     `σφάλματα ${summary.failed || 0}`,
     `ζητούμενα υπόλοιπα ${summary.target_new_remaining || 0}`,
   ].join(' · ');
+}
+
+async function loadPricingIngestStatus() {
+  try {
+    const payload = await api('/api/pricing/ingest-status');
+    renderPricingIngestStatus(payload);
+  } catch (error) {
+    $('pricingIngestStatus').textContent = 'Δεν μπόρεσε να φορτωθεί ο τελευταίος απολογισμός αντίστροφης ενημέρωσης.';
+  }
+}
+
+function renderPricingIngestStatus(payload) {
+  if (!payload || !payload.exists || !payload.run) {
+    $('pricingIngestStatus').textContent = 'Δεν υπάρχει προηγούμενη ενημέρωση pricing στη βάση.';
+    return;
+  }
+  const run = payload.run || {};
+  const summary = payload.summary || {};
+  const live = payload.live_counts || {};
+  const parts = [
+    `τελευταίο run ${run.status || 'UNKNOWN'}`,
+    run.started_at ? `έναρξη ${run.started_at}` : '',
+  ];
+  if (run.finished_at) parts.push(`λήξη ${run.finished_at}`);
+  if (summary.candidate_count !== undefined) parts.push(`ΕΣΗΔΗΣ ${summary.candidate_count || 0}`);
+  if (summary.inspected_count !== undefined) parts.push(`ελέγχθηκαν ${summary.inspected_count || 0}`);
+  if (summary.attempted_new !== undefined) parts.push(`νέα/μη πλήρη ${summary.attempted_new || 0}`);
+  if (summary.completed !== undefined) parts.push(`ολοκληρωμένα ${summary.completed || 0}`);
+  if (summary.failed !== undefined) parts.push(`σφάλματα ${summary.failed || 0}`);
+  if (run.status === 'RUNNING') {
+    parts.push(`τρέχοντα projects ${live.projects || 0}`);
+    parts.push(`documents ${live.documents || 0}`);
+    parts.push(`text ${live.text_docs || 0}`);
+    parts.push(`merged rows ${live.merged_rows || 0}`);
+  }
+  $('pricingIngestStatus').textContent = parts.filter(Boolean).join(' · ');
 }
 
 function renderReverseSearch(payload) {

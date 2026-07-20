@@ -1,8 +1,11 @@
 import sqlite3
 
 from tender_radar.db import (
+    create_admin_session,
+    delete_admin_session,
     delete_stale_verified_tender_links,
     dismiss_tender,
+    get_admin_session,
     get_source_document,
     get_source_state,
     ignored_tender_keys,
@@ -35,6 +38,27 @@ def test_tender_dismissal_can_be_removed(tmp_path) -> None:
 
     assert ignored_tender_keys(db_path) == set()
     assert list_tender_dismissals(db_path) == []
+
+
+def test_admin_sessions_are_persisted_and_deleted(tmp_path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+
+    create_admin_session(
+        db_path,
+        token_hash="session-hash",
+        email="owner@example.test",
+        role="admin",
+        expires_at="2999-01-01T00:00:00+00:00",
+    )
+
+    session = get_admin_session(db_path, "session-hash")
+    assert session is not None
+    assert session.email == "owner@example.test"
+    assert session.role == "admin"
+
+    delete_admin_session(db_path, "session-hash")
+
+    assert get_admin_session(db_path, "session-hash") is None
 
 
 def test_triage_overrides_are_keyed_by_row(tmp_path) -> None:

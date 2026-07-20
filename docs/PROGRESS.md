@@ -26,6 +26,10 @@
   the requested number of new/incomplete projects. Already complete pricing
   projects are skipped without consuming the requested new-project quota, so a
   later run can continue past the already indexed front of the active list.
+- Reverse-pricing status is now reload-persistent through SQLite. The UI can
+  load the latest `pricing_runs` row and live database counts after page
+  reload, instead of losing the previous click status when the browser
+  client-side message is recreated.
 - Reverse-pricing ingest now has a partial-state recovery guard. If a previous
   run has already persisted raw pricing budget rows but was interrupted before
   writing the merged project budget, a repeated `pricing ingest-eshidis` run
@@ -3698,6 +3702,43 @@ Coverage added:
 - Work-budget layouts with `Αρ. Τιμ.` before the revision column and integer
   quantities such as `417`, `12496`, `2000`.
 - Additional units used by the new layouts, including `t`, `tkm`, `μ2`, `μ3`.
+
+### 2026-07-20 - Reverse-pricing active ESHIDIS discovery uses full grid export
+
+The active ESHIDIS discovery path was changed to use the public
+`Εξαγωγή σε Excel` control as the primary source for the filtered active grid.
+The browser DOM and captured ADF responses remain fallback diagnostics only.
+
+Evidence:
+
+```bash
+.venv/bin/python -m tender_radar sources discover-active \
+  --limit 100 \
+  --allow-insecure-tls \
+  --report work/reports/eshidis_active_candidates_export_smoke_100.json
+# candidates_found 100
+# export_rows_parsed 166
+# visible_rows_seen 25
+# adf_declared_row_count 166
+# adf_rows_parsed 25
+
+.venv/bin/python -m pytest tests/test_discovery.py tests/test_pricing.py -q
+# 25 passed
+```
+
+This fixes the practical pagination limit for reverse-pricing active discovery:
+the UI may still show/process `Νέα έργα = 15`, but candidate selection now comes
+from the full exported active ESHIDIS list instead of the first rendered ADF
+window.
+
+### 2026-07-20 - UI auth session persists across reloads/restarts
+
+Admin/pricing/user UI sessions now persist in SQLite as hashed session tokens
+with a 12-hour expiry. The process-local `ADMIN_SESSIONS` map remains a cache,
+but `/api/auth/status` can rebuild a session from the cookie after a service
+restart or production deploy.
+
+Logout deletes both the in-memory and SQLite session records.
 
 ## Handoff Discipline
 

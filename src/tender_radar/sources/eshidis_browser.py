@@ -14,6 +14,8 @@ ESHIDIS_SEARCH_URL = (
     "active_search_main.jspx"
 )
 RESOURCE_URL = "http://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/{eshidis_id}"
+MAX_RESPONSE_BODIES = 30
+MAX_RESPONSE_BODY_SAMPLE_CHARS = 100_000
 
 
 @dataclass(frozen=True)
@@ -64,7 +66,11 @@ def discover_active_candidates_audit(
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=not headful)
-        context = browser.new_context(ignore_https_errors=allow_insecure_tls)
+        context = browser.new_context(
+            ignore_https_errors=allow_insecure_tls,
+            accept_downloads=True,
+            viewport={"width": 1920, "height": _discovery_viewport_height(limit)},
+        )
         page = context.new_page()
         page.on(
             "request",
@@ -86,14 +92,14 @@ def discover_active_candidates_audit(
             }
             responses.append(entry)
             content_type = entry["content_type"] or ""
-            if len(response_bodies) < 30 and (
+            if len(response_bodies) < MAX_RESPONSE_BODIES and (
                 "text" in content_type or "html" in content_type or "xml" in content_type or "json" in content_type
             ):
                 try:
                     body = response.text()
                 except Exception as exc:  # pragma: no cover - diagnostic payload only
                     body = f"<body read failed: {exc!r}>"
-                response_bodies.append({**entry, "body_sample": body[:100000]})
+                response_bodies.append(_response_body_record(entry, body, keep_full=_is_discovery_grid_body(body)))
 
         page.on("response", record_response)
 
@@ -106,9 +112,13 @@ def discover_active_candidates_audit(
             except PlaywrightTimeoutError:
                 pass
             search_attempt = search_eshidis_grid(page, status_value=status_value)
+            export_attempt = export_search_results_excel(page, out_path.with_suffix(".xls"))
+            scroll_attempt = scroll_search_results_grid(page, limit=limit)
         except Exception as exc:
             navigation_error = repr(exc)
             search_attempt = {"clicked": False, "error": repr(exc)}
+            export_attempt = {"attempted": False, "error": repr(exc)}
+            scroll_attempt = {"attempted": False, "error": repr(exc)}
 
         snapshot = snapshot_search_results(page, limit=limit)
         try:
@@ -117,7 +127,22 @@ def discover_active_candidates_audit(
             screenshot_path = None
         browser.close()
 
-    candidates = parse_discovery_candidates(snapshot, source_url=ESHIDIS_SEARCH_URL, limit=limit)
+    export_candidates: list[EshidisDiscoveryCandidate] = []
+    if export_attempt.get("ok") and export_attempt.get("path"):
+        try:
+            export_text = Path(str(export_attempt["path"])).read_text(encoding="utf-8", errors="ignore")
+            export_candidates = parse_excel_export_candidates(export_text, source_url=ESHIDIS_SEARCH_URL, limit=10_000)
+        except Exception as exc:  # pragma: no cover - diagnostic payload only
+            export_attempt["parse_error"] = repr(exc)
+    candidates = export_candidates[:limit]
+    if len(candidates) < limit:
+        candidates.extend(
+            _new_candidates(
+                parse_discovery_candidates(snapshot, source_url=ESHIDIS_SEARCH_URL, limit=limit),
+                existing_ids={candidate.eshidis_id for candidate in candidates},
+                limit=limit - len(candidates),
+            )
+        )
     if len(candidates) < limit:
         candidates.extend(
             _new_candidates(
@@ -126,6 +151,7 @@ def discover_active_candidates_audit(
                 limit=limit - len(candidates),
             )
         )
+    adf_metrics = adf_response_metrics(response_bodies)
     payload = {
         "target_url": ESHIDIS_SEARCH_URL,
         "status_filter": {
@@ -135,12 +161,17 @@ def discover_active_candidates_audit(
         "candidate_status": "DISCOVERED_ACTIVE_CANDIDATE",
         "navigation_error": navigation_error,
         "search_attempt": search_attempt,
+        "export_attempt": export_attempt,
+        "scroll_attempt": scroll_attempt,
         "coverage": {
             "requested_limit": limit,
             "visible_rows_seen": snapshot.get("visible_rows_seen", 0),
             "candidates_found": len(candidates),
+            "export_rows_parsed": len(export_candidates),
             "table_count": snapshot.get("table_count", 0),
             "adf_response_bodies_checked": len(response_bodies),
+            "adf_declared_row_count": adf_metrics.get("declared_row_count"),
+            "adf_rows_parsed": adf_metrics.get("rows_parsed"),
         },
         "candidates": [candidate.to_dict() for candidate in candidates],
         "snapshot": snapshot,
@@ -148,7 +179,7 @@ def discover_active_candidates_audit(
         "response_count": len(responses),
         "requests": requests[:220],
         "responses": responses[:220],
-        "response_bodies": response_bodies,
+        "response_bodies": report_response_bodies(response_bodies),
         "screenshot": str(screenshot_path) if screenshot_path else None,
     }
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -178,6 +209,119 @@ def search_eshidis_grid(page: Any, *, status_value: str = "2") -> dict[str, Any]
         "status_changed": status_changed,
         "status_input_id": "qryId1:val00::content",
         "button_id": "qryId1::search",
+    }
+
+
+def export_search_results_excel(page: Any, out_path: Path) -> dict[str, Any]:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    export_control = page.locator("#pc1\\:ctb1 a, #pc1\\:ctb1").first
+    try:
+        export_control.wait_for(state="visible", timeout=10_000)
+        with page.expect_download(timeout=30_000) as download_info:
+            export_control.click(timeout=5_000)
+        download = download_info.value
+        download.save_as(str(out_path))
+        return {
+            "attempted": True,
+            "ok": True,
+            "path": str(out_path),
+            "suggested_filename": download.suggested_filename,
+            "bytes": out_path.stat().st_size,
+        }
+    except PlaywrightTimeoutError as exc:
+        return {"attempted": True, "ok": False, "error": repr(exc)}
+    except Exception as exc:
+        return {"attempted": True, "ok": False, "error": repr(exc)}
+
+
+def _discovery_viewport_height(limit: int) -> int:
+    # Oracle ADF virtual tables render more rows when the initial viewport is taller.
+    return min(max(1200, int(limit) * 140), 16000)
+
+
+def scroll_search_results_grid(page: Any, *, limit: int, max_steps: int = 40) -> dict[str, Any]:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    try:
+        page.wait_for_function(
+            """
+            () => {
+              const db = document.getElementById('pc1:t1::db');
+              return Boolean(db && db.scrollHeight > 100 && db.querySelector('tr[role="row"]'));
+            }
+            """,
+            timeout=10_000,
+        )
+    except PlaywrightTimeoutError:
+        return {
+            "attempted": True,
+            "steps": [],
+            "unique_ids_seen": 0,
+            "max_steps": max_steps,
+            "warning": "Search result grid did not become scrollable before timeout.",
+        }
+
+    seen_ids: set[str] = set()
+    steps: list[dict[str, Any]] = []
+    for step in range(max_steps):
+        visible_ids = page.evaluate(
+            """
+            () => {
+              const clean = (value) => (value || '').replace(/\\s+/g, ' ').trim();
+              const rows = Array.from(document.querySelectorAll('#pc1\\\\:t1\\\\:\\\\:db tr[role="row"]'));
+              return rows
+                .map((row) => clean(row.innerText).match(/\\b\\d{5,7}\\b/)?.[0])
+                .filter(Boolean);
+            }
+            """
+        )
+        for eshidis_id in visible_ids:
+            seen_ids.add(str(eshidis_id))
+        scroll_state = page.evaluate(
+            """
+            () => {
+              const db = document.getElementById('pc1:t1::db');
+              if (!db) {
+                return {found: false, scrolled: false};
+              }
+              const before = db.scrollTop;
+              const step = Math.max(db.clientHeight || 0, 800);
+              db.scrollTop = Math.min(db.scrollHeight, before + step);
+              db.dispatchEvent(new Event('scroll', {bubbles: true}));
+              return {
+                found: true,
+                before,
+                after: db.scrollTop,
+                scrollHeight: db.scrollHeight,
+                clientHeight: db.clientHeight,
+                scrolled: db.scrollTop > before
+              };
+            }
+            """
+        )
+        steps.append(
+            {
+                "step": step + 1,
+                "visible_ids": len(visible_ids),
+                "unique_ids_seen": len(seen_ids),
+                "scroll": scroll_state,
+            }
+        )
+        if len(seen_ids) >= limit:
+            break
+        if not isinstance(scroll_state, dict) or not scroll_state.get("found") or not scroll_state.get("scrolled"):
+            break
+        try:
+            page.wait_for_load_state("networkidle", timeout=4_000)
+        except PlaywrightTimeoutError:
+            pass
+        page.wait_for_timeout(700)
+    return {
+        "attempted": True,
+        "steps": steps,
+        "unique_ids_seen": len(seen_ids),
+        "max_steps": max_steps,
     }
 
 
@@ -282,7 +426,7 @@ def parse_adf_response_candidates(
     candidates: list[EshidisDiscoveryCandidate] = []
     seen: set[str] = set()
     for response in response_bodies:
-        body = response.get("body_sample")
+        body = response.get("_body_text") or response.get("body_sample")
         if not isinstance(body, str) or "pc1:t1" not in body or "_rowCount" not in body:
             continue
         decoded = html.unescape(body)
@@ -311,6 +455,87 @@ def parse_adf_response_candidates(
             if len(candidates) >= limit:
                 return candidates
     return candidates
+
+
+def parse_excel_export_candidates(
+    export_html: str,
+    *,
+    source_url: str = ESHIDIS_SEARCH_URL,
+    limit: int = 25,
+) -> list[EshidisDiscoveryCandidate]:
+    candidates: list[EshidisDiscoveryCandidate] = []
+    seen: set[str] = set()
+    decoded = html.unescape(export_html)
+    rows = re.findall(r"<tr\b[^>]*>(.*?)</tr>", decoded, flags=re.IGNORECASE | re.DOTALL)
+    for row_html in rows:
+        cells = [
+            _clean_text(re.sub(r"<[^>]+>", " ", cell_html))
+            for cell_html in re.findall(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", row_html, flags=re.IGNORECASE | re.DOTALL)
+        ]
+        cells = [cell for cell in cells if cell]
+        if not cells:
+            continue
+        row_text = _clean_text(" ".join(cells))
+        if _is_header_or_filter_row(row_text):
+            continue
+        eshidis_id = _first_system_id(cells[0]) or _first_system_id(row_text)
+        if not eshidis_id or eshidis_id in seen:
+            continue
+        seen.add(eshidis_id)
+        candidates.append(
+            EshidisDiscoveryCandidate(
+                eshidis_id=eshidis_id,
+                status="DISCOVERED_ACTIVE_CANDIDATE",
+                status_confidence=0.9,
+                title=_adf_value(cells, 2) or _adf_value(cells, 1) or _best_title(cells, row_text, eshidis_id),
+                authority_name=_adf_value(cells, 10) or _best_authority(cells),
+                published_at=_adf_value(cells, 5),
+                submission_deadline=_adf_value(cells, 7),
+                detail_hint=f"Excel export row for {eshidis_id}",
+                source_url=source_url,
+                row_text=row_text[:2000],
+            )
+        )
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+def adf_response_metrics(response_bodies: list[dict[str, Any]]) -> dict[str, int | None]:
+    declared_row_counts: list[int] = []
+    rows_parsed = 0
+    for response in response_bodies:
+        body = response.get("_body_text") or response.get("body_sample")
+        if not isinstance(body, str):
+            continue
+        decoded = html.unescape(body)
+        declared_row_counts.extend(int(value) for value in re.findall(r'_rowCount="(\d+)"', decoded))
+        rows_parsed += len(re.findall(r"<tr\b[^>]*role=\"row\"[^>]*>", decoded, flags=re.IGNORECASE))
+    return {
+        "declared_row_count": max(declared_row_counts) if declared_row_counts else None,
+        "rows_parsed": rows_parsed,
+    }
+
+
+def report_response_bodies(response_bodies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{key: value for key, value in item.items() if key != "_body_text"} for item in response_bodies]
+
+
+def _response_body_record(entry: dict[str, Any], body: str, *, keep_full: bool) -> dict[str, Any]:
+    record = {
+        **entry,
+        "body_sample": body[:MAX_RESPONSE_BODY_SAMPLE_CHARS],
+        "body_length": len(body),
+        "body_sha256": hashlib.sha256(body.encode("utf-8", errors="replace")).hexdigest(),
+        "body_truncated": len(body) > MAX_RESPONSE_BODY_SAMPLE_CHARS,
+    }
+    if keep_full:
+        record["_body_text"] = body
+    return record
+
+
+def _is_discovery_grid_body(body: str) -> bool:
+    return "pc1:t1" in body and "_rowCount" in body
 
 
 def render_discovery_markdown(report: dict[str, Any]) -> str:
@@ -394,14 +619,14 @@ def fetch_resource_audit(
             }
             responses.append(entry)
             content_type = entry["content_type"] or ""
-            if len(response_bodies) < 30 and (
+            if len(response_bodies) < MAX_RESPONSE_BODIES and (
                 "text" in content_type or "html" in content_type or "xml" in content_type or "json" in content_type
             ):
                 try:
                     body = response.text()
                 except Exception as exc:  # pragma: no cover - diagnostic payload only
                     body = f"<body read failed: {exc!r}>"
-                response_bodies.append({**entry, "body_sample": body[:100000]})
+                response_bodies.append(_response_body_record(entry, body, keep_full=False))
 
         page.on("response", record_response)
 

@@ -916,3 +916,26 @@ small successful subset must not be presented as full active-list completion.
 N new or incomplete projects after skipping already complete candidates" and
 can finish successfully when that target is reached inside the discovered
 active window.
+
+## D-078 - Reverse-pricing active ESHIDIS discovery uses official grid export
+**Status:** Accepted
+
+The ESHIDIS active-search Oracle ADF table declares the full active row count
+but only renders a small virtualized window in the browser DOM. Reverse-pricing
+active discovery therefore uses the public `Εξαγωγή σε Excel` action as its
+primary extraction path.
+
+The exported `.xls` is an HTML table containing the full filtered active list.
+The browser DOM and captured ADF response parsing remain fallback diagnostics,
+but they must not be the production limit for nationwide reverse-pricing
+discovery.
+
+## D-079 - UI sessions persist in SQLite
+**Status:** Accepted
+
+Authenticated UI sessions are stored by hashed token in SQLite with the same
+expiry as the browser cookie. The in-memory session map is only a cache.
+
+This lets a user reload the page, or survive a service restart/deploy, without
+losing access or the ability to load the latest run status. Logout deletes the
+persistent session and clears the browser cookie.

@@ -138,6 +138,15 @@ class AdminInvite:
     used_at: str | None
 
 
+@dataclass(frozen=True)
+class AdminSession:
+    token_hash: str
+    email: str
+    role: str
+    created_at: str
+    expires_at: str
+
+
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(db_path)
@@ -652,6 +661,67 @@ def record_admin_user_login(db_path: Path, email: str) -> None:
     connection = connect(db_path)
     try:
         connection.execute("UPDATE admin_users SET last_login_at = ? WHERE email = ?", (now, email.strip().lower()))
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def create_admin_session(
+    db_path: Path,
+    *,
+    token_hash: str,
+    email: str,
+    role: str,
+    expires_at: str,
+) -> AdminSession:
+    initialize(db_path)
+    now = datetime.now(timezone.utc).isoformat()
+    normalized_email = email.strip().lower()
+    connection = connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO admin_sessions (
+                token_hash, email, role, created_at, expires_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (token_hash, normalized_email, role, now, expires_at),
+        )
+        connection.execute("DELETE FROM admin_sessions WHERE expires_at < ?", (now,))
+        connection.commit()
+    finally:
+        connection.close()
+    return AdminSession(token_hash, normalized_email, role, now, expires_at)
+
+
+def get_admin_session(db_path: Path, token_hash: str) -> AdminSession | None:
+    initialize(db_path)
+    now = datetime.now(timezone.utc).isoformat()
+    connection = connect(db_path)
+    try:
+        connection.execute("DELETE FROM admin_sessions WHERE expires_at < ?", (now,))
+        row = connection.execute(
+            """
+            SELECT token_hash, email, role, created_at, expires_at
+            FROM admin_sessions
+            WHERE token_hash = ?
+              AND expires_at >= ?
+            """,
+            (token_hash, now),
+        ).fetchone()
+        connection.commit()
+    finally:
+        connection.close()
+    if not row:
+        return None
+    return AdminSession(str(row[0]), str(row[1]), str(row[2]), str(row[3]), str(row[4]))
+
+
+def delete_admin_session(db_path: Path, token_hash: str) -> None:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        connection.execute("DELETE FROM admin_sessions WHERE token_hash = ?", (token_hash,))
         connection.commit()
     finally:
         connection.close()
@@ -1689,6 +1759,17 @@ def _ensure_runtime_state_tables(connection: sqlite3.Connection) -> None:
             expires_at TEXT NOT NULL,
             used_at TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS admin_sessions (
+            token_hash TEXT PRIMARY KEY,
+            email TEXT NOT NULL,
+            role TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires_at
+        ON admin_sessions(expires_at);
 
         CREATE TABLE IF NOT EXISTS source_documents (
             id INTEGER PRIMARY KEY,

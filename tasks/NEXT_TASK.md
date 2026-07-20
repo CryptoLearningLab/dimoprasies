@@ -81,7 +81,14 @@ Local version `0.1.36` starts the independent reverse-pricing foundation:
   discovery window. The run skips already complete projects without consuming
   that quota and continues until it reaches the requested number of new or
   incomplete projects, or the discovered active window is exhausted.
-- Focused pricing suite passed: `20 passed`.
+- Active ESHIDIS discovery now uses the public `Εξαγωγή σε Excel` grid action
+  as the primary source for reverse-pricing candidates. Live smoke with
+  `--limit 100` parsed `166` exported active rows and returned `100`
+  candidates, while the visible browser grid still exposed only `25`.
+- UI sessions are persisted in SQLite by hashed token, so a reload or service
+  restart can restore the authenticated session until the 12-hour cookie
+  expires. Logout deletes the persistent session.
+- Focused discovery/pricing suite passed: `25 passed`.
 
 The reverse-pricing workflow is intentionally separate from the local
 `ΔΗΜΟΣΙΑ ΕΡΓΑ` dashboard and is not attached to the six-hour cron yet.
@@ -96,10 +103,7 @@ Complete the next gate:
 2. Run the same command without `project_limit` only after the smoke is clean,
    and verify that every discovered active ESHIDIS candidate is either
    completed, skipped as already complete, or explicitly marked partial/failed.
-3. Add pricing-run visibility to the UI/admin surface so the user can see:
-   candidate count, completed, already complete, partial, failed and remaining
-   unprocessed.
-4. Keep reverse-pricing manual; do not attach it to the six-hour cron yet.
+3. Keep reverse-pricing manual; do not attach it to the six-hour cron yet.
 
 ## Required Tests
 
