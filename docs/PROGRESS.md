@@ -3763,6 +3763,35 @@ Evidence:
 # 22 passed
 ```
 
+### 2026-07-20 - Reverse-pricing completion now requires a full OK audit
+
+Reverse-pricing project completion is now stricter. A pricing project is
+skipped as already complete only when it has downloaded/indexed documents,
+merged budget rows and a persisted `pricing_budget_audit` where both row
+arithmetic and document subtotal validation are `OK`.
+
+The subtotal validator now scans all extracted text documents for the project,
+not only the documents that supplied the winning merged rows. This covers
+projects where the official comparable subtotal appears in the οικονομική
+προσφορά rather than inside the parsed budget table.
+
+Live database re-audit after production deploy:
+
+- `OK`: 3 projects (`221233`, `221689`, `221691`).
+- `NEEDS_REVIEW`: 8 projects with parsed rows but arithmetic/subtotal
+  mismatch or missing comparable subtotal.
+- `NO_BUDGET_AUDIT`: 8 projects with no merged pricing budget yet.
+
+Evidence:
+
+```bash
+.venv/bin/python -m pytest tests/test_pricing.py -q
+# 23 passed
+
+gh run watch 29736834659 --repo CryptoLearningLab/dimoprasies --exit-status
+# Deploy Tender Radar: success
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

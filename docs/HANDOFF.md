@@ -836,6 +836,12 @@ The system `python` command is not present in the remote environment; use
   `29700913414`. The droplet reports `tender-radar 0.1.36`,
   `tender-radar-ui.service` is active, and the local droplet homepage contains
   `v0.1.36` plus `pricingNavBtn`.
+- Production deploy on commit `0a8ea10` passed through GitHub Actions run
+  `29736834659`. Reverse-pricing completion now requires a persisted full OK
+  budget audit, not just existing merged rows. Live SQLite re-audit currently
+  has 3 fully OK pricing projects (`221233`, `221689`, `221691`), 8 parsed
+  projects requiring review/reprocess, and 8 projects with no merged budget
+  audit yet.
 
 ## Next Work
 
@@ -843,8 +849,6 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Implement the manual, bounded, nationwide ESHIDIS-only pricing fetcher on top
-of the skip-aware single-project ingest. It should store active projects and
-extracted budget rows in the pricing tables, delete heavy PDF/ZIP payloads
-after extraction, and remain disconnected from cron until a manual smoke
-passes.
+Reprocess the reverse-pricing `NEEDS_REVIEW` and `NO_BUDGET_AUDIT` projects in
+small batches. A project can be reported as pricing-complete only after row
+arithmetic and document subtotal validation both pass `OK`.

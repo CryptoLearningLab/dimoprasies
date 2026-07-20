@@ -959,3 +959,18 @@ This keeps later runs skip/read-only friendly: once a project has extracted
 rows plus an `OK` document-total validation, future runs can trust that audit
 state from `pricing_projects.metadata_json` unless the source changes or a
 force reprocess is requested.
+
+## D-081 - Reverse-pricing skip requires full OK budget audit
+**Status:** Accepted
+
+Reverse-pricing active batch runs must not skip a project merely because
+downloaded documents and merged budget rows already exist. A project is
+`SKIPPED_ALREADY_COMPLETE` only when the persisted `pricing_budget_audit` has:
+
+- `amount_validation.ok = true`
+- `document_total_validation.ok = true`
+
+Projects with `MISMATCH`, `NO_REFERENCE_TOTAL_FOUND`, row arithmetic failures
+or no audit remain eligible for the next bounded pricing run. This prevents
+bad or partial extractions from being frozen into the database as if they were
+verified.
