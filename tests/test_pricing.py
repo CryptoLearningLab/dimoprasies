@@ -82,6 +82,39 @@ def test_parse_budget_rows_extracts_b18_6_fixture_row() -> None:
     assert row.amount == 168000
 
 
+def test_budget_filename_only_accepts_numbered_budget_filename_variants(tmp_path: Path) -> None:
+    pdf = tmp_path / "placeholder.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+
+    accepted = [
+        "07 ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        "04. ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        "06_ ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        "* ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        "ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ_signed.pdf",
+        "ΤΕΥΧΗ.zip/04. ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        "07 ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.zip/scan001.pdf",
+    ]
+
+    for name in accepted:
+        assert _is_pricing_candidate_document(name, pdf, mode="budget_filename_only"), name
+
+
+def test_budget_filename_only_rejects_non_budget_pricing_like_names(tmp_path: Path) -> None:
+    pdf = tmp_path / "placeholder.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+
+    rejected = [
+        "01 ΜΕΛΕΤΗ.pdf",
+        "02 ΠΡΟΜΕΤΡΗΣΗ.pdf",
+        "03 ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ.pdf",
+        "ΣΤΑΤΙΚΗ ΜΕΛΕΤΗ.zip/ΣΟ3 ΟΠΛΙΣΜΟΙ signed.pdf",
+    ]
+
+    for name in rejected:
+        assert not _is_pricing_candidate_document(name, pdf, mode="budget_filename_only"), name
+
+
 def test_parse_budget_rows_uses_at_column_when_group_numbers_restart() -> None:
     text = """
       1 Γενικές Εκσκαφές σε έδαφος     ΝΑΟΔΟ Α02      ΝΟΔΟ 1123.Α    1            m3    6.500,00               3,55    23.075,00
