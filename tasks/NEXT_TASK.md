@@ -1,26 +1,34 @@
 # NEXT TASK
 
 Execute:
-`Run guarded reverse-pricing refetch after v0.1.47 nested-archive OCR guard`
+`Implement two-stage reverse-pricing document routing after budget-filename-only smoke`
 
 ## Current Input
 
 The independent reverse-pricing workflow remains disconnected from cron.
-`v0.1.47` keeps the `v0.1.45` incremental JSONL progress logs and tightens the
-pre-OCR guard for nested drawing/study PDFs inside archive bundles. Use
-`--progress-log` for any long refetch/reprocess run and monitor it with
-`tail -f`.
+`v0.1.49` adds and tightens an experimental `--budget-filename-only` mode. The
+mode accepts normalized filename/path variants containing `ΠΡΟΥΠΟΛΟΓ`, such as
+`07 ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`, `04. ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`, `06_ ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ` and nested
+archive children, while rejecting non-budget terms such as `ΜΕΛΕΤΗ`,
+`ΠΡΟΜΕΤΡΗΣΗ` and drawing/text artifacts unless their own path contains the
+budget signal.
 
-A force-refetch stress run was stopped after ESHIDIS `221325` spent many
-minutes OCR-ing nested drawing files from `ΣΧΕΔΙΑ ΑΡΧ.ΜΕΛΕΤΗΣ ...zip` and
-`ΣΤΑΤΙΚΗ ΜΕΛΕΤΗ ...zip` without finding budget rows. That behavior is now
-guarded; rerun a small force batch before attempting a larger active-window
-pass.
+The live isolated `v0.1.49` 20-candidate smoke found 156 active ESHIDIS
+candidates and processed the closest 20 by deadline without the previous OCR
+storm. It completed only one project (`220992`) under the strict filter; the
+remaining 19 were partial because the strict pass found no budget rows, no
+reference total or mismatched subtotals.
 
-The `v0.1.47` three-candidate live smoke finished. The next repair target is
-budget-row parsing for ESHIDIS `221325`, where
-`Οικονομική_προσφορά_Έργου_αρ___190626.pdf` exposes a valid reference total
-(`566.708,16`) but no budget rows were parsed.
+Therefore the next gate is not to make filename-only parsing the sole
+production rule. Implement a two-stage strategy:
+
+1. First pass: parse only documents/paths containing `ΠΡΟΥΠΟΛΟΓ`.
+2. If merged rows and official subtotal validation are `OK`, stop.
+3. If no rows, no reference total or mismatch remains, route to targeted
+   fallback candidates such as AI budget-router selected pages or a broader
+   deterministic document set.
+4. Keep the same arithmetic and official subtotal validation requirements for
+   fallback output.
 
 The repair command is:
 
@@ -141,23 +149,22 @@ Do not mark a project `OK` unless:
 
 ## Suggested Next Gate
 
-1. Targeted re-ingest/re-route `220675`. The standalone official PDF must be
-   preserved locally before row extraction/reconciliation.
-2. Reprocess `220675` from `ΠΡΟΜΕΤΡΗΣΗ-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf` and determine
-   whether it can reconcile to a trusted monetary subtotal.
-3. Inspect `221720` next. It has many parsed rows but appears to be reading a
-   price-list/table with many `quantity = 1` rows rather than the actual
-   project budget. Add a generic guard if this pattern is confirmed.
-4. Then inspect the zero/near-zero row cases: `220133`, `221006`, `221381`,
-   `221452`.
-5. Only after classification, add targeted parser or AI fallback improvements
-   for one confirmed generic layout at a time.
+1. Add a production default document-routing mode equivalent to
+   `budget-first-with-fallback`, separate from the experimental strict
+   `--budget-filename-only` CLI flag.
+2. Use the `v0.1.49` live smoke as regression evidence: `221325` must not OCR
+   nested drawing scans in the first pass, while `221566` must be allowed to
+   recover through fallback because strict budget-only parsing loses rows.
+3. Run focused tests and then a small live isolated smoke before touching the
+   main pricing database.
 
 ## Required Tests
 
 - Focused `tests/test_pricing.py` after every parser/audit rule change.
 - Regression tests for each new generic parser layout fixed.
 - Live read-only SQLite audit before and after any live reprocess.
+- Regression test that `--budget-filename-only` accepts numbered/punctuated
+  `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ` variants and rejects non-budget document names.
 
 ## Required Closeout
 

@@ -1,5 +1,18 @@
 # Decision Log
 
+## D-090 — Budget filename-only parsing is a first-pass guard
+**Status:** Accepted
+
+Reverse-pricing may use a strict `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ` filename/path filter as the
+first pass to avoid expensive OCR over scans, drawings and secondary studies.
+The filter must normalize punctuation, numbering and nested archive paths, so
+variants such as `07 ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`, `04. ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`,
+`06_ ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`, prefixed and suffixed names all match.
+
+This is not a sufficient final production rule. If the strict pass produces no
+rows, no trusted reference total or a subtotal mismatch, the project must enter
+a targeted fallback route instead of being marked complete or abandoned.
+
 ## D-089 — Nested drawing archives must not trigger pricing OCR by parent name
 **Status:** Accepted
 
