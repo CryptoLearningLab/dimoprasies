@@ -2621,15 +2621,27 @@ def extract_budget_total_candidates(text: str) -> list[dict[str, Any]]:
         amounts = [amount for amount in amounts if amount is not None]
         if not amounts:
             continue
+        amount = _select_budget_total_amount(clean, amounts)
+        if amount is None:
+            continue
         candidates.append(
             {
-                "amount": amounts[-1],
+                "amount": amount,
                 "line_number": line_number,
                 "label": clean[:220],
                 "confidence": confidence,
             }
         )
     return candidates
+
+
+def _select_budget_total_amount(line: str, amounts: list[float | int]) -> float | int | None:
+    if not amounts:
+        return None
+    normalized = strip_accents(line).upper()
+    if "ΣΥΝΟΛΟ ΔΑΠΑΝΗΣ" in normalized or "ΣΥΝΟΛΟ ΚΟΣΤΟΥΣ" in normalized:
+        return amounts[0]
+    return amounts[-1]
 
 
 def _looks_like_quantity_total_line(normalized_line: str) -> bool:

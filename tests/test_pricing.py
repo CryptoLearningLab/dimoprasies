@@ -279,6 +279,14 @@ def test_extract_budget_total_candidates_ignores_quantity_totals() -> None:
     assert [candidate["amount"] for candidate in candidates] == [93574.13]
 
 
+def test_extract_budget_total_candidates_prefers_project_total_before_p2_zero() -> None:
+    text = "Σύνολο Δαπάνης του Έργου Σ2: 110.417,47 Π2: 0,00"
+
+    candidates = extract_budget_total_candidates(text)
+
+    assert [candidate["amount"] for candidate in candidates] == [110417.47]
+
+
 def test_parse_budget_rows_handles_collapsed_ocr_table_stream() -> None:
     text = """
     ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΔΗΜΟΠΡΑΤΗΣΗΣ 1]Εκθάµνωση εδάφους µε ΝΑΟΙΚ ΟΙΚ2101 001 m2 | 4.480,00 17.920,00
