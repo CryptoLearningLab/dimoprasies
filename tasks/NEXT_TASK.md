@@ -100,13 +100,16 @@ source subtotal.
 
 Suggested next gate:
 
-1. Deploy `v0.1.40` and run focused droplet pricing tests.
-2. Run:
-   `tender-radar pricing reprocess-existing --eshidis-id 221452 --eshidis-id 221006 --use-ai-fallback --report ...`
-3. Inspect whether AI produced locally arithmetic-valid rows.
-4. Keep projects in `NEEDS_REVIEW` unless official document-total validation
-   passes. Do not weaken deterministic guards to make AI output fit.
-5. Then inspect `220423` missing/false rows after the collapsed parser.
+1. Inspect `220423` missing/false rows after the collapsed parser.
+2. If a generic parser repair is possible, add a focused regression test and
+   reprocess only `220423`.
+3. If not, classify it as `MANUAL_REVIEW_REQUIRED` with evidence.
+4. Then inspect parsed subtotal mismatches (`219795`, `220220`, `220675`,
+   `221368`, `221720`) one small batch at a time.
+
+`221452` and `221006` already passed through the guarded AI fallback on
+`v0.1.40`; no subtotal-valid rows were produced, and SQLite contains no
+persisted budget rows for those ids after the guarded reprocess.
 
 ## Required Tests
 

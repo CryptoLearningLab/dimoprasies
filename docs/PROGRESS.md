@@ -3967,16 +3967,17 @@ Evidence:
 # 271 passed
 ```
 
-Live production evidence after deploy on commit `1ca5a06`:
+Live production evidence after deploy on commit `350458d`:
 
-- Droplet HEAD: `1ca5a06`.
-- Runtime version: `tender-radar 0.1.38`.
-- Droplet focused tests: `tests/test_pricing.py` -> `41 passed` before the
-  extra subtotal guard was added locally.
+- Droplet HEAD: `350458d`.
+- Runtime version: `tender-radar 0.1.40`.
+- Droplet focused tests: `tests/test_pricing.py` -> `42 passed`.
 - Targeted AI fallback run for `221452` and `221006` stayed `NEEDS_REVIEW`.
-  `221452` produced arithmetic-valid AI rows, but the merged total did not
-  reconcile to the official offer subtotal, proving the guard kept it out of
-  `OK`. `221006` still produced zero accepted rows.
+  Both projects have official offer subtotals in extracted text, but the
+  fallback produced no rows that passed same-document subtotal validation.
+- Live SQLite check after the reprocess confirmed zero persisted
+  `pricing_budget_rows` for `221452` and `221006`, so rejected AI extraction did
+  not pollute the pricing database.
 
 ## Handoff Discipline
 

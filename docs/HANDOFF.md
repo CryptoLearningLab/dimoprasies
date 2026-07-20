@@ -871,6 +871,11 @@ The system `python` command is not present in the remote environment; use
   validation. AI rows are also rejected unless their document-level sum matches
   an official subtotal found in the same extracted text, and project completion
   still requires official subtotal validation.
+- Production deploy on commit `350458d` passed. Droplet runtime is
+  `tender-radar 0.1.40` and focused pricing tests report `42 passed`.
+  Targeted AI fallback for `221452` and `221006` rejected all candidate rows and
+  left both projects in `NEEDS_REVIEW`; SQLite has no persisted budget rows for
+  those two ids after the guarded reprocess.
 
 ## Next Work
 
@@ -878,8 +883,8 @@ Follow `tasks/NEXT_TASK.md`.
 
 Current intended next gate:
 
-Deploy `v0.1.40`, run focused droplet tests, then run the OpenAI fallback only
-against `221452` and `221006` first. If the fallback yields arithmetic-valid
-rows but project subtotal validation still fails, keep them in `NEEDS_REVIEW`
-and inspect the official source/PDF quality instead of weakening deterministic
-guards.
+Continue with the remaining reverse-pricing review set. `221452` and `221006`
+now require source-quality/manual review or improved OCR, not looser parsing:
+the guarded AI fallback did not produce subtotal-valid rows. Next priority is
+`220423`, then parsed subtotal mismatches (`219795`, `220220`, `220675`,
+`221368`, `221720`).
