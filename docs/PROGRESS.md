@@ -3837,6 +3837,32 @@ Current fully OK/complete reverse-pricing projects after this pass:
 - `221689`
 - `221691`
 
+### 2026-07-20 - Reverse-pricing parser handles wrapped numeric-prefix budget rows
+
+Added another generic reverse-pricing parser repair for budget tables where
+OCR/layout extraction splits one row across two lines:
+
+- the first line contains revision code, unit, quantity and unit price;
+- the following line starts with the row number and contains description,
+  article code, local `Α.Τ.` and amount.
+
+The numeric parser now also supports English-style formatted numbers such as
+`46,750.00` and `72,649.57`, which appear in some official Greek PDFs.
+
+This is intended to repair archived/source-extracted budget documents such as
+the `221148` `ΜΕΛΕΤΗ.rar` budget, without hardcoding a project id or a specific
+article.
+
+Evidence:
+
+```bash
+.venv/bin/python -m pytest tests/test_pricing.py
+# 36 passed
+
+.venv/bin/python -m py_compile src/tender_radar/pricing.py
+# passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

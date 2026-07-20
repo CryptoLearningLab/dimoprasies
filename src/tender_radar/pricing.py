@@ -231,7 +231,12 @@ def parse_greek_decimal(value: str | None) -> float | None:
     if not value:
         return None
     text = value.strip().replace(" ", "").rstrip("*")
-    if "," in text:
+    if "," in text and "." in text:
+        if text.rfind(".") > text.rfind(","):
+            text = text.replace(",", "")
+        else:
+            text = text.replace(".", "").replace(",", ".")
+    elif "," in text:
         text = text.replace(".", "").replace(",", ".")
     elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+", text):
         text = text.replace(".", "")
@@ -568,6 +573,13 @@ def _parse_budget_table_lines(text: str, *, unit_price_before_quantity: bool = F
         if row is not None:
             parsed.append(row)
             continue
+        wrapped_numeric_row = _parse_wrapped_numeric_prefix_table_line(
+            line,
+            previous_lines=previous_lines,
+        )
+        if wrapped_numeric_row is not None:
+            parsed.append(wrapped_numeric_row)
+            continue
         prefixed_row = _parse_prefixed_article_table_line(
             line,
             previous_line=previous_line,
@@ -577,6 +589,78 @@ def _parse_budget_table_lines(text: str, *, unit_price_before_quantity: bool = F
         if prefixed_row is not None:
             parsed.append(prefixed_row)
     return parsed
+
+
+def _parse_wrapped_numeric_prefix_table_line(
+    line: str,
+    *,
+    previous_lines: list[str],
+) -> PricingBudgetRow | None:
+    match = TABLE_ROW_RE.match(line)
+    if not match:
+        return None
+    row_number = int(match.group("row"))
+    current_tokens = _clean_text(match.group("rest")).split()
+    if len(current_tokens) < 4 or _find_unit_end(current_tokens, len(current_tokens)) is not None:
+        return None
+    amount_token = next((token for token in reversed(current_tokens) if NUMERIC_RE.match(token)), None)
+    amount = parse_greek_decimal(amount_token)
+    if amount is None:
+        return None
+
+    numeric_line_tokens: list[str] | None = None
+    description_prefix_lines: list[str] = []
+    for previous_line in reversed(previous_lines):
+        tokens = _clean_text(previous_line).split()
+        unit_end = _find_unit_end(tokens, len(tokens))
+        if unit_end is None:
+            if _is_description_continuation(previous_line):
+                description_prefix_lines.insert(0, previous_line)
+            continue
+        unit_index, unit = unit_end
+        numeric_after_unit = [token for token in tokens[unit_index + 1 :] if NUMERIC_RE.match(token)]
+        if len(numeric_after_unit) >= 2:
+            numeric_line_tokens = tokens
+            break
+    if numeric_line_tokens is None:
+        return None
+    unit_index, unit = _find_unit_end(numeric_line_tokens, len(numeric_line_tokens)) or (None, None)
+    if unit_index is None or unit is None:
+        return None
+    numeric_after_unit = [token for token in numeric_line_tokens[unit_index + 1 :] if NUMERIC_RE.match(token)]
+    quantity = parse_greek_decimal(numeric_after_unit[0]) if len(numeric_after_unit) >= 1 else None
+    unit_price = parse_greek_decimal(numeric_after_unit[1]) if len(numeric_after_unit) >= 2 else None
+    if quantity is None or unit_price is None:
+        return None
+    if abs(round(float(quantity) * float(unit_price), 2) - float(amount)) > max(0.02, abs(float(amount)) * 0.005):
+        return None
+
+    article_index = _find_structured_article_index(current_tokens)
+    if article_index is None:
+        return None
+    article_tokens = [current_tokens[article_index]]
+    if article_index + 1 < len(current_tokens) and re.search(r"\d", current_tokens[article_index + 1]):
+        article_tokens.append(current_tokens[article_index + 1])
+    article_code = " ".join(article_tokens)
+    description_tokens = current_tokens[:article_index]
+    revision_tokens = numeric_line_tokens[:unit_index]
+    revision_codes = _revision_codes_from_tokens(revision_tokens) or _extract_revision_codes(" ".join(revision_tokens))
+    description = _clean_description(" ".join([*description_prefix_lines, " ".join(description_tokens)]), revision_codes)
+    if not description:
+        return None
+    return PricingBudgetRow(
+        row_number=row_number,
+        article_code=article_code,
+        canonical_article_code=canonical_article_code(article_code),
+        description=description,
+        revision_codes=revision_codes,
+        unit=unit,
+        quantity=quantity,
+        unit_price=unit_price,
+        amount=amount,
+        raw_text=_clean_text(" ".join([*previous_lines, line])),
+        confidence=0.88,
+    )
 
 
 def _filter_invalid_amount_table_rows(rows: list[PricingBudgetRow]) -> list[PricingBudgetRow]:
@@ -606,6 +690,7 @@ def _parse_budget_table_line(
     if not match:
         return None
     row_number = int(match.group("row"))
+    original_row_number = row_number
     tokens = _clean_text(match.group("rest")).split()
     line_for_raw = line
     numeric_positions = [index for index, token in enumerate(tokens) if NUMERIC_RE.match(token)]
@@ -698,6 +783,8 @@ def _parse_budget_table_line(
     description = _clean_description(" ".join(description_parts), revision_codes)
     if not article_code or not description:
         return None
+    if row_number > 999 and original_row_number <= 999:
+        row_number = original_row_number
     return PricingBudgetRow(
         row_number=row_number,
         article_code=article_code,

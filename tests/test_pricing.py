@@ -40,6 +40,12 @@ def test_parse_greek_decimal_treats_plain_dot_triplets_as_thousands() -> None:
     assert parse_greek_decimal("100.00") == 100
 
 
+def test_parse_greek_decimal_handles_english_thousands_decimal_format() -> None:
+    assert parse_greek_decimal("46,750.00") == 46750
+    assert parse_greek_decimal("72,649.57") == 72649.57
+    assert parse_greek_decimal("1,950.00") == 1950
+
+
 def test_parse_budget_rows_extracts_b18_6_fixture_row() -> None:
     text = """
        23     Β-18.6      Φράκτης απορρόφησης ενεργείας
@@ -203,6 +209,40 @@ def test_parse_budget_rows_handles_category_prefixed_article_table() -> None:
     assert rows[3].description.startswith("Προσαύξηση τιμών εκσκαφών")
     assert rows[4].revision_codes == ["ΟΔΟ-2532"]
     assert sum(row.amount or 0 for row in rows) == 34230
+
+
+def test_parse_budget_rows_handles_wrapped_numeric_prefix_rows() -> None:
+    text = """
+                                                    ΠΡΟΫΠΟΛΟΓΙΣΜΟΣ
+                                             ΚΩΔΙΚΟΣ                ΚΩΔΙΚΟΣ                               ΜΕΡΙΚΗ       ΟΛΙΙΚΗ
+Α/Α                   ΠΕΡΙΓΡΑΦΗ                            Α.Τ.               Μ.Μ. ΠΟΣΟΤΗΤΑ     ΤΙΜΗ
+                                             ΑΡΘΡΟΥ                ΑΝΑΘ/ΣΗΣ                               ΔΑΠΑΝΗ      ΔΑΠΑΝΗ
+      1. ΧΩΜΑΤΟΥΡΓΙΚΑ
+    Καθαίρεση οπλισμένων
+                                                                   ΟΙΚ-2227   m3     22.50      25.40
+  1 σκυροδεμάτων                             ΟΔΟ Α-12       1                                                571.50
+    Σκυροδέματα - Σκυρόδεμα κατηγορίας
+                                                                  ΟΔΟ 2532    m3     22.50      94.00
+    τάφρων, προστασίας
+  2 στεγάνωσης γεφυρών κλπ                  ΟΔΟ B-29.3.1    2                                              2,115.00
+    Σιδηροί οπλισμοί - Σιδηρούν δομικό
+    πλέγμα STIV (S500s) εκτός υπόγειων                             ΥΔΡ 7018   Kg    330.00      1.15
+  3 έργων                                   ΟΔΟ B-30.3      3                                                379.50
+  4 ορθογωνισμένες                           ΟΙΚ 73.12      4      ΟΙΚ 7312   m2    550.00      85.00     46,750.00
+      ΣΥΝΟΛΟ                                                                                              49,816.00    49,816.00
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert [row.row_number for row in rows] == [1, 2, 3, 4]
+    assert [row.article_code for row in rows] == ["ΟΔΟ Α-12", "ΟΔΟ B-29.3.1", "ΟΔΟ B-30.3", "ΟΙΚ 73.12"]
+    assert rows[0].revision_codes == ["ΟΙΚ-2227"]
+    assert rows[0].unit == "m3"
+    assert rows[0].quantity == 22.50
+    assert rows[0].unit_price == 25.40
+    assert rows[0].amount == 571.50
+    assert rows[2].unit == "Kg"
+    assert sum(row.amount or 0 for row in rows) == 49816
 
 
 def test_consolidate_validates_merged_sum_against_document_total(tmp_path: Path) -> None:
