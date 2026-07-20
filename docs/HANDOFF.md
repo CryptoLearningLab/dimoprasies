@@ -938,8 +938,13 @@ Production verification:
   `443` local files, `0` stale local paths, `0` `needs_refetch`, `0` stale
   non-preserved local paths
 
-Local v0.1.50 adds a subtotal-percentage guard so lines like
-`ΣΥΝΟΛΟ 1.148.787,69 € 100,00%` use the euro amount, not the trailing
-percentage, as the validation reference. Deploy v0.1.50 next, then reprocess
-only incomplete pricing projects and continue parser/source classification on
-the remaining review set.
+v0.1.50 is deployed at commit `3ffdd2a`. It adds a subtotal-percentage guard
+so lines like `ΣΥΝΟΛΟ 1.148.787,69 € 100,00%` use the euro amount, not the
+trailing percentage, as the validation reference. Live reprocess confirmed the
+guard on `221155`, which now references `1.148.787,69` but still remains
+`NEEDS_REVIEW` because row extraction is wrong.
+
+A targeted AI fallback smoke on zero-row review projects `221314`, `221325`
+and `221452` did not extract analytical budget rows. Treat these as
+parser/layout or source-classification work; do not assume blind AI fallback
+will resolve them.

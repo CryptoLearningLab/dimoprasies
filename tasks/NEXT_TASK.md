@@ -169,14 +169,16 @@ Do not mark a project `OK` unless:
 
 ## Suggested Next Gate
 
-1. Deploy `v0.1.50` subtotal-percentage guard.
-2. Re-run `pricing reprocess-existing --only-incomplete` on production.
-3. Classify the remaining review projects from the clean-storage base into:
+1. Classify the remaining review projects from the clean-storage base into:
    `NEEDS_PARSER_FIX`, `SOURCE_NOT_PRICING`, `NO_PUBLIC_ATTACHMENTS` or
    `MANUAL_REVIEW_REQUIRED`.
-4. Continue with the current review set after storage cleanup:
+2. Continue with the current review set after storage cleanup and v0.1.50:
    `219795`, `220133`, `220220`, `220423`, `220675`, `221006`, `221155`,
    `221314`, `221325`, `221368`, `221381`, `221452`, `221720`.
+3. Prioritize deterministic parser/layout investigation. A targeted
+   `--use-ai-fallback --ai-fallback-mode empty` smoke on `221314`, `221325`
+   and `221452` produced `0` analytical rows, despite official total evidence
+   in economic-offer documents.
 
 Previous next gate, still relevant after storage repair:
 

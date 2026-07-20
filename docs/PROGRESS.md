@@ -14,7 +14,18 @@
   total line also contains a trailing percentage. Lines such as
   `ΣΥΝΟΛΟ 1.148.787,69 € 100,00%` now use the euro amount as the reference
   total instead of the `100,00%` percentage. Regression coverage was added in
-  `tests/test_pricing.py`.
+  `tests/test_pricing.py`. Production deploy `3ffdd2a` is live and the UI
+  reports `v0.1.50`.
+- Post-v0.1.50 production reprocess confirmed the subtotal-percentage guard
+  on `221155`: the reference total is now `1.148.787,69`, not `100,00`.
+  The project still remains `NEEDS_REVIEW` because row extraction is wrong
+  (`1` bad row, amount `2,64`), so this is a parser/layout issue rather than
+  a total-selection issue.
+- A targeted AI fallback smoke on zero-row review projects `221314`, `221325`
+  and `221452` did not produce budget rows. All three still have official
+  total evidence from economic-offer documents but `0` parsed analytical rows.
+  This means the next useful work is deterministic parser/layout support or
+  source classification, not blind AI fallback.
 - Production `v0.1.49` storage cleanup/refetch was executed after a SQLite
   backup:
   `data/backups/tender_radar_before_storage_repair_v0149_20260720T225736Z.sqlite`.
