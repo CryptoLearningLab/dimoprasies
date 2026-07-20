@@ -23,6 +23,7 @@ ARTICLE_RE = re.compile(
     r"^\s*(?P<row>\d{1,3})\s+(?P<article>[A-ZΑ-ΩΒB][A-ZΑ-ΩΒB0-9./-]*\d+(?:[.-]\d+)*)\s+(?P<rest>.*)$"
 )
 TABLE_ROW_RE = re.compile(r"^\s*(?P<row>\d{1,3})\s+(?P<rest>.+)$")
+SPARSE_OCR_ROW_RE = re.compile(r"^\s*(?P<row>\d{1,3}|[~])\s+(?P<rest>.+)$")
 MERGED_BUDGET_SOURCE_DOCUMENT = "__PROJECT_BUDGET_MERGED__"
 NUMERIC_RE = re.compile(r"^\d+(?:[.,]\d{1,3})*\*?$")
 REVISION_RE = re.compile(
@@ -348,6 +349,9 @@ def parse_budget_rows_from_text(text: str) -> list[PricingBudgetRow]:
         for row in table_rows:
             by_key[(row.row_number, row.canonical_article_code, row.description)] = row
         return list(by_key.values())
+    sparse_rows = _parse_sparse_ocr_budget_lines(text)
+    if sparse_rows:
+        return sparse_rows
     blocks = _budget_row_blocks(text)
     rows = [row for block in blocks if (row := _parse_budget_block(block)) is not None]
     return rows
@@ -675,6 +679,81 @@ def _filter_invalid_amount_table_rows(rows: list[PricingBudgetRow]) -> list[Pric
         or row.amount is None
         or _budget_row_amount_is_valid(row)
     ]
+
+
+def _parse_sparse_ocr_budget_lines(text: str) -> list[PricingBudgetRow]:
+    rows: list[PricingBudgetRow] = []
+    last_row_number: int | None = None
+    for line in text.splitlines():
+        match = SPARSE_OCR_ROW_RE.match(line)
+        if not match:
+            continue
+        row_token = match.group("row")
+        row_number = int(row_token) if row_token.isdigit() else (last_row_number + 1 if last_row_number else None)
+        if row_number is None:
+            continue
+        rest = _clean_text(match.group("rest"))
+        normalized = strip_accents(rest).upper()
+        if not rest or normalized.startswith(("ΣΥΝΟΛ", "ΜΕΡΙΚΟ", "ΓΕΝΙΚΟ", "ΦΠΑ", "ΑΝΑΘΕΩΡ")):
+            continue
+        tokens = rest.split()
+        numeric_positions = [index for index, token in enumerate(tokens) if NUMERIC_RE.match(token)]
+        if len(numeric_positions) < 2:
+            continue
+        amount = parse_greek_decimal(tokens[numeric_positions[-1]])
+        quantity = parse_greek_decimal(tokens[numeric_positions[-2]])
+        if amount is None or quantity in (None, 0):
+            continue
+        unit_end = _find_unit_end(tokens, numeric_positions[-2])
+        unit: str | None = None
+        unit_price: float | int | None = None
+        if unit_end is not None and len(numeric_positions) >= 3:
+            unit_index, unit = unit_end
+            unit_price = parse_greek_decimal(tokens[numeric_positions[-2]])
+            quantity = parse_greek_decimal(tokens[numeric_positions[-3]])
+        else:
+            unit_index = numeric_positions[-2]
+            unit = "UNKNOWN"
+            unit_price = round(float(amount) / float(quantity), 2)
+        if quantity in (None, 0) or unit_price is None:
+            continue
+        if abs(round(float(quantity) * float(unit_price), 2) - float(amount)) > max(0.02, abs(float(amount)) * 0.005):
+            continue
+        revision_start = _find_revision_start_before_unit(tokens, unit_index)
+        if revision_start is None:
+            revision_match = next((index for index, token in enumerate(tokens[:unit_index]) if _extract_revision_codes(token)), None)
+            revision_start = revision_match
+        if revision_start is None:
+            continue
+        article_start = revision_start - 1
+        if article_start > 0 and "ΣΧΕΤ" in strip_accents(tokens[article_start]).upper() and NUMERIC_RE.match(tokens[article_start - 1]):
+            article_start -= 1
+        article_tokens = tokens[article_start:revision_start]
+        if not article_tokens:
+            continue
+        description_tokens = tokens[:article_start]
+        revision_tokens = tokens[revision_start:unit_index]
+        revision_codes = _revision_codes_from_tokens(revision_tokens) or _extract_revision_codes(" ".join(revision_tokens))
+        description = _clean_description(" ".join(description_tokens), revision_codes)
+        if not description:
+            continue
+        rows.append(
+            PricingBudgetRow(
+                row_number=row_number,
+                article_code=" ".join(article_tokens),
+                canonical_article_code=canonical_article_code(" ".join(article_tokens)),
+                description=description,
+                revision_codes=revision_codes,
+                unit=unit,
+                quantity=quantity,
+                unit_price=unit_price,
+                amount=amount,
+                raw_text=rest,
+                confidence=0.72 if unit == "UNKNOWN" else 0.84,
+            )
+        )
+        last_row_number = row_number
+    return rows
 
 
 def _parse_budget_table_line(

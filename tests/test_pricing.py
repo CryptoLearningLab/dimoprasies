@@ -258,6 +258,31 @@ def test_extract_budget_total_candidates_handles_english_thousands_decimal_forma
     assert [candidate["amount"] for candidate in candidates] == [72649.57, 85000]
 
 
+def test_parse_budget_rows_handles_sparse_ocr_table_with_missing_unit_prices() -> None:
+    text = """
+                                                                                                                       Αριθ. Τιμολ.    Αρθρο
+                                       Συνοπτική περιγραφή                                                                                        Μονάδα                 Ποσότητα        ..
+                                                                                                                                      Αναθεώρ.
+                                                                                  Α. ΟΙΚΟΔΟΜΙΚΕΣ ΕΡΓΑΣΙΕΣ
+ 1   Στεγονοποίηση κεραμοσκεπών με επαλειφόμενη ελαστική πολυουρική δύο συστατικών                                 79.50 ΣΧΕΤ.        ΟΙΚ-7798                             300,00     24.000,00
+ 2   Αποξήλωση αρμών πλακιδίων και νέα αρμολόγηση με ειδικό στόκο στεγανοποίησης και                                71.01.ΟΙΣΧΕΤ.      ΟΙΚ-7101                             260,00       7.020,00
+ 3   Επάλειψη με υβριδικό ελαστομερές υδατοδιάλυτο στεγανωτικό                                                       79.70.02 ΣΧΕΤ.     ΟΙΚ-7798                              10,00        160,00
+ ~   Επάλειψη επιφανειών ή πλακιδίων με διαφανή στεγανωτική μεμβράνη πολυουρεθανικής                                79.05 ΣΧΕΤ.        ΟΙΚ-7798      m2           28,00     260,00       7.280,00
+ 5   Ειδικά επιχρίσματα ινοπλισμένο                                                                 71.85 ΣΧΕΤ.       ΟΙΚ—7136                     m2           50,00     220,00      11.000,00
+                                                                  ΣΥΝΟΛΟ                                     49.460,00
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert [row.row_number for row in rows] == [1, 2, 3, 4, 5]
+    assert rows[0].unit == "UNKNOWN"
+    assert rows[0].unit_price == 80
+    assert rows[3].unit == "m2"
+    assert rows[3].unit_price == 260
+    assert rows[4].revision_codes == ["ΟΙΚ-7136"]
+    assert sum(row.amount or 0 for row in rows) == 49460
+
+
 def test_consolidate_validates_merged_sum_against_document_total(tmp_path: Path) -> None:
     db_path = tmp_path / "runtime.sqlite"
     text_path = tmp_path / "budget.txt"

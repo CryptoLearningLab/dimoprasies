@@ -3855,11 +3855,18 @@ This is intended to repair archived/source-extracted budget documents such as
 the `221148` `ΜΕΛΕΤΗ.rar` budget, without hardcoding a project id or a specific
 article.
 
+Added a second fallback for sparse OCR summary-budget tables where some rows
+lost the unit/unit-price columns but still retain row number, article/revision
+evidence, quantity and amount. The parser derives the missing unit price from
+`amount / quantity`, marks the unit as `UNKNOWN`, and only accepts rows whose
+arithmetic reconciles. This targets source layouts like `221695` while
+remaining a fallback after the normal structured parsers fail.
+
 Evidence:
 
 ```bash
 .venv/bin/python -m pytest tests/test_pricing.py
-# 37 passed
+# 38 passed
 
 .venv/bin/python -m py_compile src/tender_radar/pricing.py
 # passed
