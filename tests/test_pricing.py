@@ -268,6 +268,17 @@ def test_extract_budget_total_candidates_handles_sparse_ocr_synolo() -> None:
     assert candidates[0]["amount"] == 49460
 
 
+def test_extract_budget_total_candidates_ignores_quantity_totals() -> None:
+    text = """
+    Σύνολο = 850,00 Kgr
+    Σύνολο Κόστους Εργασιών Σ1: 93.574,13 Π1:
+    """
+
+    candidates = extract_budget_total_candidates(text)
+
+    assert [candidate["amount"] for candidate in candidates] == [93574.13]
+
+
 def test_parse_budget_rows_handles_collapsed_ocr_table_stream() -> None:
     text = """
     ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΔΗΜΟΠΡΑΤΗΣΗΣ 1]Εκθάµνωση εδάφους µε ΝΑΟΙΚ ΟΙΚ2101 001 m2 | 4.480,00 17.920,00

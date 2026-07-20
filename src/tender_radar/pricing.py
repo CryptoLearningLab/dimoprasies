@@ -2504,10 +2504,39 @@ def validate_budget_document_totals(
             "candidate_count": 0,
             "candidates": [],
         }
+    exact_matches = [
+        candidate
+        for candidate in candidates
+        if abs(float(candidate["amount"]) - float(amount_total)) <= max(
+            tolerance,
+            abs(float(candidate["amount"])) * relative_tolerance,
+        )
+    ]
+    if exact_matches:
+        ranked = sorted(
+            exact_matches,
+            key=lambda candidate: (
+                -float(candidate["confidence"]),
+                _budget_total_source_penalty(str(candidate.get("source_document") or "")),
+            ),
+        )
+        best = ranked[0]
+        return {
+            "ok": True,
+            "status": "OK",
+            "amount_total": amount_total,
+            "reference_total": best["amount"],
+            "difference": round(float(amount_total) - float(best["amount"]), 4),
+            "allowed_difference": max(tolerance, abs(float(best["amount"])) * relative_tolerance),
+            "reference": best,
+            "candidate_count": len(candidates),
+            "candidates": ranked[:10],
+        }
     ranked = sorted(
         candidates,
         key=lambda candidate: (
             -float(candidate["confidence"]),
+            _budget_total_source_penalty(str(candidate.get("source_document") or "")),
             abs(float(candidate["amount"]) - float(amount_total)),
         ),
     )
@@ -2584,7 +2613,7 @@ def extract_budget_total_candidates(text: str) -> list[dict[str, Any]]:
             confidence = 0.9
         elif normalized_ocr.startswith("ΣΥΝΟΛΟ ") and "ΕΡΓΑΣ" in normalized_ocr:
             confidence = 0.85
-        elif re.search(r"Σ\s*Υ\s*Ν\s*ΟΛΟ", normalized_ocr):
+        elif re.search(r"Σ\s*Υ\s*Ν\s*ΟΛΟ", normalized_ocr) and not _looks_like_quantity_total_line(normalized_ocr):
             confidence = 0.82
         if confidence <= 0:
             continue
@@ -2603,15 +2632,40 @@ def extract_budget_total_candidates(text: str) -> list[dict[str, Any]]:
     return candidates
 
 
+def _looks_like_quantity_total_line(normalized_line: str) -> bool:
+    if "ΕΡΓΑΣ" in normalized_line or "ΔΑΠΑΝ" in normalized_line or "ΚΟΣΤ" in normalized_line:
+        return False
+    return bool(re.search(r"\b(?:KGR|KG|M|M2|M3|ΤΜ|Τ\.Μ|ΤΕΜ|ΤΕΜ\.|ΤΕΜΑΧ|LT|KM|H)\b", normalized_line))
+
+
+def _budget_total_source_penalty(source_document: str) -> int:
+    source_upper = strip_accents(source_document).upper()
+    if "ΠΡΟΥΠΟΛΟΓΙΣ" in source_upper:
+        return 0
+    if "ΟΙΚΟΝΟΜΙΚ" in source_upper and "ΠΡΟΣΦΟΡ" in source_upper:
+        return 1
+    if "ΤΙΜΟΛΟΓ" in source_upper:
+        return 5
+    if "ΠΡΟΜΕΤΡ" in source_upper:
+        return 8
+    if "ΜΕΛΕΤΗ" in source_upper or "ΣΧΕΔ" in source_upper or "LAYOUT" in source_upper:
+        return 20
+    return 10
+
+
 def _budget_row_score(row: PricingBudgetRow, source_document: str) -> tuple[int, int, int, float, int]:
     source_upper = strip_accents(source_document).upper()
     source_score = 0
     if "ΠΡΟΥΠΟΛΟΓΙΣ" in source_upper:
         source_score = 30
+    elif "ΟΙΚΟΝΟΜΙΚ" in source_upper and "ΠΡΟΣΦΟΡ" in source_upper:
+        source_score = 28
     elif "ΤΕΧΝΙΚΗ_ΕΚΘΕΣΗ" in source_upper or "ΤΕΧΝΙΚΗ ΕΚΘΕΣΗ" in source_upper:
         source_score = 20
     elif "ΤΙΜΟΛΟΓ" in source_upper:
         source_score = 10
+    if "ΜΕΛΕΤΗ ΕΦΑΡΜΟΓΗΣ" in source_upper or "LAYOUT" in source_upper or "ΣΧΕΔ" in source_upper:
+        source_score -= 40
     completeness = sum(1 for value in (row.unit, row.quantity, row.unit_price, row.amount) if value is not None)
     amount_score = _budget_row_amount_score(row)
     at_alignment_score = _budget_row_at_alignment_score(row)
