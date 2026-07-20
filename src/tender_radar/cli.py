@@ -263,8 +263,8 @@ def build_parser() -> argparse.ArgumentParser:
     pricing_route_budget.add_argument("eshidis_id", help="Numeric ESHIDIS id.")
     pricing_route_budget.add_argument("--db", default="data/tender_radar.sqlite", help="SQLite database path.")
     pricing_route_budget.add_argument("--report", default=None, help="JSON report output path.")
-    pricing_route_budget.add_argument("--max-documents", type=int, default=8)
-    pricing_route_budget.add_argument("--max-pages-per-document", type=int, default=6)
+    pricing_route_budget.add_argument("--max-documents", type=int, default=5)
+    pricing_route_budget.add_argument("--max-pages-per-document", type=int, default=4)
     pricing_route_budget.add_argument("--timeout", type=int, default=90, help="OpenAI request timeout in seconds.")
 
     sources_parser = subparsers.add_parser("sources", help="Source audit commands.")

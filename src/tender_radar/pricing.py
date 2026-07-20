@@ -496,8 +496,8 @@ def route_pricing_budget_documents_with_ai(
     api_key: str | None = None,
     model: str | None = None,
     timeout_seconds: int = 90,
-    max_documents: int = 8,
-    max_pages_per_document: int = 6,
+    max_documents: int = 5,
+    max_pages_per_document: int = 4,
 ) -> dict[str, Any]:
     """Ask AI to identify the document/page range that contains the budget.
 
@@ -691,7 +691,23 @@ def _absolute_existing_path(value: Any) -> Path | None:
 
 def _pricing_budget_router_page_snippets(local_path: Path | None, *, full_text: str, max_pages: int) -> list[dict[str, Any]]:
     page_items: list[dict[str, Any]] = []
-    if local_path and local_path.suffix.lower() == ".pdf":
+    if full_text:
+        lines = full_text.splitlines()
+        window_size = 36
+        for start in range(0, len(lines), window_size):
+            chunk = _clean_text("\n".join(lines[start : start + window_size]))
+            score = _pricing_router_text_score(chunk)
+            if score <= 0:
+                continue
+            page_items.append(
+                {
+                    "page": None,
+                    "line_start": start + 1,
+                    "score": score,
+                    "snippet": _pricing_router_snippet(chunk),
+                }
+            )
+    if not page_items and local_path and local_path.suffix.lower() == ".pdf":
         try:
             from pypdf import PdfReader  # type: ignore
 
@@ -710,22 +726,6 @@ def _pricing_budget_router_page_snippets(local_path: Path | None, *, full_text: 
                 )
         except Exception:
             page_items = []
-    if not page_items and full_text:
-        lines = full_text.splitlines()
-        window_size = 40
-        for start in range(0, len(lines), window_size):
-            chunk = _clean_text("\n".join(lines[start : start + window_size]))
-            score = _pricing_router_text_score(chunk)
-            if score <= 0:
-                continue
-            page_items.append(
-                {
-                    "page": None,
-                    "line_start": start + 1,
-                    "score": score,
-                    "snippet": _pricing_router_snippet(chunk),
-                }
-            )
     page_items.sort(key=lambda item: -int(item["score"]))
     return page_items[:max_pages]
 
@@ -779,7 +779,7 @@ def _pricing_router_document_score(document_name: str, document_type: str, keywo
     return max(0, score)
 
 
-def _pricing_router_snippet(text: str, *, limit: int = 1800) -> str:
+def _pricing_router_snippet(text: str, *, limit: int = 900) -> str:
     clean = _clean_text(text)
     if len(clean) <= limit:
         return clean
