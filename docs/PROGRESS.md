@@ -10,6 +10,14 @@
 `tasks/NEXT_TASK.md`
 
 ## Completed Milestones
+- Reverse-pricing `v0.1.46` adds a pre-OCR guard for nested drawing PDFs inside
+  archive bundles. A live force-refetch stress run exposed ESHIDIS `221325`
+  spending many minutes OCR-ing files such as
+  `ΣΧΕΔΙΑ ΑΡΧ.ΜΕΛΕΤΗΣ 3 .zip/ΝΕΟ Σ18 signed .pdf` because the child inherited
+  the parent `ΜΕΛΕΤΗΣ` word and was incorrectly treated as a pricing document.
+  Nested children under drawing archives are now skipped unless the child
+  filename itself carries a budget/pricing signal such as `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ` or
+  `ΤΙΜΟΛΟΓΙΟ`.
 - Reverse-pricing `v0.1.45` adds incremental JSONL progress logging for the
   long-running pricing maintenance paths. `pricing ingest-active`,
   `pricing ingest-active-report` and `pricing reprocess-existing` now accept

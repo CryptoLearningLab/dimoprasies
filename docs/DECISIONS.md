@@ -1,5 +1,15 @@
 # Decision Log
 
+## D-089 — Nested drawing archives must not trigger pricing OCR by parent name
+**Status:** Accepted
+
+Reverse-pricing must classify archive children by the child filename before it
+allows expensive OCR. A parent archive name such as `ΣΧΕΔΙΑ ΑΡΧ.ΜΕΛΕΤΗΣ` is not
+enough to treat every nested PDF as a pricing candidate. Nested drawings keep
+provenance/download links and cleanup metadata, but are skipped before OCR
+unless the child filename itself contains budget/pricing evidence such as
+`ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`, `ΤΙΜΟΛΟΓΙΟ`, `ΠΡΟΜΕΤΡΗΣΗ` or `ΟΙΚΟΝΟΜΙΚ`.
+
 ## D-088 — Long pricing maintenance commands must expose incremental progress
 **Status:** Accepted
 

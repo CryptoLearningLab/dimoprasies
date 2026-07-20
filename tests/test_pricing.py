@@ -716,6 +716,20 @@ def test_pricing_candidate_document_accepts_meleti_budget_bundle() -> None:
     )
 
 
+def test_pricing_candidate_document_skips_drawings_inside_meleti_archive() -> None:
+    assert not _is_pricing_candidate_document(
+        "ΣΧΕΔΙΑ ΑΡΧ.ΜΕΛΕΤΗΣ 3 .zip/ΝΕΟ Σ18 signed .pdf",
+        Path("ΝΕΟ Σ18 signed .pdf"),
+    )
+
+
+def test_pricing_candidate_document_accepts_budget_inside_archive() -> None:
+    assert _is_pricing_candidate_document(
+        "ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ.zip/2_ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        Path("2_ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf"),
+    )
+
+
 def test_pricing_retention_preserves_only_essential_operational_documents() -> None:
     preserved = [
         "ΠΡΟΣΚΛΗΣΗ.pdf",

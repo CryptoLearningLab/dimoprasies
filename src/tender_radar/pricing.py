@@ -4449,17 +4449,39 @@ def _is_pricing_candidate_document(document_name: str, local_path: Path) -> bool
         return True
     if suffix != ".pdf":
         return False
-    normalized = strip_accents(f"{document_name} {local_path.name}").upper()
-    compact = re.sub(r"[^A-ZΑ-Ω0-9]+", "", normalized)
-    candidate_terms = (
+    normalized_name = document_name.replace("\\", "/")
+    leaf_name = PurePosixPath(normalized_name).name or local_path.name
+    normalized_leaf = strip_accents(f"{leaf_name} {local_path.name}").upper()
+    compact_leaf = re.sub(r"[^A-ZΑ-Ω0-9]+", "", normalized_leaf)
+    strong_candidate_terms = (
         "ΠΡΟΥΠΟΛΟΓ",
         "ΤΙΜΟΛΟΓ",
         "ΟΙΚΟΝΟΜΙΚ",
+        "ΠΡΟΜΕΤΡ",
+        "ΑΝΑΛΥΤΙΚ",
+    )
+    broad_candidate_terms = (
         "ΤΕΧΝΙΚΗΕΚΘΕΣΗ",
         "ΤΕΧΝΙΚΗ_ΕΚΘΕΣΗ",
         "ΜΕΛΕΤΗ",
     )
-    return any(term in normalized or term in compact for term in candidate_terms)
+    if any(term in normalized_leaf or term in compact_leaf for term in (*strong_candidate_terms, *broad_candidate_terms)):
+        return True
+
+    # Nested archive children often inherit a useful-looking parent name such as
+    # "ΜΕΛΕΤΗΣ", while the actual child is a drawing like "ΝΕΟ Σ18.pdf".
+    # Do not OCR those scan-heavy drawings unless the child filename itself
+    # carries a pricing/budget signal.
+    if "/" in normalized_name:
+        normalized_parent = strip_accents(str(PurePosixPath(normalized_name).parent)).upper()
+        compact_parent = re.sub(r"[^A-ZΑ-Ω0-9]+", "", normalized_parent)
+        drawing_parent = "ΣΧΕΔ" in normalized_parent or "ΣΧΕΔ" in compact_parent
+        if drawing_parent:
+            return False
+
+    normalized_full = strip_accents(f"{document_name} {local_path.name}").upper()
+    compact_full = re.sub(r"[^A-ZΑ-Ω0-9]+", "", normalized_full)
+    return any(term in normalized_full or term in compact_full for term in (*strong_candidate_terms, *broad_candidate_terms))
 
 
 def _extract_pricing_archive(path: Path, destination: Path, *, force: bool = False) -> dict[str, Any]:
