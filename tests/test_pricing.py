@@ -309,6 +309,45 @@ def test_parse_budget_rows_handles_article_suffix_continuation_without_revision_
     assert rows[1].amount == 627
 
 
+def test_parse_budget_rows_handles_neighbor_article_code_with_at_before_unit() -> None:
+    text = """
+                                            ΝΕΤ ΟΔΟ-               ΟΙΚ 7902
+      23    Αντιγραφιστική επάλειψη.                        068                            m2     1000       5,8      5.800,00
+                                            ΜΕ Β-35                100,00%
+                                            ΝΕΤ ΠΡΣ           ΠΡΣ 5340
+      26    Λιπάνσεις. Λίπανση φυτών με τα             138                        Τεμ.     318      0,05           15,90
+                                            ΣΤ3.1             100,00%
+                                            ΝΕΤ ΠΡΣ           ΠΡΣ 5540
+      27    Λιπάνσεις. Λίπανση                         139                        Στρ.       5     11,25           56,25
+                                            ΣΤ3.4             100,00%
+                                            ΝΕΤ ΠΡΣ           ΠΡΣ 5354
+      28    μεγάλων δένδρων. Μεγάλων                   140                        Τεμ.       7      67,5          472,50
+                                            ΣΤ4.3.1           100,00%
+                                            ΝΕΤ ΠΡΣ           ΠΡΣ 5354
+      29    μεγάλων δένδρων. Μεγάλων                   141                        Τεμ.      12      100         1.200,00
+                                            ΣΤ4.3.3           100,00%
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert [row.row_number for row in rows] == [23, 26, 27, 28, 29]
+    assert [row.article_code for row in rows] == [
+        "ΝΕΤ ΟΔΟ- ΜΕ Β-35",
+        "ΝΕΤ ΠΡΣ ΣΤ3.1",
+        "ΝΕΤ ΠΡΣ ΣΤ3.4",
+        "ΝΕΤ ΠΡΣ ΣΤ4.3.1",
+        "ΝΕΤ ΠΡΣ ΣΤ4.3.3",
+    ]
+    assert [row.revision_codes for row in rows] == [
+        ["ΟΙΚ-7902"],
+        ["ΠΡΣ-5340"],
+        ["ΠΡΣ-5540"],
+        ["ΠΡΣ-5354"],
+        ["ΠΡΣ-5354"],
+    ]
+    assert [row.amount for row in rows] == [5800, 15.9, 56.25, 472.5, 1200]
+
+
 def test_parse_budget_rows_handles_decimal_at_layout_with_suffix_articles() -> None:
     text = """
        1 Μεταφορές με αυτοκίνητο δια    ΝΑΟΙΚ          ΟΙΚ 1136      1.01     ton.k    900,00               0,35      315,00

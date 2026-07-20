@@ -436,6 +436,12 @@ def _parse_budget_table_line(
                         revision_tokens = description_tokens
                         description_tokens = []
     if not article_code:
+        surrounding_article = _split_article_from_surrounding_lines(prefix_tokens, previous_line, next_line)
+        if surrounding_article is not None:
+            article_code, description_tokens, revision_tokens = surrounding_article
+            next_line = ""
+            previous_line = ""
+    if not article_code:
         article_code, description_tokens = _article_from_neighbor(previous_line, row_number, description_tokens)
     description_parts = [" ".join(description_tokens)]
     if _should_prepend_previous_description(previous_line, description_tokens):
@@ -666,6 +672,56 @@ def _split_article_from_next_line(tokens: list[str], next_line: str) -> tuple[st
     return None
 
 
+def _split_article_from_surrounding_lines(
+    tokens: list[str],
+    previous_line: str,
+    next_line: str,
+) -> tuple[str, list[str], list[str]] | None:
+    if len(tokens) < 2 or not re.fullmatch(r"\d{3}", _clean_token(tokens[-1])):
+        return None
+    previous_tokens = _clean_text(previous_line).split()
+    next_tokens = _clean_text(next_line).split()
+    if len(previous_tokens) < 2 or not next_tokens:
+        return None
+    prefix_index = next(
+        (
+            index
+            for index, token in enumerate(previous_tokens[:-1])
+            if strip_accents(token).upper().rstrip(".") == "ΝΕΤ"
+            or strip_accents(token).upper().rstrip(".") in ARTICLE_CODE_PREFIXES
+        ),
+        None,
+    )
+    if prefix_index is None:
+        return None
+    suffix_index = _find_article_suffix_index(next_tokens)
+    if suffix_index is None:
+        return None
+    article_tokens = previous_tokens[prefix_index : prefix_index + 2]
+    connector_tokens = next_tokens[:suffix_index]
+    if connector_tokens and _tokens_look_like_article_connector(connector_tokens):
+        article_tokens = [*article_tokens, *connector_tokens]
+        description_suffix_tokens: list[str] = []
+    else:
+        description_suffix_tokens = connector_tokens
+    article_code = " ".join([*article_tokens, next_tokens[suffix_index]])
+    description_tokens = [*tokens[:-1], *description_suffix_tokens]
+    if not description_tokens:
+        return None
+    revision_tokens = previous_tokens[prefix_index + 2 :]
+    return article_code, description_tokens, revision_tokens
+
+
+def _tokens_look_like_article_connector(tokens: list[str]) -> bool:
+    if not tokens or len(tokens) > 2:
+        return False
+    for token in tokens:
+        clean = strip_accents(_clean_token(token)).upper().rstrip(".")
+        if not clean or not re.fullmatch(r"[A-ZΑ-Ω-]+", clean):
+            return False
+    return True
+
+
 def _split_article_prefix_from_next_line(tokens: list[str], next_line: str) -> tuple[str, list[str], list[str]] | None:
     next_tokens = _clean_text(next_line).split()
     if not next_tokens:
@@ -695,6 +751,8 @@ def _find_article_suffix_index(tokens: list[str]) -> int | None:
     for index, token in enumerate(tokens):
         clean = _clean_token(token)
         if re.fullmatch(r"\d+[A-ZΑ-ΩA-Z0-9]*", clean, flags=re.IGNORECASE):
+            return index
+        if re.fullmatch(r"[A-ZΑ-ΩΒB][-_]?\d+(?:[./-][A-ZΑ-ΩA-Z0-9]+)*", clean, flags=re.IGNORECASE):
             return index
         if re.fullmatch(r"[A-ZΑ-ΩΒB]?[\\/A-ZΑ-ΩΒB]*\d+(?:[./-][A-ZΑ-ΩA-Z0-9]+)+", clean, flags=re.IGNORECASE):
             return index
