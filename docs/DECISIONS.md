@@ -1,17 +1,20 @@
 # Decision Log
 
-## D-090 — Budget filename-only parsing is a first-pass guard
-**Status:** Accepted
+## D-090 — Strict budget filename-only parsing is not a production path
+**Status:** Rejected
 
-Reverse-pricing may use a strict `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ` filename/path filter as the
-first pass to avoid expensive OCR over scans, drawings and secondary studies.
-The filter must normalize punctuation, numbering and nested archive paths, so
-variants such as `07 ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`, `04. ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`,
-`06_ ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`, prefixed and suffixed names all match.
+The experimental strict filename-only pass that parsed only documents whose
+path contained `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ` is not a production strategy. A live isolated
+20-candidate smoke completed only one project and proved that valid budgets
+can be split across a named budget PDF plus technical report, financial offer
+form or other official attachment. ESHIDIS `221566` is the clearest example:
+strict budget-file parsing lost rows and mismatched the subtotal, while the
+previous broader deterministic flow reconciled all `36` rows to the official
+subtotal.
 
-This is not a sufficient final production rule. If the strict pass produces no
-rows, no trusted reference total or a subtotal mismatch, the project must enter
-a targeted fallback route instead of being marked complete or abandoned.
+The project remains on the previous broader reverse-pricing flow with guarded
+OCR and validation. Future routing may still prioritize obvious budget files,
+but it must not discard other official pricing evidence before validation.
 
 ## D-089 — Nested drawing archives must not trigger pricing OCR by parent name
 **Status:** Accepted

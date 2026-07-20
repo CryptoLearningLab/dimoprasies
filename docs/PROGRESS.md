@@ -10,31 +10,15 @@
 `tasks/NEXT_TASK.md`
 
 ## Completed Milestones
-- Reverse-pricing `v0.1.49` tightens the experimental
-  `--budget-filename-only` mode so text artifacts are not parsed unless the
-  actual document/archive path contains a budget filename signal. The signal is
-  normalized and accepts numbered/punctuated variants such as
-  `07 ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`, `04. ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`, `06_ ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`,
-  prefix/suffix wildcard-like names and nested archive paths containing
-  `ΠΡΟΥΠΟΛΟΓ`.
-- Live isolated `v0.1.49` budget-filename-only smoke over the first 20 active
-  ESHIDIS candidates found 156 active candidates and inspected the closest 20
-  deadlines without an OCR storm. It downloaded/indexed attachments with zero
-  failed attachments, but completed only `1/20` projects (`220992`) under the
-  strict filename-only rule; `19/20` stayed partial because many valid budgets
-  are not in files whose name/path includes `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ` or because the
-  strict pass found rows that did not reconcile to the official subtotal.
-- The budget-filename-only test proves the rule is useful as a first-pass
-  guard, not as the sole production parser. Production reverse-pricing should
-  first parse budget-named documents; if validation is `OK`, stop. If no rows,
-  missing reference total or mismatch remains, it should enter a targeted
-  fallback router/broader document set with the same arithmetic and subtotal
-  validation requirements.
-- Reverse-pricing `v0.1.48` added the experimental CLI flag
-  `--budget-filename-only` to `pricing ingest-eshidis`,
-  `pricing ingest-active-report` and `pricing ingest-active`. A first live
-  smoke exposed that plain `.txt` extraction artifacts could still pass before
-  the filename filter; this was corrected in `v0.1.49`.
+- The experimental strict `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ` filename-only reverse-pricing path
+  was reverted after live isolated testing. The 20-candidate smoke found 156
+  active ESHIDIS candidates and avoided an OCR storm, but completed only
+  `1/20` projects under the strict rule. A follow-up isolated fallback check
+  showed `221566` returning to the previous good result (`36` merged rows,
+  subtotal `2.466.374,00`, validation `OK`) only when the broader guarded
+  parser was used. The project is therefore back on the previous broader
+  parsing/reprocess strategy that had `9` validated projects and `11` review
+  projects in the latest full deterministic audit.
 - Reverse-pricing `v0.1.47` tightens the pre-OCR guard for nested archive
   children. A second live smoke exposed `ΣΤΑΤΙΚΗ ΜΕΛΕΤΗ .zip/ΣΟ3 ΟΠΛΙΣΜΟΙ`
   entering OCR because the archive parent contained `ΜΕΛΕΤΗ`; nested children
