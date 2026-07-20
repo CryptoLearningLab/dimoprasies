@@ -939,3 +939,22 @@ expiry as the browser cookie. The in-memory session map is only a cache.
 This lets a user reload the page, or survive a service restart/deploy, without
 losing access or the ability to load the latest run status. Logout deletes the
 persistent session and clears the browser cookie.
+
+## D-080 - Reverse pricing requires document-level budget sum validation
+**Status:** Accepted
+
+Merged reverse-pricing budgets are not considered fully audited only because
+row extraction succeeded. After consolidation, the module must compare the
+database sum of merged row amounts against an official subtotal extracted from
+the source budget/study document when such a subtotal is available.
+
+The validation result is explicit:
+
+- `OK`: database sum matches the official source subtotal within tolerance.
+- `MISMATCH`: extraction succeeded but the database sum does not reconcile.
+- `NO_REFERENCE_TOTAL_FOUND`: rows were extracted, but no comparable official
+  subtotal was found in the extracted text.
+
+This keeps later runs skip/read-only friendly: once a project has extracted
+rows plus an `OK` document-total validation, future runs can trust that audit
+state unless the source changes or a force reprocess is requested.

@@ -3740,6 +3740,28 @@ restart or production deploy.
 
 Logout deletes both the in-memory and SQLite session records.
 
+### 2026-07-20 - Reverse-pricing budget audit adds document subtotal validation
+
+Reverse-pricing budget consolidation now compares the merged database sum
+against subtotal lines found in the source budget/study text, such as
+`ΣΥΝΟΛΟ Α+Β`, `ΣΥΝΟΛΟ ΚΟΣΤΟΥΣ ΕΡΓΑΣΙΩΝ`, `ΔΑΠΑΝΗ ΕΡΓΑΣΙΩΝ` and
+`ΣΥΝΟΛΟ ΕΡΓΑΣΙΩΝ`. The returned merge summary includes
+`document_total_validation` with `OK`, `MISMATCH` or
+`NO_REFERENCE_TOTAL_FOUND`.
+
+The parser also now handles budget layouts like ESHIDIS `221233`, where a
+bundled `ΜΕΛΕΤΗ ΕΡΓΟΥ` document contains a budget table with columns ordered as
+unit, local `ΑΤ`, revision, unit price, quantity and amount. This fixes the
+previous zero-row extraction for that project layout without regressing the
+existing pricing fixtures.
+
+Evidence:
+
+```bash
+.venv/bin/python -m pytest tests/test_pricing.py -q
+# 22 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

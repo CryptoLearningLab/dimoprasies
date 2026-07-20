@@ -120,6 +120,87 @@ def test_parse_budget_rows_handles_split_m3_and_starred_unit_prices() -> None:
     assert sum(row.amount or 0 for row in rows) == 138253.83
 
 
+def test_parse_budget_rows_handles_local_at_with_unit_price_before_quantity() -> None:
+    text = """
+                                                 ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΜΕΛΕΤΗΣ
+                                                        Μον                                                          Τιμή
+Α/Α                  Περιγραφή εργασιών                           ΑΤ       Προέλ. Τιμολ.          Κωδ Αναθ                   Ποσότ    Ποσόν
+                                                        Μετρ                                                        Μοναδ
+
+                                                   ΥΠΟΟΜΑΔΑ Α :ΑΠΟΞΗΛΩΣΕΙΣ-ΚΑΘΑΙΡΕΣΕΙΣ
+         Εκτοποθέτηση πίλλαρ και μεταφορά του στις
+ 1                                                      τεμ.    ΗΛΜ-1     ΣΧ.ΑΤΗΕ 9413.1          ΗΛΜ100            76,00     44,00   3.344,00
+                   αποθήκες του Δήμου
+      Εκτοποθέτηση κενού πίλλαρ και μεταφορά του στις
+ 2                                                      τεμ.    ΗΛΜ-2     ΣΧ.ΑΤΗΕ 9413.2          ΗΛΜ100            49,00     4,00    196,00
+                   αποθήκες του Δήμου
+                                                           ΣΥΝΟΛΟ Α                                                                   3.540,00
+                                                 ΥΠΟΟΜΑΔΑ Β : ΕΡΓΑΣΙΕΣ ΕΓΚΑΤΑΣΤΑΣΗΣ ΠΙΛΛΑΡ
+
+                                                                  [5]
+       Εγκαταστάσεις φωτισμού οδών - πίλλαρ
+                                                               ΝΕΤ.ΗΛΜ
+1   οδοφωτισμού - πίλλαρ οδοφωτισμού τεσσάρων   τεμ.   ΗΛΜ-3                ΗΛΜ52         2.500,00   39,00   97.500,00
+                                                               60.10.80.1
+                   αναχωρήσεων
+        Εγκαταστάσεις φωτισμού οδών - πίλαρ
+                                                               ΝΕΤ.ΗΛΜ
+2     οδοφωτισμού - πίλλαρ οδοφωτισμού οκτώ     τεμ.   ΗΛΜ-4                ΗΛΜ52         2.750,00   4,00    11.000,00
+                                                               60.10.80.2
+                   αναχωρήσεων
+        Εγκαταστάσεις φωτισμού οδών - πίλαρ
+                                                               ΝΕΤ.ΗΛΜ
+3     οδοφωτισμού - πίλλαρ οδοφωτισμού είκοσι   τεμ.   ΗΛΜ-5                ΗΛΜ52         3.250,00   1,00     3.250,00
+                                                               60.10.80.3
+                   αναχωρήσεων
+                                                   ΣΥΝΟΛΟ Β                                                  111.750,00
+
+                                                                                             ΣΥΝΟΛΟ Α+Β 115.290,00
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert [row.row_number for row in rows] == [1, 2, 3, 4, 5]
+    assert [row.article_code for row in rows] == ["ΗΛΜ-1", "ΗΛΜ-2", "ΗΛΜ-3", "ΗΛΜ-4", "ΗΛΜ-5"]
+    assert [row.unit_price for row in rows] == [76, 49, 2500, 2750, 3250]
+    assert [row.quantity for row in rows] == [44, 4, 39, 4, 1]
+    assert sum(row.amount or 0 for row in rows) == 115290
+
+
+def test_consolidate_validates_merged_sum_against_document_total(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    text_path = tmp_path / "budget.txt"
+    text_path.write_text("ΣΥΝΟΛΟ Α+Β 115.290,00\nΤΕΛΙΚΗ ΔΑΠΑΝΗ 200.000,00", encoding="utf-8")
+    upsert_pricing_project(db_path, eshidis_id="221233")
+    document_id = upsert_pricing_document(
+        db_path,
+        eshidis_id="221233",
+        document_name="1_ΜΕΛΕΤΗ ΕΡΓΟΥ.pdf",
+        document_type="budget",
+        text_path=str(text_path),
+    )
+    upsert_pricing_budget_rows(
+        db_path,
+        eshidis_id="221233",
+        document_id=document_id,
+        source_document="1_ΜΕΛΕΤΗ ΕΡΓΟΥ.pdf",
+        rows=[
+            PricingBudgetRow(1, "ΗΛΜ-1", "ΗΛΜ1", "Εκτοποθέτηση πίλλαρ", ["ΗΛΜ100"], "τεμ.", 44, 76, 3344, "", 0.9),
+            PricingBudgetRow(2, "ΗΛΜ-2", "ΗΛΜ2", "Εκτοποθέτηση κενού πίλλαρ", ["ΗΛΜ100"], "τεμ.", 4, 49, 196, "", 0.9),
+            PricingBudgetRow(3, "ΗΛΜ-3", "ΗΛΜ3", "Πίλλαρ τεσσάρων αναχωρήσεων", ["ΗΛΜ52"], "τεμ.", 39, 2500, 97500, "", 0.9),
+            PricingBudgetRow(4, "ΗΛΜ-4", "ΗΛΜ4", "Πίλλαρ οκτώ αναχωρήσεων", ["ΗΛΜ52"], "τεμ.", 4, 2750, 11000, "", 0.9),
+            PricingBudgetRow(5, "ΗΛΜ-5", "ΗΛΜ5", "Πίλλαρ είκοσι αναχωρήσεων", ["ΗΛΜ52"], "τεμ.", 1, 3250, 3250, "", 0.9),
+        ],
+    )
+
+    summary = consolidate_pricing_project_budget(db_path, eshidis_id="221233")
+
+    assert summary["amount_total"] == 115290
+    assert summary["document_total_validation"]["ok"] is True
+    assert summary["document_total_validation"]["reference_total"] == 115290
+    assert summary["document_total_validation"]["reference"]["source_document"] == "1_ΜΕΛΕΤΗ ΕΡΓΟΥ.pdf"
+
+
 def test_parse_budget_rows_handles_split_backslash_articles_and_special_units() -> None:
     text = """
                                                                                                        Τιμή            Δαπάνη (Ευρώ)

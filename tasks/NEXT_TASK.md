@@ -88,6 +88,12 @@ Local version `0.1.36` starts the independent reverse-pricing foundation:
 - UI sessions are persisted in SQLite by hashed token, so a reload or service
   restart can restore the authenticated session until the 12-hour cookie
   expires. Logout deletes the persistent session.
+- Reverse-pricing budget consolidation now returns
+  `document_total_validation`, comparing the merged database amount sum against
+  official subtotal lines found in the source budget/study text.
+- The parser now covers the `221233` bundled `ΜΕΛΕΤΗ ΕΡΓΟΥ` layout where rows
+  use unit, local `ΑΤ`, revision, unit price, quantity and amount columns; this
+  layout previously produced zero budget rows.
 - Focused discovery/pricing suite passed: `25 passed`.
 
 The reverse-pricing workflow is intentionally separate from the local
@@ -129,6 +135,10 @@ Complete the next gate:
   budget recover locally without refetching ESHIDIS.
 - Regression test that merged row amount validation reports exact mismatched
   rows and that duplicate row-number candidates prefer the amount-valid row.
+- Regression test that merged project budget sums are validated against
+  official source-document subtotal lines.
+- Regression test that local `ΑΤ` study-budget layouts with unit price before
+  quantity extract all rows and reconcile to the document subtotal.
 - Live smoke check for `221326` and `221271` after parser changes, until these
   layouts are covered by smaller fixtures.
 - Full test suite before production deploy.

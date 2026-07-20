@@ -327,6 +327,7 @@ def _ocr_pdf_for_budget(path: Path, *, max_pages: int = 12) -> str | None:
 def parse_budget_rows_from_text(text: str) -> list[PricingBudgetRow]:
     table_rows = _parse_budget_table_lines(text, unit_price_before_quantity=_unit_price_before_quantity(text))
     if table_rows:
+        table_rows = _renumber_local_restarted_article_rows(table_rows)
         table_rows = _renumber_decimal_at_layout_rows(table_rows)
         by_key: dict[tuple[int | None, str, str], PricingBudgetRow] = {}
         for row in table_rows:
@@ -339,7 +340,13 @@ def parse_budget_rows_from_text(text: str) -> list[PricingBudgetRow]:
 
 def _unit_price_before_quantity(text: str) -> bool:
     normalized = re.sub(r"\s+", " ", strip_accents(text).upper())
-    return bool(re.search(r"ΜΟΝΑΔΑΣ\s+ΠΟΣΟΤΗΤΑ", normalized))
+    if re.search(r"ΠΟΣΟΤΗΤΑ.{0,80}ΜΟΝΑΔΑΣ", normalized):
+        return False
+    return bool(
+        re.search(r"ΜΟΝΑΔΑΣ\s+ΠΟΣΟΤΗΤΑ", normalized)
+        or re.search(r"ΤΙΜΗ\s+(?:ΜΟΝΑΔ|ΜΟΝ)\S*\s+ΠΟΣΟΤ", normalized)
+        or re.search(r"ΤΙΜΗ.{0,240}ΠΟΣΟΤ", normalized)
+    )
 
 
 def _parse_budget_table_lines(text: str, *, unit_price_before_quantity: bool = False) -> list[PricingBudgetRow]:
@@ -390,30 +397,44 @@ def _parse_budget_table_line(
         unit_price_pos, quantity_pos = numeric_positions[-3], numeric_positions[-2]
     else:
         quantity_pos, unit_price_pos = numeric_positions[-3], numeric_positions[-2]
-    unit_end = _find_unit_end(tokens, quantity_pos)
+    unit_search_pos = unit_price_pos if unit_price_before_quantity else quantity_pos
+    unit_end = _find_unit_end(tokens, unit_search_pos)
     if unit_end is None:
         return None
     unit_start, unit = unit_end
     prefix_tokens = tokens[:unit_start]
+    post_unit_tokens = tokens[unit_start + 1 : unit_price_pos] if unit_price_before_quantity else []
     revision_tokens: list[str] = []
-    work_budget_structured = _split_work_budget_prefix(prefix_tokens, next_line=next_line)
-    if work_budget_structured is not None:
-        row_number, article_code, description_tokens, revision_tokens, consumed_next_line = work_budget_structured
-        previous_line = ""
-        if consumed_next_line:
-            next_line = ""
+    article_code: str | None = None
+    description_tokens: list[str] = []
+    local_after_unit = _split_local_article_budget_prefix(post_unit_tokens, allow_empty_description=True)
+    if local_after_unit is not None:
+        article_code, article_description_tokens, revision_tokens = local_after_unit
+        description_tokens = [*prefix_tokens, *article_description_tokens]
     else:
-        structured = _split_structured_table_prefix(prefix_tokens, next_line=next_line)
-        if structured is not None:
-            row_number, article_code, description_tokens, revision_tokens, consumed_next_line = structured
+        work_budget_structured = _split_work_budget_prefix(prefix_tokens, next_line=next_line)
+        if work_budget_structured is not None:
+            row_number, article_code, description_tokens, revision_tokens, consumed_next_line = work_budget_structured
             previous_line = ""
             if consumed_next_line:
                 next_line = ""
         else:
-            article_code, description_tokens = _split_article_and_description(prefix_tokens)
-            if not revision_tokens and _tokens_are_only_revision_codes(description_tokens) and _is_description_continuation(previous_line):
-                revision_tokens = description_tokens
-                description_tokens = []
+            structured = _split_structured_table_prefix(prefix_tokens, next_line=next_line)
+            if structured is not None:
+                row_number, article_code, description_tokens, revision_tokens, consumed_next_line = structured
+                previous_line = ""
+                if consumed_next_line:
+                    next_line = ""
+            else:
+                local_article = _split_local_article_budget_prefix(prefix_tokens)
+                if local_article is not None:
+                    article_code, description_tokens, revision_tokens = local_article
+                    previous_line = ""
+                else:
+                    article_code, description_tokens = _split_article_and_description(prefix_tokens)
+                    if not revision_tokens and _tokens_are_only_revision_codes(description_tokens) and _is_description_continuation(previous_line):
+                        revision_tokens = description_tokens
+                        description_tokens = []
     if not article_code:
         article_code, description_tokens = _article_from_neighbor(previous_line, row_number, description_tokens)
     description_parts = [" ".join(description_tokens)]
@@ -497,6 +518,20 @@ def _row_has_decimal_at_marker(row: PricingBudgetRow) -> bool:
     return False
 
 
+def _renumber_local_restarted_article_rows(rows: list[PricingBudgetRow]) -> list[PricingBudgetRow]:
+    row_numbers = [row.row_number for row in rows if row.row_number is not None]
+    if len(row_numbers) < 3 or len(set(row_numbers)) == len(row_numbers):
+        return rows
+    if not all(_looks_like_local_article_code(row.article_code) for row in rows):
+        return rows
+    return [replace(row, row_number=index) for index, row in enumerate(rows, start=1)]
+
+
+def _looks_like_local_article_code(value: str) -> bool:
+    clean = strip_accents(value).upper()
+    return bool(re.fullmatch(r"[A-ZΑ-ΩΒ]+[-_/]?\d+[A-ZΑ-ΩA-Z0-9.]*", clean))
+
+
 def _renumber_decimal_at_layout_rows(rows: list[PricingBudgetRow]) -> list[PricingBudgetRow]:
     if len(rows) < 3:
         return rows
@@ -537,6 +572,44 @@ def _split_work_budget_prefix(tokens: list[str], *, next_line: str = "") -> tupl
             consumed_next_line = True
     article_code = " ".join(article_tokens)
     return row_number, article_code, description_tokens, revision_tokens, consumed_next_line
+
+
+def _split_local_article_budget_prefix(
+    tokens: list[str],
+    *,
+    allow_empty_description: bool = False,
+) -> tuple[str, list[str], list[str]] | None:
+    """Split tables whose article code is a local AT such as HLM-1.
+
+    Some authority budgets use columns like:
+    description | unit | AT | price-origin | revision | unit-price | qty | amount
+    where the row number is only local to the current subgroup. The real
+    searchable article for our index is still the AT column.
+    """
+    min_tokens = 2 if allow_empty_description else 4
+    if len(tokens) < min_tokens:
+        return None
+    article_index = next(
+        (
+            index
+            for index, token in enumerate(tokens)
+            if re.fullmatch(r"[A-ZΑ-ΩΒ]+(?:[-_/]?\d+[A-ZΑ-ΩA-Z0-9.]*)+", _clean_token(token), flags=re.IGNORECASE)
+        ),
+        None,
+    )
+    if article_index is None or (article_index == 0 and not allow_empty_description):
+        return None
+    article_code = _clean_token(tokens[article_index])
+    suffix = tokens[article_index + 1 :]
+    revision_tokens = [token for token in suffix if _extract_revision_codes(token)]
+    if not revision_tokens and suffix:
+        last = _clean_token(suffix[-1])
+        if re.fullmatch(r"[A-ZΑ-ΩΒ]+\d+[A-ZΑ-ΩA-Z0-9.]*", last, flags=re.IGNORECASE):
+            revision_tokens = [suffix[-1]]
+    description_tokens = tokens[:article_index]
+    if not description_tokens and not allow_empty_description:
+        return None
+    return article_code, description_tokens, revision_tokens
 
 
 def _find_work_budget_article_start(tokens: list[str]) -> int | None:
@@ -1021,6 +1094,13 @@ def consolidate_pricing_project_budget(db_path: Path, *, eshidis_id: str) -> dic
         missing_numbers = sorted(expected.difference(row_numbers))
     amount_total = sum(float(row.amount or 0) for row in merged_rows)
     amount_validation = validate_budget_row_amounts(merged_rows)
+    source_documents = sorted(set(source_by_number.values()))
+    document_total_validation = validate_budget_document_totals(
+        db_path,
+        eshidis_id=eshidis_id,
+        amount_total=amount_total,
+        source_documents=source_documents,
+    )
     return {
         "rows_merged": len(merged_rows),
         "rows_upserted": inserted,
@@ -1029,7 +1109,8 @@ def consolidate_pricing_project_budget(db_path: Path, *, eshidis_id: str) -> dic
         "missing_row_numbers": missing_numbers,
         "amount_total": amount_total,
         "amount_validation": amount_validation,
-        "source_documents": sorted(set(source_by_number.values())),
+        "document_total_validation": document_total_validation,
+        "source_documents": source_documents,
     }
 
 
@@ -1071,6 +1152,128 @@ def validate_budget_row_amounts(
         "tolerance": tolerance,
         "relative_tolerance": relative_tolerance,
     }
+
+
+def validate_budget_document_totals(
+    db_path: Path,
+    *,
+    eshidis_id: str,
+    amount_total: float,
+    source_documents: list[str],
+    tolerance: float = 0.02,
+    relative_tolerance: float = 0.001,
+) -> dict[str, Any]:
+    candidates = _budget_total_candidates_for_project(
+        db_path,
+        eshidis_id=eshidis_id,
+        source_documents=source_documents,
+    )
+    if not candidates:
+        return {
+            "ok": None,
+            "status": "NO_REFERENCE_TOTAL_FOUND",
+            "amount_total": amount_total,
+            "candidate_count": 0,
+            "candidates": [],
+        }
+    ranked = sorted(
+        candidates,
+        key=lambda candidate: (
+            -float(candidate["confidence"]),
+            abs(float(candidate["amount"]) - float(amount_total)),
+        ),
+    )
+    best = ranked[0]
+    difference = round(float(amount_total) - float(best["amount"]), 4)
+    allowed = max(tolerance, abs(float(best["amount"])) * relative_tolerance)
+    ok = abs(difference) <= allowed
+    return {
+        "ok": ok,
+        "status": "OK" if ok else "MISMATCH",
+        "amount_total": amount_total,
+        "reference_total": best["amount"],
+        "difference": difference,
+        "allowed_difference": allowed,
+        "reference": best,
+        "candidate_count": len(candidates),
+        "candidates": ranked[:10],
+    }
+
+
+def _budget_total_candidates_for_project(
+    db_path: Path,
+    *,
+    eshidis_id: str,
+    source_documents: list[str],
+) -> list[dict[str, Any]]:
+    if not source_documents:
+        return []
+    connection = connect(db_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        placeholders = ",".join("?" for _ in source_documents)
+        rows = connection.execute(
+            f"""
+            SELECT document_name, text_path
+            FROM pricing_documents
+            WHERE eshidis_id = ?
+              AND document_name IN ({placeholders})
+              AND text_path IS NOT NULL
+            """,
+            (eshidis_id, *source_documents),
+        ).fetchall()
+    finally:
+        connection.close()
+    candidates: list[dict[str, Any]] = []
+    for row in rows:
+        text_path = Path(str(row["text_path"]))
+        if not text_path.exists():
+            continue
+        try:
+            text = text_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for candidate in extract_budget_total_candidates(text):
+            candidates.append({**candidate, "source_document": row["document_name"]})
+    return candidates
+
+
+def extract_budget_total_candidates(text: str) -> list[dict[str, Any]]:
+    amount_re = re.compile(r"\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}")
+    candidates: list[dict[str, Any]] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        clean = _clean_text(line)
+        if not clean:
+            continue
+        normalized = strip_accents(clean).upper()
+        if any(marker in normalized for marker in ("ΦΠΑ", "Φ.Π.Α", "ΤΕΛΙΚΗ", "ΑΠΡΟΒΛ", "ΑΝΑΘΕΩΡΗΣ", "Γ.Ε", "ΓΕ & ΟΕ")):
+            continue
+        confidence = 0.0
+        if "ΣΥΝΟΛΟ Α+Β" in normalized:
+            confidence = 1.0
+        elif "ΣΥΝΟΛΟ ΚΟΣΤΟΥΣ ΕΡΓΑΣΙΩΝ" in normalized:
+            confidence = 0.98
+        elif "ΔΑΠΑΝΗ ΕΡΓΑΣΙΩΝ" in normalized:
+            confidence = 0.95
+        elif "ΣΥΝΟΛΟ ΕΡΓΑΣΙΩΝ" in normalized:
+            confidence = 0.9
+        elif normalized.startswith("ΣΥΝΟΛΟ ") and "ΕΡΓΑΣ" in normalized:
+            confidence = 0.85
+        if confidence <= 0:
+            continue
+        amounts = [parse_greek_decimal(match.group(0)) for match in amount_re.finditer(clean)]
+        amounts = [amount for amount in amounts if amount is not None]
+        if not amounts:
+            continue
+        candidates.append(
+            {
+                "amount": amounts[-1],
+                "line_number": line_number,
+                "label": clean[:220],
+                "confidence": confidence,
+            }
+        )
+    return candidates
 
 
 def _budget_row_score(row: PricingBudgetRow, source_document: str) -> tuple[int, int, float, int]:
@@ -1239,6 +1442,7 @@ def _recover_partial_pricing_project(db_path: Path, *, eshidis_id: str) -> dict[
             "merged_budget_rows": merged_budget["rows_merged"],
             "merged_budget_amount_total": merged_budget["amount_total"],
             "merged_budget_missing_row_numbers": merged_budget["missing_row_numbers"],
+            "merged_budget_document_total_validation": merged_budget["document_total_validation"],
             "heavy_files_deleted": 0,
             "partial_recovered": True,
             "raw_budget_rows_reused": raw_rows,
@@ -1529,6 +1733,7 @@ def ingest_pricing_eshidis_project(
             "merged_budget_rows": merged_budget["rows_merged"],
             "merged_budget_amount_total": merged_budget["amount_total"],
             "merged_budget_missing_row_numbers": merged_budget["missing_row_numbers"],
+            "merged_budget_document_total_validation": merged_budget["document_total_validation"],
             "heavy_files_deleted": cleanup_deleted,
         },
         "project": {
