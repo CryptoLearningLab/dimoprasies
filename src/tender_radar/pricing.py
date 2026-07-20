@@ -450,6 +450,12 @@ def _parse_budget_table_line(
                     if not revision_tokens and _tokens_are_only_revision_codes(description_tokens) and _is_description_continuation(previous_line):
                         revision_tokens = description_tokens
                         description_tokens = []
+    if article_code and re.fullmatch(r"\d{3}", _clean_token(article_code)):
+        surrounding_article = _split_article_from_surrounding_lines(prefix_tokens, previous_line, next_line)
+        if surrounding_article is not None:
+            row_number, article_code, description_tokens, revision_tokens = surrounding_article
+            next_line = ""
+            previous_line = ""
     if not article_code:
         surrounding_article = _split_article_from_surrounding_lines(prefix_tokens, previous_line, next_line)
         if surrounding_article is not None:
@@ -692,7 +698,7 @@ def _split_article_from_surrounding_lines(
     previous_line: str,
     next_line: str,
 ) -> tuple[int, str, list[str], list[str]] | None:
-    if len(tokens) < 2 or not re.fullmatch(r"\d{3}", _clean_token(tokens[-1])):
+    if not tokens or not re.fullmatch(r"\d{3}", _clean_token(tokens[-1])):
         return None
     previous_tokens = _clean_text(previous_line).split()
     next_tokens = _clean_text(next_line).split()
@@ -717,11 +723,14 @@ def _split_article_from_surrounding_lines(
     if connector_tokens and _tokens_look_like_article_connector(connector_tokens):
         article_tokens = [*article_tokens, *connector_tokens]
         description_suffix_tokens: list[str] = []
+    elif connector_tokens and _tokens_look_like_article_connector([connector_tokens[-1]]):
+        article_tokens = [*article_tokens, connector_tokens[-1]]
+        description_suffix_tokens = connector_tokens[:-1]
     else:
         description_suffix_tokens = connector_tokens
     row_number = int(_clean_token(tokens[-1]))
     article_code = " ".join([*article_tokens, next_tokens[suffix_index]])
-    description_tokens = [*tokens[:-1], *description_suffix_tokens]
+    description_tokens = [*previous_tokens[:prefix_index], *tokens[:-1], *description_suffix_tokens]
     if not description_tokens:
         return None
     revision_tokens = previous_tokens[prefix_index + 2 :]

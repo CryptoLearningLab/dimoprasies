@@ -348,6 +348,27 @@ def test_parse_budget_rows_handles_neighbor_article_code_with_at_before_unit() -
     assert [row.amount for row in rows] == [5800, 15.9, 56.25, 472.5, 1200]
 
 
+def test_parse_budget_rows_handles_neighbor_article_code_when_numeric_line_has_only_at() -> None:
+    text = """
+       Ξυλότυποι -Οπλισμοί. Καμπύλοι     ΝΕΤ ΟΙΚ-             ΟΙΚ 3821
+ 11                                                  023                          m2        5      22,5        112,50
+       ξυλότυποι απλής καμπυλότητας.     Α 38.4               100,00%
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.row_number == 23
+    assert row.article_code == "ΝΕΤ ΟΙΚ- Α 38.4"
+    assert row.revision_codes == ["ΟΙΚ-3821"]
+    assert "Καμπύλοι ξυλότυποι απλής καμπυλότητας" in row.description
+    assert row.unit == "m2"
+    assert row.quantity == 5
+    assert row.unit_price == 22.5
+    assert row.amount == 112.5
+
+
 def test_parse_budget_rows_drops_invalid_complete_ocr_table_rows_when_valid_rows_exist() -> None:
     text = """
       1 001 Τομή οδοστρώματος με ασφαλτοκόπτη ΝΕΤ ΟΔΟ-ΜΕ Δ-1 m 600 1 600,00
