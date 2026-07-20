@@ -255,7 +255,15 @@ def test_extract_budget_total_candidates_handles_english_thousands_decimal_forma
 
     candidates = extract_budget_total_candidates(text)
 
-    assert [candidate["amount"] for candidate in candidates] == [72649.57, 85000]
+    assert [candidate["amount"] for candidate in candidates] == [49816, 72649.57, 85000]
+
+
+def test_extract_budget_total_candidates_handles_sparse_ocr_synolo() -> None:
+    text = "ΣWΝ ΟΛΟ                                     49.460,00\nΣΥΝΟΛΟ ΑΠΟΛΟΓΙΣΤΙΚΩΝ ΕΡΓΑΣΙΩΝ 576,34"
+
+    candidates = extract_budget_total_candidates(text)
+
+    assert candidates[0]["amount"] == 49460
 
 
 def test_parse_budget_rows_handles_sparse_ocr_table_with_missing_unit_prices() -> None:

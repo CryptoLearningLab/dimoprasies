@@ -2135,19 +2135,22 @@ def extract_budget_total_candidates(text: str) -> list[dict[str, Any]]:
         if not clean:
             continue
         normalized = strip_accents(clean).upper()
-        if any(marker in normalized for marker in ("ΦΠΑ", "Φ.Π.Α", "ΤΕΛΙΚΗ", "ΑΠΡΟΒΛ", "ΑΝΑΘΕΩΡΗΣ", "Γ.Ε", "ΓΕ & ΟΕ")):
+        normalized_ocr = normalized.replace("W", "Υ")
+        if any(marker in normalized for marker in ("ΦΠΑ", "Φ.Π.Α", "ΤΕΛΙΚΗ", "ΑΠΡΟΒΛ", "ΑΠΟΛΟΓΙΣΤΙΚ", "ΑΝΑΘΕΩΡΗΣ", "Γ.Ε", "ΓΕ & ΟΕ")):
             continue
         confidence = 0.0
-        if "ΣΥΝΟΛΟ Α+Β" in normalized:
+        if "ΣΥΝΟΛΟ Α+Β" in normalized_ocr:
             confidence = 1.0
-        elif "ΣΥΝΟΛΟ ΚΟΣΤΟΥΣ ΕΡΓΑΣΙΩΝ" in normalized:
+        elif "ΣΥΝΟΛΟ ΚΟΣΤΟΥΣ ΕΡΓΑΣΙΩΝ" in normalized_ocr:
             confidence = 0.98
-        elif "ΔΑΠΑΝΗ ΕΡΓΑΣΙΩΝ" in normalized:
+        elif "ΔΑΠΑΝΗ ΕΡΓΑΣΙΩΝ" in normalized_ocr:
             confidence = 0.95
-        elif "ΣΥΝΟΛΟ ΕΡΓΑΣΙΩΝ" in normalized:
+        elif "ΣΥΝΟΛΟ ΕΡΓΑΣΙΩΝ" in normalized_ocr:
             confidence = 0.9
-        elif normalized.startswith("ΣΥΝΟΛΟ ") and "ΕΡΓΑΣ" in normalized:
+        elif normalized_ocr.startswith("ΣΥΝΟΛΟ ") and "ΕΡΓΑΣ" in normalized_ocr:
             confidence = 0.85
+        elif re.search(r"Σ\s*Υ\s*Ν\s*ΟΛΟ", normalized_ocr):
+            confidence = 0.82
         if confidence <= 0:
             continue
         amounts = [parse_greek_decimal(match.group(0)) for match in amount_re.finditer(clean)]

@@ -3862,11 +3862,15 @@ evidence, quantity and amount. The parser derives the missing unit price from
 arithmetic reconciles. This targets source layouts like `221695` while
 remaining a fallback after the normal structured parsers fail.
 
+The subtotal validator also recognizes OCR-corrupted `ΣΥΝΟΛΟ` labels such as
+`ΣWΝ ΟΛΟ` and excludes `ΑΠΟΛΟΓΙΣΤΙΚΑ` totals from the comparable works-subtotal
+reference set.
+
 Evidence:
 
 ```bash
 .venv/bin/python -m pytest tests/test_pricing.py
-# 38 passed
+# 39 passed
 
 .venv/bin/python -m py_compile src/tender_radar/pricing.py
 # passed
