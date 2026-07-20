@@ -44,7 +44,17 @@ Local version `0.1.36` starts the independent reverse-pricing foundation:
   backslash article suffixes. The parser now extracts all `56` merged rows from
   `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΣΥΝΤ ΝΑΥΠ ΘΕΡΜΟΥ 2026 2027 signed.pdf`, with no missing row
   numbers and amount total `1.062.649,50`.
-- Full local suite passed: `237 passed`.
+- Live smoke for ESHIDIS `221326` covers decimal `Α.Τ.` layouts with local
+  numbering that restarts by category and article suffixes split to the next
+  line. The parser extracts all `133` merged rows from
+  `1 Προυπολογισμός Μελετη_ΙΣΟΓΕΙΟ ΗΡΩΩΝ ΠΟΛΥΤΕΧΝΕΙΟΥ signed.pdf`, with no
+  missing row numbers and amount total `354.581,22`.
+- Live smoke for ESHIDIS `221271` covers bundled `ΜΕΛΕΤΗ...pdf` budget sources,
+  integer quantities, `Αρ. Τιμ.` work-budget layouts and units such as `t` and
+  `tkm`. The parser extracts `86` merged rows from
+  `ΜΕΛΕΤΗ συντηρηση και επισκευη αυλειων χωρων 7_2021_Π_Μ_Π.pdf`, with no
+  missing row numbers and amount total `1.273.445,42`.
+- Focused pricing suite passed: `13 passed`.
 
 The reverse-pricing workflow is intentionally separate from the local
 `ΔΗΜΟΣΙΑ ΕΡΓΑ` dashboard and is not attached to the six-hour cron yet.
@@ -83,6 +93,10 @@ Complete the next gate:
   price-before-quantity budget headers still extract all rows.
 - Regression test that special units such as `ΗΜ/Σ` and `Kgr`, plus backslash
   article suffixes such as `Α\ΝΑ01.1`, still extract correctly.
+- Regression test that decimal `Α.Τ.` budget layouts with split Greek article
+  suffixes and bundled `ΜΕΛΕΤΗ` documents remain pricing candidates.
+- Live smoke check for `221326` and `221271` after parser changes, until these
+  layouts are covered by smaller fixtures.
 - Full test suite before production deploy.
 
 ## Required Closeout

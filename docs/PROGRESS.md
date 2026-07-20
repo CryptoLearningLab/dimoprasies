@@ -3611,6 +3611,49 @@ local droplet homepage contains v0.1.36
 local droplet homepage contains pricingNavBtn
 ```
 
+### 2026-07-20 - Reverse-pricing parser: decimal AT and bundled study layouts
+
+The pricing parser was extended and live-smoked against the two nearest-deadline
+projects from the bounded ESHIDIS pricing run:
+
+```bash
+.venv/bin/python -m tender_radar pricing ingest-eshidis 221326 \
+  --db data/tender_radar.sqlite \
+  --work-dir work/pricing \
+  --limit 50 \
+  --allow-insecure-tls \
+  --force \
+  --report work/reports/pricing_ingest_221326_fixed.json
+# ok true, attachments_found 25, downloaded 25, failed 0,
+# rows upserted 133, merged rows 133, missing row numbers [],
+# merged amount total 354.581,22
+
+.venv/bin/python -m tender_radar pricing ingest-eshidis 221271 \
+  --db data/tender_radar.sqlite \
+  --work-dir work/pricing \
+  --limit 50 \
+  --allow-insecure-tls \
+  --force \
+  --report work/reports/pricing_ingest_221271_fixed.json
+# ok true, attachments_found 9, downloaded 9, failed 0,
+# rows upserted 87, merged rows 86, missing row numbers [],
+# merged amount total 1.273.445,42
+
+.venv/bin/python -m pytest tests/test_pricing.py -q
+# 13 passed
+```
+
+Coverage added:
+
+- Decimal `Α.Τ.` layout whose left row numbers restart by category.
+- Article suffixes split onto the next line, including Greek/alphanumeric
+  suffixes such as `22.04.ΝΒΠ1`, `62.22.ΣΜ` and plain numeric suffixes such
+  as `9000`.
+- Bundled `ΜΕΛΕΤΗ...pdf` files that contain the actual budget table.
+- Work-budget layouts with `Αρ. Τιμ.` before the revision column and integer
+  quantities such as `417`, `12496`, `2000`.
+- Additional units used by the new layouts, including `t`, `tkm`, `μ2`, `μ3`.
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

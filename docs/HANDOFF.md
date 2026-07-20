@@ -823,6 +823,15 @@ The system `python` command is not present in the remote environment; use
   such as `ΗΜ/Σ` and `Kgr`, plus backslash article suffixes such as
   `Α\ΝΑ01.1` and `Α\ΝΔ08.3`. Live force reprocess produced `56` merged rows,
   no missing row numbers and amount total `1.062.649,50`.
+- The pricing parser also handles the `221326` budget layout: decimal `Α.Τ.`
+  values with category-local numbering, Greek/alphanumeric article suffixes on
+  continuation lines and plain numeric `ΑΤΗΕ` suffixes. Live force reprocess
+  produced `133` merged rows, no missing row numbers and amount total
+  `354.581,22`.
+- The pricing parser also handles the `221271` bundled `ΜΕΛΕΤΗ...pdf` layout:
+  the actual budget is inside a full study PDF, uses integer quantities and a
+  work-budget `Αρ. Τιμ.` column. Live force reprocess produced `86` merged rows,
+  no missing row numbers and amount total `1.273.445,42`.
 - Production deploy on commit `0c203f6` passed through GitHub Actions run
   `29700913414`. The droplet reports `tender-radar 0.1.36`,
   `tender-radar-ui.service` is active, and the local droplet homepage contains

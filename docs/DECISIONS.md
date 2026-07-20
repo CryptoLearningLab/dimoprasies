@@ -863,3 +863,16 @@ already processed on repeated runs. Operators can still use `--force` for a
 debug reprocess, but normal runs must not spend time OCRing drawings,
 decisions, declarations or unrelated PDFs before the pricing gate proves a need
 for them.
+
+## D-074 - Reverse pricing treats study bundles and AT columns as budget sources
+**Status:** Accepted
+
+Some ESHIDIS projects publish the actual budget table inside a bundled study
+PDF whose filename is `ΜΕΛΕΤΗ...pdf`, not a standalone `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ` file.
+Such documents are pricing candidates when fetched by the reverse-pricing
+module.
+
+For Greek budget layouts with a separate `Α.Τ.` or `Αρ. Τιμ.` column, that
+column is the stable project row identifier. The leftmost local row number may
+restart inside every category and must not be used as the final merged budget
+row number.

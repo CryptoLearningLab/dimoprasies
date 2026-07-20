@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from tender_radar.pricing import (
+    _is_pricing_candidate_document,
     canonical_article_code,
     canonical_revision_code,
     consolidate_pricing_project_budget,
@@ -141,6 +142,35 @@ def test_parse_budget_rows_handles_split_backslash_articles_and_special_units() 
     assert rows[1].quantity == 6000
     assert rows[1].unit_price == 0.5
     assert rows[1].amount == 3000
+
+
+def test_parse_budget_rows_handles_decimal_at_layout_with_suffix_articles() -> None:
+    text = """
+       1 Μεταφορές με αυτοκίνητο δια    ΝΑΟΙΚ          ΟΙΚ 1136      1.01     ton.k    900,00               0,35      315,00
+         μέσου οδών καλής βατότητας     10.07.01                                m
+       5 Καθαίρεση ειδών υγιεινής       ΝΑΟΙΚ          ΟΙΚ 2222      1.05      ΤΕΜ      10,00          15,70          157,00
+                                        22.04.ΝΒΠ1
+       9 Θύρες σιδηρές σύνθετου         ΝΑΟΙΚ          ΟΙΚ 6201      4.10     τεμαχι     1,00       7.500,00      7.500,00
+         σχεδίου                         62.22.ΣΜ                                ο
+      31 Υδραυλικός ανελκυστήρας και     ΑΤΗΕ          ΗΛΜ 63        6.32     τεμαχι     1,00      35.100,00     35.100,00
+         κατασκευή φρεάτιου.             9000                                    ο
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert [row.row_number for row in rows] == [1, 2, 3, 4]
+    assert rows[0].article_code == "ΝΑΟΙΚ 10.07.01"
+    assert rows[1].article_code == "ΝΑΟΙΚ 22.04.ΝΒΠ1"
+    assert rows[2].article_code == "ΝΑΟΙΚ 62.22.ΣΜ"
+    assert rows[3].article_code == "ΑΤΗΕ 9000"
+    assert [row.amount for row in rows] == [315, 157, 7500, 35100]
+
+
+def test_pricing_candidate_document_accepts_meleti_budget_bundle() -> None:
+    assert _is_pricing_candidate_document(
+        "ΜΕΛΕΤΗ συντηρηση και επισκευη αυλειων χωρων 7_2021_Π_Μ_Π.pdf",
+        Path("ΜΕΛΕΤΗ συντηρηση και επισκευη αυλειων χωρων 7_2021_Π_Μ_Π.pdf"),
+    )
 
 
 def test_ingest_and_search_pricing_rows_from_text_pdf_fixture(tmp_path: Path) -> None:

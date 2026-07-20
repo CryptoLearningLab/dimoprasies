@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import json
 import re
@@ -23,7 +23,7 @@ ARTICLE_RE = re.compile(
 )
 TABLE_ROW_RE = re.compile(r"^\s*(?P<row>\d{1,3})\s+(?P<rest>.+)$")
 MERGED_BUDGET_SOURCE_DOCUMENT = "__PROJECT_BUDGET_MERGED__"
-NUMERIC_RE = re.compile(r"^\d+(?:[.,]\d{2,3})*\*?$")
+NUMERIC_RE = re.compile(r"^\d+(?:[.,]\d{1,3})*\*?$")
 REVISION_RE = re.compile(
     r"(?:(?P<pct>\d+(?:[.,]\d+)?)\s*%)?\s*(?P<code>[A-ZΑ-ΩΟ∆Δ.]{2,8})\s*[-–—]?\s*(?P<num>\d+[A-ZΑ-ΩA-Z0-9]*)",
     re.IGNORECASE,
@@ -36,14 +36,34 @@ KNOWN_UNITS = {
     "m",
     "m2",
     "m3",
+    "μ2",
+    "μ3",
     "kg",
     "kgr",
     "tn",
     "ton",
+    "t",
+    "tkm",
+    "ton.k",
+    "tonx1",
+    "tonx10m",
     "ημ/σ",
     "τεμ",
     "τεμ.",
     "τεμαχ",
+    "τεμαχι",
+    "τεμαχιο",
+    "τ.μ",
+    "τ.μ.",
+    "μ",
+    "μ.μ",
+    "μ.μ.",
+    "mm",
+    "μμ",
+    "κ.α",
+    "κ.α.",
+    "m*cm",
+    "dm2",
     "στρ",
     "h",
     "km",
@@ -58,7 +78,10 @@ ARTICLE_CODE_PREFIXES = {
     "ΝΑΟΙΚ",
     "ΟΙΚ",
     "ΠΡΣ",
+    "ΝΑΠΡΣ",
     "ΗΛΜ",
+    "ΝΑΗΛΜ",
+    "ΑΤΗΕ",
     "ΛΙΜ",
 }
 
@@ -299,6 +322,7 @@ def _ocr_pdf_for_budget(path: Path, *, max_pages: int = 12) -> str | None:
 def parse_budget_rows_from_text(text: str) -> list[PricingBudgetRow]:
     table_rows = _parse_budget_table_lines(text, unit_price_before_quantity=_unit_price_before_quantity(text))
     if table_rows:
+        table_rows = _renumber_decimal_at_layout_rows(table_rows)
         by_key: dict[tuple[int | None, str, str], PricingBudgetRow] = {}
         for row in table_rows:
             by_key[(row.row_number, row.canonical_article_code, row.description)] = row
@@ -367,17 +391,24 @@ def _parse_budget_table_line(
     unit_start, unit = unit_end
     prefix_tokens = tokens[:unit_start]
     revision_tokens: list[str] = []
-    structured = _split_structured_table_prefix(prefix_tokens, next_line=next_line)
-    if structured is not None:
-        row_number, article_code, description_tokens, revision_tokens, consumed_next_line = structured
+    work_budget_structured = _split_work_budget_prefix(prefix_tokens, next_line=next_line)
+    if work_budget_structured is not None:
+        row_number, article_code, description_tokens, revision_tokens, consumed_next_line = work_budget_structured
         previous_line = ""
         if consumed_next_line:
             next_line = ""
     else:
-        article_code, description_tokens = _split_article_and_description(prefix_tokens)
-        if not revision_tokens and _tokens_are_only_revision_codes(description_tokens) and _is_description_continuation(previous_line):
-            revision_tokens = description_tokens
-            description_tokens = []
+        structured = _split_structured_table_prefix(prefix_tokens, next_line=next_line)
+        if structured is not None:
+            row_number, article_code, description_tokens, revision_tokens, consumed_next_line = structured
+            previous_line = ""
+            if consumed_next_line:
+                next_line = ""
+        else:
+            article_code, description_tokens = _split_article_and_description(prefix_tokens)
+            if not revision_tokens and _tokens_are_only_revision_codes(description_tokens) and _is_description_continuation(previous_line):
+                revision_tokens = description_tokens
+                description_tokens = []
     if not article_code:
         article_code, description_tokens = _article_from_neighbor(previous_line, row_number, description_tokens)
     description_parts = [" ".join(description_tokens)]
@@ -423,9 +454,9 @@ def _expand_table_row_numeric_tail(tokens: list[str], next_lines: list[str]) -> 
 
 
 def _split_structured_table_prefix(tokens: list[str], *, next_line: str = "") -> tuple[int, str, list[str], list[str], bool] | None:
-    if len(tokens) < 5 or not tokens[-1].isdigit():
+    if len(tokens) < 5 or not (tokens[-1].isdigit() or _is_decimal_at_token(tokens[-1])):
         return None
-    row_number = int(tokens[-1])
+    row_number = int(tokens[-1]) if tokens[-1].isdigit() else 0
     work_tokens = tokens[:-1]
     article_index = _find_structured_article_index(work_tokens)
     if article_index is None:
@@ -444,6 +475,84 @@ def _split_structured_table_prefix(tokens: list[str], *, next_line: str = "") ->
         article_code, description_tokens, revision_tokens = split_article
         return row_number, article_code, description_tokens, revision_tokens, True
     return row_number, article_code, description_tokens, revision_tokens, False
+
+
+def _is_decimal_at_token(token: str) -> bool:
+    return bool(re.fullmatch(r"\d{1,2}\.\d{2}", _clean_token(token)))
+
+
+def _row_has_decimal_at_marker(row: PricingBudgetRow) -> bool:
+    tokens = _clean_text(row.raw_text).split()
+    for index, token in enumerate(tokens[:-1]):
+        if not _is_decimal_at_token(token):
+            continue
+        unit_token = tokens[index + 1].lower().rstrip(".")
+        if unit_token in {unit.rstrip(".") for unit in KNOWN_UNITS}:
+            return True
+    return False
+
+
+def _renumber_decimal_at_layout_rows(rows: list[PricingBudgetRow]) -> list[PricingBudgetRow]:
+    if len(rows) < 3:
+        return rows
+    marker_count = sum(1 for row in rows if _row_has_decimal_at_marker(row))
+    if marker_count < max(3, len(rows) // 2):
+        return rows
+    return [replace(row, row_number=index) for index, row in enumerate(rows, start=1)]
+
+
+def _split_work_budget_prefix(tokens: list[str], *, next_line: str = "") -> tuple[int, str, list[str], list[str], bool] | None:
+    at_index = next(
+        (
+            index
+            for index, token in enumerate(tokens)
+            if re.fullmatch(r"\d{3}", _clean_token(token))
+        ),
+        None,
+    )
+    if at_index is None or at_index < 2:
+        return None
+    row_number = int(_clean_token(tokens[at_index]))
+    before_at = tokens[:at_index]
+    revision_tokens = tokens[at_index + 1 :]
+    if not revision_tokens:
+        return None
+    article_start = _find_work_budget_article_start(before_at)
+    if article_start is None or article_start == 0:
+        return None
+    article_tokens = before_at[article_start:]
+    description_tokens = before_at[:article_start]
+    consumed_next_line = False
+    next_tokens = _clean_text(next_line).split()
+    if next_tokens:
+        suffix_index = _find_article_suffix_index(next_tokens)
+        if suffix_index == 0:
+            article_tokens = [*article_tokens, next_tokens[0]]
+            description_tokens = [*description_tokens, *next_tokens[1:]]
+            consumed_next_line = True
+    article_code = " ".join(article_tokens)
+    return row_number, article_code, description_tokens, revision_tokens, consumed_next_line
+
+
+def _find_work_budget_article_start(tokens: list[str]) -> int | None:
+    for index in range(0, len(tokens) - 1):
+        current = strip_accents(tokens[index]).upper().rstrip(".")
+        nxt = strip_accents(tokens[index + 1]).upper().rstrip(".")
+        if current == "ΝΕΤ":
+            return index
+        if current in ARTICLE_CODE_PREFIXES and re.search(r"\d", tokens[index + 1]):
+            return index
+        if current in {"ΟΙΚ", "ΥΔΡ", "ΗΛΜ", "ΝΑΟΙΚ", "ΝΑΥΔΡ"} and re.search(r"\d", tokens[index + 1]):
+            return index
+        if current.startswith(("ΟΙΚ", "ΥΔΡ", "ΗΛΜ", "ΑΤΗΕ")) and re.search(r"\d", current):
+            return index
+        if current == "ΑΤΗΕ" and (nxt.startswith("ΗΛΜ") or re.search(r"\d", tokens[index + 1])):
+            return index
+    if tokens:
+        last = strip_accents(tokens[-1]).upper().rstrip(".")
+        if last in {"ΑΤΗΕ", "ΝΕΤ", "ΝΑΟΙΚ", "ΝΑΥΔΡ", "ΟΙΚ", "ΥΔΡ"}:
+            return len(tokens) - 1
+    return None
 
 
 def _find_structured_article_index(tokens: list[str]) -> int | None:
@@ -478,7 +587,9 @@ def _split_article_from_next_line(tokens: list[str], next_line: str) -> tuple[st
 def _find_article_suffix_index(tokens: list[str]) -> int | None:
     for index, token in enumerate(tokens):
         clean = _clean_token(token)
-        if re.fullmatch(r"[A-ZΑ-ΩΒB]?[\\/A-ZΑ-ΩΒB]*\d+(?:[./-]\d+)+[A-ZΑ-ΩA-Z0-9]*", clean, flags=re.IGNORECASE):
+        if re.fullmatch(r"\d+[A-ZΑ-ΩA-Z0-9]*", clean, flags=re.IGNORECASE):
+            return index
+        if re.fullmatch(r"[A-ZΑ-ΩΒB]?[\\/A-ZΑ-ΩΒB]*\d+(?:[./-][A-ZΑ-ΩA-Z0-9]+)+", clean, flags=re.IGNORECASE):
             return index
     return None
 
@@ -1359,6 +1470,7 @@ def _is_pricing_candidate_document(document_name: str, local_path: Path) -> bool
         "ΟΙΚΟΝΟΜΙΚ",
         "ΤΕΧΝΙΚΗΕΚΘΕΣΗ",
         "ΤΕΧΝΙΚΗ_ΕΚΘΕΣΗ",
+        "ΜΕΛΕΤΗ",
     )
     return any(term in normalized or term in compact for term in candidate_terms)
 
