@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import subprocess
 import unicodedata
+import uuid
 from pathlib import Path
 from typing import Any
 import zipfile
@@ -15,7 +16,7 @@ import zipfile
 from tender_radar.db import connect, initialize
 from tender_radar.documents import analyze_document, extract_text_with_metadata
 from tender_radar.sources.eshidis import parse_eshidis_attachment_xml, parse_eshidis_resource_text
-from tender_radar.sources.eshidis_browser import download_attachment_audit, fetch_resource_audit
+from tender_radar.sources.eshidis_browser import discover_active_candidates_audit, download_attachment_audit, fetch_resource_audit
 
 
 ARTICLE_RE = re.compile(
@@ -109,6 +110,10 @@ def ensure_pricing_tables(db_path: Path) -> None:
         connection.commit()
     finally:
         connection.close()
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 PRICING_SCHEMA_SQL = """
@@ -1266,6 +1271,59 @@ def _pricing_project_snapshot(db_path: Path, *, eshidis_id: str) -> dict[str, An
         connection.close()
 
 
+def _pricing_project_is_complete(db_path: Path, *, eshidis_id: str) -> bool:
+    ensure_pricing_tables(db_path)
+    connection = connect(db_path)
+    try:
+        row = connection.execute(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM pricing_documents WHERE eshidis_id = ?) AS document_count,
+                (SELECT COUNT(*) FROM pricing_documents WHERE eshidis_id = ? AND text_path IS NOT NULL) AS text_count,
+                (SELECT COUNT(*) FROM pricing_budget_rows WHERE eshidis_id = ? AND source_document = ?) AS merged_row_count
+            """,
+            (eshidis_id, eshidis_id, eshidis_id, MERGED_BUDGET_SOURCE_DOCUMENT),
+        ).fetchone()
+        if row is None:
+            return False
+        return int(row[0] or 0) > 0 and int(row[1] or 0) > 0 and int(row[2] or 0) > 0
+    finally:
+        connection.close()
+
+
+def _pricing_run_insert(db_path: Path, *, run_id: str, mode: str, started_at: str) -> None:
+    ensure_pricing_tables(db_path)
+    connection = connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO pricing_runs (run_id, mode, started_at, status, summary_json)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (run_id, mode, started_at, "RUNNING", "{}"),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _pricing_run_finish(db_path: Path, *, run_id: str, status: str, summary: dict[str, Any]) -> None:
+    ensure_pricing_tables(db_path)
+    connection = connect(db_path)
+    try:
+        connection.execute(
+            """
+            UPDATE pricing_runs
+               SET finished_at = ?, status = ?, summary_json = ?
+             WHERE run_id = ?
+            """,
+            (_utc_now_iso(), status, json.dumps(summary, ensure_ascii=False, sort_keys=True), run_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def ingest_pricing_budget_pdf(
     db_path: Path,
     *,
@@ -1483,6 +1541,241 @@ def ingest_pricing_eshidis_project(
         "documents": documents,
         "merged_budget": merged_budget,
     }
+
+
+def ingest_pricing_active_candidates(
+    db_path: Path,
+    *,
+    candidates_payload: dict[str, Any],
+    work_dir: Path = Path("work/pricing"),
+    attachment_limit: int = 50,
+    project_limit: int | None = None,
+    max_new_projects: int | None = None,
+    allow_insecure_tls: bool = False,
+    keep_heavy_files: bool = False,
+    force: bool = False,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    """Ingest a whole active ESHIDIS candidate list with explicit run accounting."""
+    if attachment_limit < 1:
+        raise ValueError("attachment_limit must be positive.")
+    if project_limit is not None and project_limit < 1:
+        raise ValueError("project_limit must be positive when provided.")
+    if max_new_projects is not None and max_new_projects < 1:
+        raise ValueError("max_new_projects must be positive when provided.")
+    if project_limit is not None and max_new_projects is not None:
+        raise ValueError("project_limit and max_new_projects cannot be combined.")
+
+    ensure_pricing_tables(db_path)
+    started_at = _utc_now_iso()
+    run_id = run_id or f"pricing-active-{uuid.uuid4().hex}"
+    _pricing_run_insert(db_path, run_id=run_id, mode="ESHIDIS_ACTIVE_PRICING_BATCH", started_at=started_at)
+
+    candidates = _pricing_candidates_from_payload(candidates_payload)
+    candidate_count = len(candidates)
+    selected = candidates[:project_limit] if project_limit is not None else candidates
+    items: list[dict[str, Any]] = []
+    completed = 0
+    skipped_existing = 0
+    failed = 0
+    partial = 0
+    skipped_invalid = 0
+    attempted_new = 0
+    target_reached = False
+    inspected_count = 0
+
+    for candidate in selected:
+        if max_new_projects is not None and attempted_new >= max_new_projects:
+            target_reached = True
+            break
+        inspected_count += 1
+        eshidis_id = candidate.get("eshidis_id")
+        if not eshidis_id or not str(eshidis_id).isdigit():
+            skipped_invalid += 1
+            items.append(
+                {
+                    "eshidis_id": eshidis_id,
+                    "status": "SKIPPED_INVALID_IDENTIFIER",
+                    "reason": "candidate does not expose a numeric ESHIDIS id",
+                    "candidate": candidate,
+                }
+            )
+            continue
+        eshidis_id = str(eshidis_id)
+        if not force and _pricing_project_is_complete(db_path, eshidis_id=eshidis_id):
+            skipped_existing += 1
+            snapshot = _pricing_project_snapshot(db_path, eshidis_id=eshidis_id)
+            items.append(
+                {
+                    "eshidis_id": eshidis_id,
+                    "status": "SKIPPED_ALREADY_COMPLETE",
+                    "project": snapshot,
+                    "candidate": candidate,
+                }
+            )
+            continue
+        attempted_new += 1
+        try:
+            result = ingest_pricing_eshidis_project(
+                db_path,
+                eshidis_id=eshidis_id,
+                work_dir=work_dir,
+                limit=attachment_limit,
+                allow_insecure_tls=allow_insecure_tls,
+                keep_heavy_files=keep_heavy_files,
+                force=force,
+            )
+        except Exception as exc:  # pragma: no cover - live source defensive boundary
+            failed += 1
+            items.append(
+                {
+                    "eshidis_id": eshidis_id,
+                    "status": "FAILED_EXCEPTION",
+                    "error": repr(exc),
+                    "candidate": candidate,
+                }
+            )
+            continue
+
+        summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+        merged_rows = int(summary.get("merged_budget_rows") or 0)
+        item_status = "COMPLETED" if result.get("ok") and merged_rows > 0 else "PARTIAL_OR_FAILED"
+        if item_status == "COMPLETED":
+            completed += 1
+        elif result.get("ok"):
+            partial += 1
+        else:
+            failed += 1
+        items.append(
+            {
+                "eshidis_id": eshidis_id,
+                "status": item_status,
+                "ok": bool(result.get("ok")),
+                "summary": summary,
+                "project": result.get("project"),
+                "candidate": candidate,
+                "error": result.get("error"),
+            }
+        )
+
+    not_selected = max(candidate_count - inspected_count, 0)
+    if project_limit is not None:
+        not_selected = max(candidate_count - len(selected), 0)
+    target_remaining = max((max_new_projects or 0) - attempted_new, 0) if max_new_projects is not None else 0
+    summary = {
+        "run_id": run_id,
+        "mode": "ESHIDIS_ACTIVE_PRICING_BATCH",
+        "started_at": started_at,
+        "candidate_count": candidate_count,
+        "selected_count": inspected_count if project_limit is None else len(selected),
+        "inspected_count": inspected_count if project_limit is None else len(selected),
+        "not_selected_due_to_limit": not_selected,
+        "completed": completed,
+        "skipped_existing": skipped_existing,
+        "attempted_new": attempted_new,
+        "max_new_projects": max_new_projects,
+        "target_new_remaining": target_remaining,
+        "target_reached": target_reached or (max_new_projects is not None and attempted_new >= max_new_projects),
+        "partial": partial,
+        "failed": failed,
+        "skipped_invalid": skipped_invalid,
+        "remaining_unprocessed": target_remaining if max_new_projects is not None else not_selected,
+        "remaining_candidates_not_scanned_after_target": not_selected if max_new_projects is not None else 0,
+        "attachment_limit": attachment_limit,
+        "project_limit": project_limit,
+        "source_coverage": candidates_payload.get("coverage") if isinstance(candidates_payload.get("coverage"), dict) else None,
+    }
+    if max_new_projects is not None:
+        status = "COMPLETED" if failed == 0 and partial == 0 and skipped_invalid == 0 and target_remaining == 0 else "INCOMPLETE"
+    else:
+        status = "COMPLETED" if failed == 0 and partial == 0 and skipped_invalid == 0 and not_selected == 0 else "INCOMPLETE"
+    _pricing_run_finish(db_path, run_id=run_id, status=status, summary={**summary, "items": items})
+    return {
+        "ok": status == "COMPLETED",
+        "run_id": run_id,
+        "status": status,
+        "summary": summary,
+        "items": items,
+    }
+
+
+def ingest_pricing_active_eshidis(
+    db_path: Path,
+    *,
+    work_dir: Path = Path("work/pricing"),
+    discovery_limit: int = 500,
+    attachment_limit: int = 50,
+    project_limit: int | None = None,
+    max_new_projects: int | None = None,
+    allow_insecure_tls: bool = False,
+    keep_heavy_files: bool = False,
+    force: bool = False,
+    report_path: Path = Path("work/reports/pricing_active_candidates.json"),
+) -> dict[str, Any]:
+    if discovery_limit < 1:
+        raise ValueError("discovery_limit must be positive.")
+    payload = discover_active_candidates_audit(
+        report_path,
+        status_value="2",
+        limit=discovery_limit,
+        allow_insecure_tls=allow_insecure_tls,
+    )
+    batch = ingest_pricing_active_candidates(
+        db_path,
+        candidates_payload=payload,
+        work_dir=work_dir,
+        attachment_limit=attachment_limit,
+        project_limit=project_limit,
+        max_new_projects=max_new_projects,
+        allow_insecure_tls=allow_insecure_tls,
+        keep_heavy_files=keep_heavy_files,
+        force=force,
+    )
+    return {
+        **batch,
+        "discovery_report_path": str(report_path),
+        "discovery": {
+            "candidates_found": len(payload.get("candidates") if isinstance(payload.get("candidates"), list) else []),
+            "coverage": payload.get("coverage"),
+            "navigation_error": payload.get("navigation_error"),
+        },
+    }
+
+
+def _pricing_candidates_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_candidates = payload.get("candidates")
+    if not isinstance(raw_candidates, list):
+        return []
+    deduped: dict[str, dict[str, Any]] = {}
+    for candidate in raw_candidates:
+        if not isinstance(candidate, dict):
+            continue
+        eshidis_id = str(candidate.get("eshidis_id") or "").strip()
+        if not eshidis_id:
+            continue
+        deduped.setdefault(eshidis_id, dict(candidate))
+    return sorted(
+        deduped.values(),
+        key=lambda item: (_pricing_deadline_sort_key(str(item.get("submission_deadline") or "")), str(item.get("eshidis_id") or "")),
+    )
+
+
+def _pricing_deadline_sort_key(value: str) -> str:
+    parsed = _parse_eshidis_datetime(value)
+    return parsed.isoformat() if parsed else "9999-12-31T23:59:59+00:00"
+
+
+def _parse_eshidis_datetime(value: str) -> datetime | None:
+    text = value.strip()
+    if not text:
+        return None
+    formats = ("%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d")
+    for fmt in formats:
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
 
 
 def _find_attachment_body(payload: dict[str, Any]) -> str | None:

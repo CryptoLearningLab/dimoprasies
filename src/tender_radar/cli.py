@@ -26,7 +26,13 @@ from tender_radar.documents import analyze_document, render_markdown_report
 from tender_radar.evaluation import evaluate_documents, load_evaluation_profile, render_evaluation_markdown
 from tender_radar.logging_config import configure_logging
 from tender_radar.matching import load_search_profile, match_profile, render_search_markdown
-from tender_radar.pricing import ingest_pricing_budget_pdf, ingest_pricing_eshidis_project, search_pricing_rows
+from tender_radar.pricing import (
+    ingest_pricing_active_candidates,
+    ingest_pricing_active_eshidis,
+    ingest_pricing_budget_pdf,
+    ingest_pricing_eshidis_project,
+    search_pricing_rows,
+)
 from tender_radar.sources.eshidis import (
     EshidisAttachmentListing,
     health_check,
@@ -193,6 +199,45 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Delete downloaded PDFs after text extraction and structured row persistence.",
     )
+    pricing_ingest_active_report = pricing_sub.add_parser(
+        "ingest-active-report",
+        help="Ingest every ESHIDIS id from an existing active-candidates report into pricing tables.",
+    )
+    pricing_ingest_active_report.add_argument("--candidates-report", required=True, help="ESHIDIS active candidates JSON report.")
+    pricing_ingest_active_report.add_argument("--db", default="data/tender_radar.sqlite", help="SQLite database path.")
+    pricing_ingest_active_report.add_argument("--work-dir", default="work/pricing", help="Pricing-specific work directory.")
+    pricing_ingest_active_report.add_argument("--attachment-limit", type=int, default=50)
+    pricing_ingest_active_report.add_argument("--project-limit", type=int, default=None)
+    pricing_ingest_active_report.add_argument(
+        "--max-new-projects",
+        type=int,
+        default=None,
+        help="Process up to this many incomplete/new projects, skipping already complete candidates first.",
+    )
+    pricing_ingest_active_report.add_argument("--report", default=None, help="JSON report output path.")
+    pricing_ingest_active_report.add_argument("--allow-insecure-tls", action="store_true")
+    pricing_ingest_active_report.add_argument("--force", action="store_true")
+    pricing_ingest_active_report.add_argument("--keep-heavy-files", action="store_true")
+    pricing_ingest_active = pricing_sub.add_parser(
+        "ingest-active",
+        help="Discover active ESHIDIS public works and ingest every returned id into pricing tables.",
+    )
+    pricing_ingest_active.add_argument("--db", default="data/tender_radar.sqlite", help="SQLite database path.")
+    pricing_ingest_active.add_argument("--work-dir", default="work/pricing", help="Pricing-specific work directory.")
+    pricing_ingest_active.add_argument("--discovery-limit", type=int, default=500)
+    pricing_ingest_active.add_argument("--attachment-limit", type=int, default=50)
+    pricing_ingest_active.add_argument("--project-limit", type=int, default=None)
+    pricing_ingest_active.add_argument(
+        "--max-new-projects",
+        type=int,
+        default=None,
+        help="Process up to this many incomplete/new projects, skipping already complete candidates first.",
+    )
+    pricing_ingest_active.add_argument("--candidates-report", default="work/reports/pricing_active_candidates.json")
+    pricing_ingest_active.add_argument("--report", default=None, help="JSON report output path.")
+    pricing_ingest_active.add_argument("--allow-insecure-tls", action="store_true")
+    pricing_ingest_active.add_argument("--force", action="store_true")
+    pricing_ingest_active.add_argument("--keep-heavy-files", action="store_true")
 
     sources_parser = subparsers.add_parser("sources", help="Source audit commands.")
     sources_sub = sources_parser.add_subparsers(dest="sources_command")
@@ -469,6 +514,10 @@ def main(argv: list[str] | None = None) -> int:
         return _pricing_search(args)
     if args.command == "pricing" and args.pricing_command == "ingest-eshidis":
         return _pricing_ingest_eshidis(args)
+    if args.command == "pricing" and args.pricing_command == "ingest-active-report":
+        return _pricing_ingest_active_report(args)
+    if args.command == "pricing" and args.pricing_command == "ingest-active":
+        return _pricing_ingest_active(args)
     if args.command == "sources" and args.sources_command == "health":
         return _sources_health(args.allow_insecure_tls)
     if args.command == "sources" and args.sources_command == "audit-whitelist":
@@ -552,6 +601,50 @@ def _pricing_ingest_eshidis(args: argparse.Namespace) -> int:
         allow_insecure_tls=bool(args.allow_insecure_tls),
         keep_heavy_files=not bool(args.delete_heavy_files),
         force=bool(args.force),
+    )
+    if args.report:
+        report_path = Path(args.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = {**payload, "report_path": str(report_path)}
+    _emit_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def _pricing_ingest_active_report(args: argparse.Namespace) -> int:
+    candidates_report = Path(args.candidates_report)
+    payload = ingest_pricing_active_candidates(
+        Path(args.db),
+        candidates_payload=json.loads(candidates_report.read_text(encoding="utf-8")),
+        work_dir=Path(args.work_dir),
+        attachment_limit=int(args.attachment_limit),
+        project_limit=args.project_limit,
+        max_new_projects=args.max_new_projects,
+        allow_insecure_tls=bool(args.allow_insecure_tls),
+        keep_heavy_files=bool(args.keep_heavy_files),
+        force=bool(args.force),
+    )
+    if args.report:
+        report_path = Path(args.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = {**payload, "report_path": str(report_path)}
+    _emit_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def _pricing_ingest_active(args: argparse.Namespace) -> int:
+    payload = ingest_pricing_active_eshidis(
+        Path(args.db),
+        work_dir=Path(args.work_dir),
+        discovery_limit=int(args.discovery_limit),
+        attachment_limit=int(args.attachment_limit),
+        project_limit=args.project_limit,
+        max_new_projects=args.max_new_projects,
+        allow_insecure_tls=bool(args.allow_insecure_tls),
+        keep_heavy_files=bool(args.keep_heavy_files),
+        force=bool(args.force),
+        report_path=Path(args.candidates_report),
     )
     if args.report:
         report_path = Path(args.report)

@@ -1,7 +1,7 @@
 # NEXT TASK
 
 Execute:
-`Implement controlled nationwide ESHIDIS pricing fetcher`
+`Smoke active ESHIDIS pricing batch from UI and promote run audit visibility`
 
 ## Current Input
 
@@ -66,7 +66,22 @@ Local version `0.1.36` starts the independent reverse-pricing foundation:
   the merged project budget was missing. `pricing ingest-eshidis` now detects
   that state and consolidates locally without refetching, returning
   `PARTIAL_PROJECT_RECOVERED_WITHOUT_REFETCH`.
-- Focused pricing suite passed: `16 passed`.
+- Active ESHIDIS pricing batch controller is implemented for CLI and UI:
+  `pricing ingest-active` discovers active ESHIDIS rows and ingests every
+  returned candidate; `pricing ingest-active-report` replays an existing
+  discovery report; `/api/pricing/ingest-active` starts the same flow as a
+  background UI job for `admin`/`pricing` roles.
+- Batch completion is strict. A run stores `pricing_runs.summary_json` with
+  one item per selected candidate and reports `INCOMPLETE` if any selected
+  project is partial/failed, if an identifier is invalid, or if an explicit
+  `project_limit` leaves candidates unprocessed.
+- The reverse-pricing UI uses ESHIDIS discovery depth `500` by default and
+  does not pass a project limit from the normal button.
+- Reverse-pricing UI now asks for `Νέα έργα` separately from the ESHIDIS
+  discovery window. The run skips already complete projects without consuming
+  that quota and continues until it reaches the requested number of new or
+  incomplete projects, or the discovered active window is exhausted.
+- Focused pricing suite passed: `20 passed`.
 
 The reverse-pricing workflow is intentionally separate from the local
 `ΔΗΜΟΣΙΑ ΕΡΓΑ` dashboard and is not attached to the six-hour cron yet.
@@ -75,25 +90,24 @@ The reverse-pricing workflow is intentionally separate from the local
 
 Complete the next gate:
 
-1. Add a manual, bounded nationwide ESHIDIS-only fetcher for active public
-   works whose submission deadline is after the current fetch date/time.
-2. Store discovered projects in the pricing tables without touching the local
-   public-works dashboard state.
-3. For each fetched project, download only the files needed for extraction
-   into a pricing-specific temporary work directory.
-4. Extract text and run the budget parser on likely budget/timologio PDFs,
-   using cross-document merge to fill row gaps before expensive OCR.
-5. Persist metadata, extracted text references, raw document rows and merged
-   project budget rows.
-6. Delete heavy PDF/ZIP payloads the same day after successful extraction,
-   while keeping structured rows, text and provenance.
-7. Keep this manual; do not attach it to the six-hour cron yet.
+1. Run a live active-ESHIDIS pricing smoke from the UI or CLI with a small
+   explicit `project_limit` and verify that the run is marked `INCOMPLETE`
+   while every selected item has an outcome.
+2. Run the same command without `project_limit` only after the smoke is clean,
+   and verify that every discovered active ESHIDIS candidate is either
+   completed, skipped as already complete, or explicitly marked partial/failed.
+3. Add pricing-run visibility to the UI/admin surface so the user can see:
+   candidate count, completed, already complete, partial, failed and remaining
+   unprocessed.
+4. Keep reverse-pricing manual; do not attach it to the six-hour cron yet.
 
 ## Required Tests
 
-- Focused tests for pricing fetch run state and same-day cleanup behavior.
-- Focused tests that the fetcher refuses to run against KIMDIS/authority
-  sources in this first gate.
+- Focused tests for active pricing batch run accounting, including
+  failed/partial outcomes, explicit `project_limit` incompleteness and
+  `max_new_projects` continuing past already complete candidates.
+- Focused tests that already complete pricing projects are skipped without
+  re-fetching.
 - Regression test for skip-existing behavior on repeated
   `pricing ingest-eshidis` runs.
 - Regression test that the budget fixture still extracts `Β18.6`.

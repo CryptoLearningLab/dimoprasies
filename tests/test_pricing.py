@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from tender_radar.pricing import (
     _is_pricing_candidate_document,
@@ -6,6 +7,7 @@ from tender_radar.pricing import (
     canonical_article_code,
     canonical_revision_code,
     consolidate_pricing_project_budget,
+    ingest_pricing_active_candidates,
     ingest_pricing_budget_pdf,
     ingest_pricing_eshidis_project,
     parse_budget_rows_from_text,
@@ -587,3 +589,289 @@ def test_ingest_eshidis_project_recovers_partial_rows_without_refetch(tmp_path: 
     assert payload["summary"]["downloaded"] == 0
     assert payload["summary"]["merged_budget_rows"] == 1
     assert payload["guard"]["status"] == "PARTIAL_PROJECT_RECOVERED_WITHOUT_REFETCH"
+
+
+def test_active_pricing_batch_records_every_candidate_outcome(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    calls: list[str] = []
+
+    def fake_ingest(db_path_arg, *, eshidis_id, **kwargs):
+        calls.append(eshidis_id)
+        if eshidis_id == "221002":
+            return {"ok": False, "summary": {"failed": 1, "merged_budget_rows": 0}, "project": {"title": "Bad"}}
+        upsert_pricing_project(db_path_arg, eshidis_id=eshidis_id, title=f"Project {eshidis_id}")
+        document_id = upsert_pricing_document(
+            db_path_arg,
+            eshidis_id=eshidis_id,
+            document_name="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+            text_path=str(tmp_path / f"{eshidis_id}.txt"),
+            extraction_status="TEXT_EXTRACTED",
+        )
+        upsert_pricing_budget_rows(
+            db_path_arg,
+            eshidis_id=eshidis_id,
+            document_id=document_id,
+            source_document="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+            rows=[
+                PricingBudgetRow(
+                    row_number=1,
+                    article_code="ΝΑΟΔΟ Α02",
+                    canonical_article_code="ΝΑΟΔΟΑ02",
+                    description="Γενικές εκσκαφές",
+                    revision_codes=[],
+                    unit="m3",
+                    quantity=10,
+                    unit_price=3.55,
+                    amount=35.5,
+                    raw_text="1 ΝΑΟΔΟ Α02 Γενικές εκσκαφές m3 10 3.55 35.5",
+                    confidence=0.9,
+                )
+            ],
+        )
+        merged = consolidate_pricing_project_budget(db_path_arg, eshidis_id=eshidis_id)
+        return {"ok": True, "summary": {"merged_budget_rows": merged["rows_merged"], "failed": 0}, "project": {"title": f"Project {eshidis_id}"}}
+
+    monkeypatch.setattr("tender_radar.pricing.ingest_pricing_eshidis_project", fake_ingest)
+
+    payload = ingest_pricing_active_candidates(
+        db_path,
+        candidates_payload={
+            "coverage": {"requested_limit": 3, "candidates_found": 3},
+            "candidates": [
+                {"eshidis_id": "221001", "submission_deadline": "21-07-2026 10:00:00"},
+                {"eshidis_id": "221002", "submission_deadline": "22-07-2026 10:00:00"},
+                {"eshidis_id": "221003", "submission_deadline": "23-07-2026 10:00:00"},
+            ],
+        },
+        run_id="test-run",
+    )
+
+    assert payload["ok"] is False
+    assert payload["status"] == "INCOMPLETE"
+    assert payload["summary"]["candidate_count"] == 3
+    assert payload["summary"]["completed"] == 2
+    assert payload["summary"]["failed"] == 1
+    assert [item["eshidis_id"] for item in payload["items"]] == ["221001", "221002", "221003"]
+    assert [item["status"] for item in payload["items"]] == ["COMPLETED", "PARTIAL_OR_FAILED", "COMPLETED"]
+    assert calls == ["221001", "221002", "221003"]
+
+    import sqlite3
+
+    connection = sqlite3.connect(db_path)
+    try:
+        row = connection.execute("SELECT status, summary_json FROM pricing_runs WHERE run_id = ?", ("test-run",)).fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    assert row[0] == "INCOMPLETE"
+    stored = json.loads(row[1])
+    assert stored["candidate_count"] == 3
+    assert len(stored["items"]) == 3
+
+
+def test_active_pricing_batch_skips_already_complete_projects(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    upsert_pricing_project(db_path, eshidis_id="221001", title="Already done")
+    document_id = upsert_pricing_document(
+        db_path,
+        eshidis_id="221001",
+        document_name="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        text_path=str(tmp_path / "221001.txt"),
+        extraction_status="TEXT_EXTRACTED",
+    )
+    upsert_pricing_budget_rows(
+        db_path,
+        eshidis_id="221001",
+        document_id=document_id,
+            source_document="__PROJECT_BUDGET_MERGED__",
+        rows=[
+            PricingBudgetRow(
+                row_number=1,
+                article_code="ΝΑΟΔΟ Α02",
+                canonical_article_code="ΝΑΟΔΟΑ02",
+                description="Γενικές εκσκαφές",
+                revision_codes=[],
+                unit="m3",
+                quantity=10,
+                unit_price=3.55,
+                amount=35.5,
+                raw_text="1 ΝΑΟΔΟ Α02 Γενικές εκσκαφές m3 10 3.55 35.5",
+                confidence=0.9,
+            )
+        ],
+    )
+
+    def fail_ingest(*args, **kwargs):
+        raise AssertionError("already complete project must not be re-ingested")
+
+    monkeypatch.setattr("tender_radar.pricing.ingest_pricing_eshidis_project", fail_ingest)
+
+    payload = ingest_pricing_active_candidates(
+        db_path,
+        candidates_payload={"candidates": [{"eshidis_id": "221001", "submission_deadline": "21-07-2026 10:00:00"}]},
+        run_id="skip-run",
+    )
+
+    assert payload["ok"] is True
+    assert payload["summary"]["candidate_count"] == 1
+    assert payload["summary"]["skipped_existing"] == 1
+    assert payload["items"][0]["status"] == "SKIPPED_ALREADY_COMPLETE"
+
+
+def test_active_pricing_batch_with_project_limit_is_incomplete(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+
+    def fake_ingest(db_path_arg, *, eshidis_id, **kwargs):
+        upsert_pricing_project(db_path_arg, eshidis_id=eshidis_id, title=f"Project {eshidis_id}")
+        document_id = upsert_pricing_document(
+            db_path_arg,
+            eshidis_id=eshidis_id,
+            document_name="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+            text_path=str(tmp_path / f"{eshidis_id}.txt"),
+            extraction_status="TEXT_EXTRACTED",
+        )
+        upsert_pricing_budget_rows(
+            db_path_arg,
+            eshidis_id=eshidis_id,
+            document_id=document_id,
+            source_document="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+            rows=[
+                PricingBudgetRow(
+                    row_number=1,
+                    article_code="ΝΑΟΔΟ Α02",
+                    canonical_article_code="ΝΑΟΔΟΑ02",
+                    description="Γενικές εκσκαφές",
+                    revision_codes=[],
+                    unit="m3",
+                    quantity=10,
+                    unit_price=3.55,
+                    amount=35.5,
+                    raw_text="1 ΝΑΟΔΟ Α02 Γενικές εκσκαφές m3 10 3.55 35.5",
+                    confidence=0.9,
+                )
+            ],
+        )
+        merged = consolidate_pricing_project_budget(db_path_arg, eshidis_id=eshidis_id)
+        return {"ok": True, "summary": {"merged_budget_rows": merged["rows_merged"]}, "project": {}}
+
+    monkeypatch.setattr("tender_radar.pricing.ingest_pricing_eshidis_project", fake_ingest)
+
+    payload = ingest_pricing_active_candidates(
+        db_path,
+        candidates_payload={
+            "candidates": [
+                {"eshidis_id": "221001", "submission_deadline": "21-07-2026 10:00:00"},
+                {"eshidis_id": "221002", "submission_deadline": "22-07-2026 10:00:00"},
+                {"eshidis_id": "221003", "submission_deadline": "23-07-2026 10:00:00"},
+            ],
+        },
+        project_limit=2,
+        run_id="limited-run",
+    )
+
+    assert payload["ok"] is False
+    assert payload["status"] == "INCOMPLETE"
+    assert payload["summary"]["candidate_count"] == 3
+    assert payload["summary"]["selected_count"] == 2
+    assert payload["summary"]["not_selected_due_to_limit"] == 1
+    assert payload["summary"]["remaining_unprocessed"] == 1
+    assert [item["eshidis_id"] for item in payload["items"]] == ["221001", "221002"]
+
+
+def test_active_pricing_batch_max_new_skips_existing_and_continues(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+    upsert_pricing_project(db_path, eshidis_id="221001", title="Already done")
+    document_id = upsert_pricing_document(
+        db_path,
+        eshidis_id="221001",
+        document_name="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        text_path=str(tmp_path / "221001.txt"),
+        extraction_status="TEXT_EXTRACTED",
+    )
+    upsert_pricing_budget_rows(
+        db_path,
+        eshidis_id="221001",
+        document_id=document_id,
+        source_document="__PROJECT_BUDGET_MERGED__",
+        rows=[
+            PricingBudgetRow(
+                row_number=1,
+                article_code="ΝΑΟΔΟ Α02",
+                canonical_article_code="ΝΑΟΔΟΑ02",
+                description="Γενικές εκσκαφές",
+                revision_codes=[],
+                unit="m3",
+                quantity=10,
+                unit_price=3.55,
+                amount=35.5,
+                raw_text="1 ΝΑΟΔΟ Α02 Γενικές εκσκαφές m3 10 3.55 35.5",
+                confidence=0.9,
+            )
+        ],
+    )
+    calls: list[str] = []
+
+    def fake_ingest(db_path_arg, *, eshidis_id, **kwargs):
+        calls.append(eshidis_id)
+        upsert_pricing_project(db_path_arg, eshidis_id=eshidis_id, title=f"Project {eshidis_id}")
+        document_id = upsert_pricing_document(
+            db_path_arg,
+            eshidis_id=eshidis_id,
+            document_name="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+            text_path=str(tmp_path / f"{eshidis_id}.txt"),
+            extraction_status="TEXT_EXTRACTED",
+        )
+        upsert_pricing_budget_rows(
+            db_path_arg,
+            eshidis_id=eshidis_id,
+            document_id=document_id,
+            source_document="ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+            rows=[
+                PricingBudgetRow(
+                    row_number=1,
+                    article_code="ΝΑΟΔΟ Α02",
+                    canonical_article_code="ΝΑΟΔΟΑ02",
+                    description="Γενικές εκσκαφές",
+                    revision_codes=[],
+                    unit="m3",
+                    quantity=10,
+                    unit_price=3.55,
+                    amount=35.5,
+                    raw_text="1 ΝΑΟΔΟ Α02 Γενικές εκσκαφές m3 10 3.55 35.5",
+                    confidence=0.9,
+                )
+            ],
+        )
+        merged = consolidate_pricing_project_budget(db_path_arg, eshidis_id=eshidis_id)
+        return {"ok": True, "summary": {"merged_budget_rows": merged["rows_merged"]}, "project": {}}
+
+    monkeypatch.setattr("tender_radar.pricing.ingest_pricing_eshidis_project", fake_ingest)
+
+    payload = ingest_pricing_active_candidates(
+        db_path,
+        candidates_payload={
+            "candidates": [
+                {"eshidis_id": "221001", "submission_deadline": "21-07-2026 10:00:00"},
+                {"eshidis_id": "221002", "submission_deadline": "22-07-2026 10:00:00"},
+                {"eshidis_id": "221003", "submission_deadline": "23-07-2026 10:00:00"},
+                {"eshidis_id": "221004", "submission_deadline": "24-07-2026 10:00:00"},
+            ],
+        },
+        max_new_projects=2,
+        run_id="max-new-run",
+    )
+
+    assert payload["ok"] is True
+    assert payload["status"] == "COMPLETED"
+    assert calls == ["221002", "221003"]
+    assert [item["status"] for item in payload["items"]] == [
+        "SKIPPED_ALREADY_COMPLETE",
+        "COMPLETED",
+        "COMPLETED",
+    ]
+    assert payload["summary"]["candidate_count"] == 4
+    assert payload["summary"]["inspected_count"] == 3
+    assert payload["summary"]["attempted_new"] == 2
+    assert payload["summary"]["skipped_existing"] == 1
+    assert payload["summary"]["target_new_remaining"] == 0
+    assert payload["summary"]["remaining_candidates_not_scanned_after_target"] == 1

@@ -77,7 +77,7 @@ from tender_radar.documents import analyze_document
 from tender_radar.entalmata import archived_entalmata_count, entalma_file_path, list_entalmata, scan_entalmata
 from tender_radar.evaluation import normalize_evaluation_config, save_evaluation_config
 from tender_radar.ai_triage import AI_TRIAGE_PROMPT_VERSION
-from tender_radar.pricing import search_pricing_rows
+from tender_radar.pricing import ingest_pricing_active_eshidis, search_pricing_rows
 from tender_radar.sources.expanded_report import classify_public_works_candidate_dict
 from tender_radar.sources.kimdis_connected_acts import fetch_kimdis_connected_acts
 from tender_radar.sources.kimdis_fetch import extract_eshidis_ids_from_text
@@ -357,6 +357,29 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                     self._send_json({"ok": False, "error": "Pricing access required."}, status=403)
                     return
                 self._send_json(pricing_search_payload(payload))
+                return
+            if parsed.path == "/api/pricing/ingest-active":
+                session = self._admin_session()
+                if not session or session.get("role") not in {"admin", "pricing"}:
+                    self._send_json({"ok": False, "error": "Pricing access required."}, status=403)
+                    return
+                discovery_limit = int(payload.get("discovery_limit") or 500)
+                attachment_limit = int(payload.get("attachment_limit") or 50)
+                project_limit_raw = payload.get("project_limit")
+                project_limit = int(project_limit_raw) if project_limit_raw not in (None, "", 0, "0") else None
+                max_new_raw = payload.get("max_new_projects")
+                max_new_projects = int(max_new_raw) if max_new_raw not in (None, "", 0, "0") else None
+                self._send_json(
+                    start_job(
+                        "pricing-ingest-active",
+                        run_pricing_active_ingest,
+                        discovery_limit=discovery_limit,
+                        attachment_limit=attachment_limit,
+                        project_limit=project_limit,
+                        max_new_projects=max_new_projects,
+                    ),
+                    status=202,
+                )
                 return
             if parsed.path == "/api/entalmata/scan":
                 self._send_json(start_job("entalmata-scan", run_entalmata_scan), status=202)
@@ -671,6 +694,36 @@ def run_entalmata_scan() -> dict[str, Any]:
         report["report_path"] = str(report_path)
         report["entalmata"] = entalmata_payload()
         return report
+    finally:
+        COMMAND_LOCK.release()
+
+
+def run_pricing_active_ingest(
+    *,
+    discovery_limit: int = 500,
+    attachment_limit: int = 50,
+    project_limit: int | None = None,
+    max_new_projects: int | None = None,
+) -> dict[str, Any]:
+    if not COMMAND_LOCK.acquire(blocking=False):
+        return {"ok": False, "error": "Another command is already running. Wait for it to finish."}
+    try:
+        report_path = REPO_ROOT / "work/reports/pricing_active_candidates.json"
+        output_path = REPO_ROOT / "work/reports/pricing_active_ingest_latest.json"
+        payload = ingest_pricing_active_eshidis(
+            runtime_db_path(),
+            work_dir=REPO_ROOT / "work/pricing",
+            discovery_limit=discovery_limit,
+            attachment_limit=attachment_limit,
+            project_limit=project_limit,
+            max_new_projects=max_new_projects,
+            allow_insecure_tls=True,
+            keep_heavy_files=False,
+            report_path=report_path,
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {**payload, "report_path": str(output_path)}
     finally:
         COMMAND_LOCK.release()
 
@@ -6040,7 +6093,13 @@ INDEX_HTML = f"""<!doctype html>
       <div class="searchPanel">
         <p class="eyebrow">ΑΝΤΙΣΤΡΟΦΗ ΑΝΑΖΗΤΗΣΗ</p>
         <h2>Βρες ενεργά έργα από λέξη ή φράση</h2>
-        <p class="mutedLine">Ψάχνει μόνο στα ενεργά έργα της λίστας και στα ήδη διαθέσιμα extracted κείμενα/τεκμήρια. Δεν ξεκινά νέα σάρωση πηγών.</p>
+        <p class="mutedLine">Πρώτα ενημέρωσε τη βάση από τα ενεργά ΕΣΗΔΗΣ. Μετά η αναζήτηση ψάχνει στα αποθηκευμένα τεύχη και άρθρα.</p>
+        <div class="toolbar compact">
+          <label>Ενεργό παράθυρο ΕΣΗΔΗΣ <input id="pricingDiscoveryLimit" type="number" min="1" max="500" value="500"></label>
+          <label>Νέα έργα <input id="pricingMaxNewProjects" type="number" min="1" max="100" value="15"></label>
+          <button id="pricingIngestActiveBtn">Ενημέρωση βάσης ΕΣΗΔΗΣ</button>
+        </div>
+        <p id="pricingIngestStatus" class="mutedLine">Δεν έχει ξεκινήσει ενημέρωση pricing σε αυτή τη συνεδρία.</p>
         <div class="reverseSearchForm">
           <label class="reverseSearchInputLabel">
             <span>Λέξη ή φράση</span>
@@ -7355,6 +7414,33 @@ async function runReverseSearch() {
   renderReverseSearch(payload);
 }
 
+async function runPricingActiveIngest() {
+  const discoveryLimit = Math.max(1, Math.min(500, Number($('pricingDiscoveryLimit').value || 500)));
+  const maxNewProjects = Math.max(1, Math.min(100, Number($('pricingMaxNewProjects').value || 15)));
+  $('pricingIngestStatus').textContent = `Διαβάζουμε έως ${discoveryLimit} ενεργά έργα από ΕΣΗΔΗΣ και επεξεργαζόμαστε έως ${maxNewProjects} νέα/μη πλήρη...`;
+  const initial = await api('/api/pricing/ingest-active', {
+    method: 'POST',
+    body: JSON.stringify({ discovery_limit: discoveryLimit, attachment_limit: 50, max_new_projects: maxNewProjects }),
+  });
+  if (!initial.job_id) {
+    $('pricingIngestStatus').textContent = initial.error || 'Δεν ξεκίνησε η ενημέρωση pricing.';
+    return;
+  }
+  const job = await pollJob(initial.job_id, 'Ενημέρωση βάσης αντίστροφης αναζήτησης');
+  const result = job.result || {};
+  const summary = result.summary || {};
+  $('pricingIngestStatus').textContent = [
+    `ΕΣΗΔΗΣ: ${summary.candidate_count || 0}`,
+    `ελέγχθηκαν ${summary.inspected_count || 0}`,
+    `νέα/μη πλήρη ${summary.attempted_new || 0}`,
+    `ολοκληρωμένα ${summary.completed || 0}`,
+    `ήδη πλήρη ${summary.skipped_existing || 0}`,
+    `μερικά ${summary.partial || 0}`,
+    `σφάλματα ${summary.failed || 0}`,
+    `ζητούμενα υπόλοιπα ${summary.target_new_remaining || 0}`,
+  ].join(' · ');
+}
+
 function renderReverseSearch(payload) {
   const summary = payload.summary || {};
   $('reverseMatchCount').textContent = summary.matches || 0;
@@ -8243,6 +8329,7 @@ $('reverseSearchBtn').addEventListener('click', () => runReverseSearch().catch((
 $('reverseSearchInput').addEventListener('keydown', (event) => {
   if (event.key === 'Enter') runReverseSearch().catch((error) => { $('reverseSearchStatus').textContent = String(error); });
 });
+$('pricingIngestActiveBtn').addEventListener('click', () => runPricingActiveIngest().catch((error) => { $('pricingIngestStatus').textContent = String(error); }));
 $('fetchBtn').addEventListener('click', () => runAction('/api/fetch-resource', { eshidis_id: selectedId() }, 'Fetching official detail...'));
 $('downloadBtn').addEventListener('click', () => runAction('/api/download-all', { eshidis_id: selectedId() }, 'Downloading attachments...'));
 $('analyzeBtn').addEventListener('click', () => runAction('/api/analyze', { eshidis_id: selectedId() }, 'Analyzing documents...'));

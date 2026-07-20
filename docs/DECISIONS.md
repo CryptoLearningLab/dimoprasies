@@ -900,3 +900,19 @@ When multiple candidates share the same project row number, amount-valid rows
 are preferred over rows whose extracted numeric columns do not reconcile. This
 keeps the official source text as provenance while using arithmetic consistency
 as an additional guard against layout/table carry-over parsing errors.
+
+## D-077 - Reverse-pricing completion is run-accounted
+**Status:** Accepted
+
+The reverse-pricing ESHIDIS ingest is considered complete only when the batch
+run has recorded an explicit outcome for every active ESHIDIS candidate it
+selected from discovery.
+
+Manual smoke limits are allowed, but any explicit `project_limit`, partial
+project, failed project or invalid identifier marks the run `INCOMPLETE`. A
+small successful subset must not be presented as full active-list completion.
+
+`max_new_projects` is a different production control: it means "process up to
+N new or incomplete projects after skipping already complete candidates" and
+can finish successfully when that target is reached inside the discovered
+active window.

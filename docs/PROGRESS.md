@@ -10,6 +10,22 @@
 `tasks/NEXT_TASK.md`
 
 ## Completed Milestones
+- Reverse-pricing now has a UI and CLI active-ESHIDIS batch controller. The
+  pricing button starts an authenticated background job that discovers active
+  ESHIDIS public works, processes every returned candidate unless an explicit
+  test `project_limit` is supplied, and persists a `pricing_runs` row with one
+  outcome per ESHIDIS id.
+- Pricing active batch runs are not allowed to look successful when only a
+  subset was processed. Any failure, partial project, invalid identifier or
+  explicit project limit marks the run `INCOMPLETE` and reports
+  `remaining_unprocessed`.
+- The reverse-pricing UI default ESHIDIS discovery depth is now `500`, so a
+  normal click covers the current active list size instead of stopping at the
+  earlier local smoke size.
+- Reverse-pricing UI now separates the active ESHIDIS discovery window from
+  the requested number of new/incomplete projects. Already complete pricing
+  projects are skipped without consuming the requested new-project quota, so a
+  later run can continue past the already indexed front of the active list.
 - Reverse-pricing ingest now has a partial-state recovery guard. If a previous
   run has already persisted raw pricing budget rows but was interrupted before
   writing the merged project budget, a repeated `pricing ingest-eshidis` run
