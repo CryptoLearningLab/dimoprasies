@@ -3929,6 +3929,40 @@ Live production evidence after deploy on commit `bd62d0a`:
   - `OK`: `9`
   - `NEEDS_REVIEW`: `10`
 
+### 2026-07-20 - Reverse-pricing AI fallback guarded by local row arithmetic
+
+Added an optional OpenAI fallback for damaged OCR budget tables. The fallback is
+available through:
+
+```bash
+tender-radar pricing reprocess-existing --use-ai-fallback --ai-fallback-mode empty
+```
+
+or, for controlled comparison runs:
+
+```bash
+tender-radar pricing reprocess-existing --use-ai-fallback --ai-fallback-mode always
+```
+
+The fallback does not promote projects to complete by itself. OpenAI returns
+candidate budget rows as strict JSON, then the local parser normalizes them into
+`PricingBudgetRow` objects and rejects any row where `quantity * unit_price`
+does not reconcile to `amount`. Project completion still requires the existing
+merged-budget audit and official document-total validation to pass.
+
+Evidence:
+
+```bash
+.venv/bin/python -m pytest tests/test_pricing.py
+# 41 passed
+
+.venv/bin/python -m py_compile src/tender_radar/pricing.py src/tender_radar/cli.py tests/test_pricing.py
+# passed
+
+.venv/bin/python -m pytest
+# 270 passed
+```
+
 ## Handoff Discipline
 
 Every future substantial Codex task should:

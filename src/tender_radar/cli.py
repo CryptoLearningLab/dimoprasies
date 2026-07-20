@@ -247,6 +247,13 @@ def build_parser() -> argparse.ArgumentParser:
     pricing_reprocess.add_argument("--eshidis-id", action="append", default=None, help="Specific ESHIDIS id to reprocess. Repeatable.")
     pricing_reprocess.add_argument("--limit", type=int, default=None)
     pricing_reprocess.add_argument("--all", action="store_true", help="Also reprocess projects already audited OK.")
+    pricing_reprocess.add_argument("--use-ai-fallback", action="store_true", help="Use OpenAI for OCR-damaged budget documents.")
+    pricing_reprocess.add_argument(
+        "--ai-fallback-mode",
+        choices=("empty", "always"),
+        default="empty",
+        help="Run AI only when deterministic parsing is empty, or for every pricing document.",
+    )
     pricing_reprocess.add_argument("--report", default=None, help="JSON report output path.")
 
     sources_parser = subparsers.add_parser("sources", help="Source audit commands.")
@@ -673,6 +680,8 @@ def _pricing_reprocess_existing(args: argparse.Namespace) -> int:
         eshidis_ids=[str(value) for value in args.eshidis_id] if args.eshidis_id else None,
         only_incomplete=not bool(args.all),
         limit=args.limit,
+        use_ai_fallback=bool(args.use_ai_fallback),
+        ai_fallback_mode=str(args.ai_fallback_mode),
     )
     if args.report:
         report_path = Path(args.report)

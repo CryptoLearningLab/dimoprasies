@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -11,8 +12,11 @@ import unicodedata
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 import zipfile
 
+from tender_radar.ai_triage import DEFAULT_MODEL, RESPONSES_URL, _response_text, _strip_json_fence, load_openai_api_key
 from tender_radar.db import connect, initialize
 from tender_radar.documents import analyze_document, extract_text_with_metadata
 from tender_radar.sources.eshidis import parse_eshidis_attachment_xml, parse_eshidis_resource_text
@@ -25,6 +29,7 @@ ARTICLE_RE = re.compile(
 TABLE_ROW_RE = re.compile(r"^\s*(?P<row>\d{1,3})\s+(?P<rest>.+)$")
 SPARSE_OCR_ROW_RE = re.compile(r"^\s*(?P<row>\d{1,3}|[~])\s+(?P<rest>.+)$")
 MERGED_BUDGET_SOURCE_DOCUMENT = "__PROJECT_BUDGET_MERGED__"
+PRICING_AI_PROMPT_VERSION = "2026-07-20-budget-row-extraction-v1"
 NUMERIC_RE = re.compile(r"^\d+(?:[.,]\d{1,3})*\*?$")
 REVISION_RE = re.compile(
     r"(?:(?P<pct>\d+(?:[.,]\d+)?)\s*%)?\s*(?P<code>[A-ZΑ-ΩΟ∆Δ.]{2,8})\s*[-–—]?\s*(?P<num>\d+[A-ZΑ-ΩA-Z0-9]*)",
@@ -366,6 +371,185 @@ def parse_budget_rows_from_text(text: str) -> list[PricingBudgetRow]:
     blocks = _budget_row_blocks(text)
     rows = [row for block in blocks if (row := _parse_budget_block(block)) is not None]
     return rows
+
+
+def parse_budget_rows_with_ai_fallback(
+    text: str,
+    *,
+    document_name: str,
+    api_key: str | None = None,
+    model: str | None = None,
+    timeout_seconds: int = 120,
+) -> dict[str, Any]:
+    """Extract pricing rows from damaged OCR text with OpenAI, then validate locally.
+
+    This is a fallback for budget documents where deterministic parsing cannot
+    recover the table. AI output is never trusted directly: rows are normalized
+    into PricingBudgetRow objects and every row with numeric fields must pass the
+    local quantity * unit_price = amount guard before it can be persisted.
+    """
+    key = api_key or load_openai_api_key()
+    if not key:
+        raise RuntimeError("OPENAI_API_KEY was not found in the environment or .env.local.")
+    model_name = model or os.environ.get("PRICING_OPENAI_MODEL") or os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL
+    prompt_text = _pricing_ai_prompt(text, document_name=document_name)
+    payload = {
+        "model": model_name,
+        "input": [
+            {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "You extract Greek public works budget table rows from OCR text. "
+                            "Return strict JSON only. Do not invent missing values."
+                        ),
+                    }
+                ],
+            },
+            {"role": "user", "content": [{"type": "input_text", "text": prompt_text}]},
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "tender_radar_pricing_rows",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "rows": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "row_number": {"type": ["integer", "null"]},
+                                    "article_code": {"type": "string"},
+                                    "description": {"type": "string"},
+                                    "revision_codes": {"type": "array", "items": {"type": "string"}},
+                                    "unit": {"type": "string"},
+                                    "quantity": {"type": "string"},
+                                    "unit_price": {"type": "string"},
+                                    "amount": {"type": "string"},
+                                    "evidence": {"type": "string"},
+                                },
+                                "required": [
+                                    "row_number",
+                                    "article_code",
+                                    "description",
+                                    "revision_codes",
+                                    "unit",
+                                    "quantity",
+                                    "unit_price",
+                                    "amount",
+                                    "evidence",
+                                ],
+                            },
+                        },
+                        "notes": {"type": "string"},
+                    },
+                    "required": ["rows", "notes"],
+                },
+            }
+        },
+        "temperature": 0,
+        "max_output_tokens": 12000,
+    }
+    request = Request(
+        RESPONSES_URL,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    with urlopen(request, timeout=timeout_seconds) as response:
+        response_payload = json.loads(response.read().decode("utf-8", errors="replace"))
+    parsed = json.loads(_strip_json_fence(_response_text(response_payload)))
+    raw_rows = parsed.get("rows") if isinstance(parsed, dict) else []
+    rows, rejected = _pricing_rows_from_ai_payload(raw_rows if isinstance(raw_rows, list) else [])
+    return {
+        "ok": True,
+        "model": model_name,
+        "prompt_version": PRICING_AI_PROMPT_VERSION,
+        "rows": rows,
+        "rows_extracted": len(rows),
+        "rejected_rows": rejected,
+        "notes": str(parsed.get("notes") or "") if isinstance(parsed, dict) else "",
+    }
+
+
+def _pricing_ai_prompt(text: str, *, document_name: str) -> str:
+    trimmed = text[:55_000]
+    return (
+        "Εξήγαγε γραμμές προϋπολογισμού δημοσίου έργου από OCR κείμενο.\n"
+        "Στόχος: κάθε γραμμή πίνακα με Α/Α, άρθρο, περιγραφή, άρθρα αναθεώρησης, μονάδα, ποσότητα, τιμή μονάδας, δαπάνη.\n"
+        "Κανόνες:\n"
+        "- Μην εξάγεις σύνολα, ΓΕ+ΟΕ, απρόβλεπτα, ΦΠΑ, αναθεώρηση ή απολογιστικά ως άρθρα εργασιών.\n"
+        "- Μην επινοείς ποσότητα/τιμή/δαπάνη. Αν δεν φαίνονται καθαρά, άφησε κενό string.\n"
+        "- Προτίμησε μόνο σειρές όπου η δαπάνη ισούται με ποσότητα * τιμή μονάδας.\n"
+        "- Κράτα ελληνικούς και τεχνικούς κωδικούς όπως εμφανίζονται, π.χ. ΝΑΟΔΟ, ΟΔΟ, ΝΑΟΙΚ, ΥΔΡ, Β-18.6.\n"
+        "- Το evidence είναι μικρό απόσπασμα της γραμμής/γειτονιάς από όπου πήρες τα στοιχεία.\n"
+        f"Έγγραφο: {document_name}\n"
+        f"Prompt version: {PRICING_AI_PROMPT_VERSION}\n"
+        "OCR κείμενο:\n"
+        f"{trimmed}"
+    )
+
+
+def _pricing_rows_from_ai_payload(items: list[object]) -> tuple[list[PricingBudgetRow], list[dict[str, Any]]]:
+    rows: list[PricingBudgetRow] = []
+    rejected: list[dict[str, Any]] = []
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            rejected.append({"index": index, "reason": "not_object"})
+            continue
+        row = _pricing_row_from_ai_item(item)
+        if row is None:
+            rejected.append({"index": index, "reason": "invalid_or_unvalidated", "item": item})
+            continue
+        rows.append(row)
+    by_key: dict[tuple[int | None, str, str], PricingBudgetRow] = {}
+    for row in rows:
+        by_key[(row.row_number, row.canonical_article_code, row.description)] = row
+    return list(by_key.values()), rejected
+
+
+def _pricing_row_from_ai_item(item: dict[str, Any]) -> PricingBudgetRow | None:
+    article_code = _clean_text(str(item.get("article_code") or ""))
+    description = _clean_text(str(item.get("description") or ""))
+    unit = _clean_text(str(item.get("unit") or "")) or None
+    if not article_code or not description:
+        return None
+    quantity = parse_greek_decimal(str(item.get("quantity") or ""))
+    unit_price = parse_greek_decimal(str(item.get("unit_price") or ""))
+    amount = parse_greek_decimal(str(item.get("amount") or ""))
+    if quantity in (None, 0) or unit_price is None or amount is None:
+        return None
+    candidate = PricingBudgetRow(
+        row_number=item.get("row_number") if isinstance(item.get("row_number"), int) else None,
+        article_code=article_code,
+        canonical_article_code=canonical_article_code(article_code),
+        description=_clean_description(description, []),
+        revision_codes=[
+            canonical_revision_code(str(value))
+            for value in (item.get("revision_codes") or [])
+            if str(value).strip()
+        ],
+        unit=unit,
+        quantity=quantity,
+        unit_price=unit_price,
+        amount=amount,
+        raw_text=_clean_text(str(item.get("evidence") or json.dumps(item, ensure_ascii=False))),
+        confidence=0.7,
+    )
+    if not _budget_row_amount_is_valid(candidate):
+        return None
+    return candidate
 
 
 def _apply_at_unit_prices_from_text(
@@ -1992,7 +2176,13 @@ def consolidate_pricing_project_budget(db_path: Path, *, eshidis_id: str) -> dic
     return summary
 
 
-def reprocess_pricing_project_from_texts(db_path: Path, *, eshidis_id: str) -> dict[str, Any]:
+def reprocess_pricing_project_from_texts(
+    db_path: Path,
+    *,
+    eshidis_id: str,
+    use_ai_fallback: bool = False,
+    ai_fallback_mode: str = "empty",
+) -> dict[str, Any]:
     """Rebuild a pricing project budget from already extracted text artifacts.
 
     This is intentionally download-free. It lets parser improvements repair
@@ -2038,6 +2228,23 @@ def reprocess_pricing_project_from_texts(db_path: Path, *, eshidis_id: str) -> d
             continue
         text = text_path.read_text(encoding="utf-8", errors="ignore")
         rows = parse_budget_rows_from_text(text)
+        ai_report: dict[str, Any] | None = None
+        should_try_ai = use_ai_fallback and (ai_fallback_mode == "always" or len(rows) < 3)
+        if should_try_ai:
+            try:
+                ai_report = parse_budget_rows_with_ai_fallback(
+                    text,
+                    document_name=str(document["document_name"] or ""),
+                )
+                ai_rows = ai_report.get("rows") if isinstance(ai_report, dict) else []
+                if isinstance(ai_rows, list) and len(ai_rows) > len(rows):
+                    rows = [row for row in ai_rows if isinstance(row, PricingBudgetRow)]
+            except (HTTPError, URLError, TimeoutError, OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                ai_report = {
+                    "ok": False,
+                    "error": str(exc),
+                    "prompt_version": PRICING_AI_PROMPT_VERSION,
+                }
         inserted = upsert_pricing_budget_rows(
             db_path,
             eshidis_id=eshidis_id,
@@ -2051,6 +2258,14 @@ def reprocess_pricing_project_from_texts(db_path: Path, *, eshidis_id: str) -> d
                 "rows_extracted": len(rows),
                 "rows_upserted": inserted,
                 "status": "REPROCESSED",
+                "ai_fallback": {
+                    "attempted": ai_report is not None,
+                    "ok": ai_report.get("ok") if isinstance(ai_report, dict) else None,
+                    "rows_extracted": ai_report.get("rows_extracted") if isinstance(ai_report, dict) else None,
+                    "rejected_rows": len(ai_report.get("rejected_rows") or []) if isinstance(ai_report, dict) else None,
+                    "error": ai_report.get("error") if isinstance(ai_report, dict) else None,
+                    "prompt_version": ai_report.get("prompt_version") if isinstance(ai_report, dict) else None,
+                },
             }
         )
         document_reports.append(report)
@@ -2082,6 +2297,8 @@ def reprocess_existing_pricing_projects(
     eshidis_ids: list[str] | None = None,
     only_incomplete: bool = True,
     limit: int | None = None,
+    use_ai_fallback: bool = False,
+    ai_fallback_mode: str = "empty",
 ) -> dict[str, Any]:
     ensure_pricing_tables(db_path)
     connection = connect(db_path)
@@ -2112,7 +2329,12 @@ def reprocess_existing_pricing_projects(
             continue
         inspected += 1
         try:
-            result = reprocess_pricing_project_from_texts(db_path, eshidis_id=eshidis_id)
+            result = reprocess_pricing_project_from_texts(
+                db_path,
+                eshidis_id=eshidis_id,
+                use_ai_fallback=use_ai_fallback,
+                ai_fallback_mode=ai_fallback_mode,
+            )
         except Exception as exc:  # pragma: no cover - maintenance boundary
             failed += 1
             items.append({"eshidis_id": eshidis_id, "status": "FAILED_EXCEPTION", "error": repr(exc)})

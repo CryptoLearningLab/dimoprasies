@@ -4,6 +4,7 @@ import sqlite3
 
 from tender_radar.pricing import (
     _is_pricing_candidate_document,
+    _pricing_rows_from_ai_payload,
     _unit_price_before_quantity,
     PricingBudgetRow,
     canonical_article_code,
@@ -288,6 +289,42 @@ def test_parse_budget_rows_handles_collapsed_ocr_table_stream() -> None:
     assert rows[2].revision_codes == ["ΥΔΡ-6808"]
     assert rows[3].canonical_article_code == "ΙΝΑΟΔΟΑ02"
     assert rows[3].amount == 41919
+
+
+def test_ai_pricing_rows_are_normalized_and_amount_guarded() -> None:
+    rows, rejected = _pricing_rows_from_ai_payload(
+        [
+            {
+                "row_number": 1,
+                "article_code": "ΝΑΟΔΟ Α02",
+                "description": "Γενικές εκσκαφές σε έδαφος γαιώδες",
+                "revision_codes": ["ΟΔΟ-1123Α"],
+                "unit": "m3",
+                "quantity": "100,00",
+                "unit_price": "3,55",
+                "amount": "355,00",
+                "evidence": "1 ΝΑΟΔΟ Α02 Γενικές εκσκαφές ΟΔΟ-1123Α m3 100,00 3,55 355,00",
+            },
+            {
+                "row_number": 2,
+                "article_code": "ΝΑΟΔΟ Γ01",
+                "description": "Υπόβαση οδοστρωσίας",
+                "revision_codes": ["ΟΔΟ-3121Β"],
+                "unit": "m3",
+                "quantity": "100,00",
+                "unit_price": "10,00",
+                "amount": "2.000,00",
+                "evidence": "2 ΝΑΟΔΟ Γ01 Υπόβαση ΟΔΟ-3121Β m3 100,00 10,00 2.000,00",
+            },
+        ]
+    )
+
+    assert len(rows) == 1
+    assert rows[0].canonical_article_code == "ΝΑΟΔΟΑ02"
+    assert rows[0].revision_codes == ["ΟΔΟ-1123Α"]
+    assert rows[0].amount == 355
+    assert len(rejected) == 1
+    assert rejected[0]["reason"] == "invalid_or_unvalidated"
 
 
 def test_parse_budget_rows_handles_sparse_ocr_table_with_missing_unit_prices() -> None:

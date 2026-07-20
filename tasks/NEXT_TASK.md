@@ -5,8 +5,8 @@ Execute:
 
 ## Current Input
 
-The independent reverse-pricing workflow is deployed at runtime version
-`0.1.36` and remains disconnected from cron.
+The independent reverse-pricing workflow is moving to runtime version
+`0.1.38` and remains disconnected from cron.
 
 Production deploy on commit `6a88b18` made pricing completion strict and added
 a download-free repair command:
@@ -75,6 +75,9 @@ Latest generic repairs:
   parsed as guarded fallback rows. This improved `220423` from zero-row to
   partial parsed state, but it remains `NEEDS_REVIEW` because the parsed total
   does not reconcile with the official offer total.
+- optional OpenAI fallback has been added for OCR-damaged pricing documents.
+  It is only row extraction support; local arithmetic and document-total
+  validation remain mandatory.
 
 ## Instruction
 
@@ -97,13 +100,13 @@ source subtotal.
 
 Suggested next gate:
 
-1. Inspect `221452` and `221006` extraction quality first. If OCR has lost unit
-   and amount columns, classify as `MANUAL_REVIEW_REQUIRED` or route to an AI
-   extraction fallback rather than weakening deterministic parser guards.
-2. Inspect `220423` missing/false rows after the collapsed parser. Keep it in
-   `NEEDS_REVIEW` unless the merged amount reaches the official reference total.
-3. Then work on parsed subtotal mismatches with narrow deltas, starting from
-   `221720`.
+1. Deploy `v0.1.38` and run focused droplet pricing tests.
+2. Run:
+   `tender-radar pricing reprocess-existing --eshidis-id 221452 --eshidis-id 221006 --use-ai-fallback --report ...`
+3. Inspect whether AI produced locally arithmetic-valid rows.
+4. Keep projects in `NEEDS_REVIEW` unless official document-total validation
+   passes. Do not weaken deterministic guards to make AI output fit.
+5. Then inspect `220423` missing/false rows after the collapsed parser.
 
 ## Required Tests
 
