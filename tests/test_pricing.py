@@ -12,6 +12,7 @@ from tender_radar.pricing import (
     ingest_pricing_active_candidates,
     ingest_pricing_budget_pdf,
     ingest_pricing_eshidis_project,
+    parse_greek_decimal,
     parse_budget_rows_from_text,
     reprocess_existing_pricing_projects,
     reprocess_pricing_project_from_texts,
@@ -31,6 +32,12 @@ def test_article_code_canonicalizes_greek_and_latin_beta() -> None:
 def test_revision_code_canonicalizes_odo_variants() -> None:
     assert canonical_revision_code("Ο∆Ο-2312") == "ΟΔΟ-2312"
     assert canonical_revision_code("ODO 2653") == "ΟΔΟ2653"
+
+
+def test_parse_greek_decimal_treats_plain_dot_triplets_as_thousands() -> None:
+    assert parse_greek_decimal("1.200") == 1200
+    assert parse_greek_decimal("12.500") == 12500
+    assert parse_greek_decimal("100.00") == 100
 
 
 def test_parse_budget_rows_extracts_b18_6_fixture_row() -> None:
@@ -191,6 +198,8 @@ def test_parse_budget_rows_handles_category_prefixed_article_table() -> None:
     assert [row.row_number for row in rows] == [1, 2, 3, 4, 5]
     assert [row.article_code for row in rows] == ["ΟΔΟ Α-2", "ΟΔΟ Α-18.3", "ΟΔΟ Α-20", "ΥΔΡ 3.12", "ΟΔΟ Β-29.3.1"]
     assert rows[2].unit == "m3"
+    assert rows[2].quantity == 300
+    assert rows[2].amount == 315
     assert rows[3].description.startswith("Προσαύξηση τιμών εκσκαφών")
     assert rows[4].revision_codes == ["ΟΔΟ-2532"]
     assert sum(row.amount or 0 for row in rows) == 34230

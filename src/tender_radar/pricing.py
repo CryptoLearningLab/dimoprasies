@@ -233,6 +233,8 @@ def parse_greek_decimal(value: str | None) -> float | None:
     text = value.strip().replace(" ", "").rstrip("*")
     if "," in text:
         text = text.replace(".", "").replace(",", ".")
+    elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+", text):
+        text = text.replace(".", "")
     elif text.count(".") > 1:
         head, tail = text.rsplit(".", 1)
         text = head.replace(".", "") + "." + tail
