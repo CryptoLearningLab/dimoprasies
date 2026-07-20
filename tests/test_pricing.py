@@ -4,6 +4,7 @@ import sqlite3
 
 from tender_radar.pricing import (
     _is_pricing_candidate_document,
+    _unit_price_before_quantity,
     PricingBudgetRow,
     canonical_article_code,
     canonical_revision_code,
@@ -420,6 +421,16 @@ def test_parse_budget_rows_uses_at_unit_price_when_table_row_has_only_quantity()
     assert row.quantity == 80
     assert row.unit_price == 4
     assert row.amount == 320
+
+
+def test_unit_price_layout_detects_split_quantity_before_price_header() -> None:
+    text = """
+                                           Κωδικός    Αρ.       Άρθρο                   Ποσό     Τιμή                Δαπάνη
+Α/Α             Είδος Εργασίας                                           Μονάδα
+                                       Άρθρου     Τιμ.   Αναθεώρησης                τητα     (€)        Μερική ( € )   Ολική ( € )
+    """
+
+    assert _unit_price_before_quantity(text) is False
 
 
 def test_parse_budget_rows_drops_invalid_complete_ocr_table_rows_when_valid_rows_exist() -> None:

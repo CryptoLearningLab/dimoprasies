@@ -536,6 +536,8 @@ def _quantity_from_budget_row_raw_text(
 
 def _unit_price_before_quantity(text: str) -> bool:
     normalized = re.sub(r"\s+", " ", strip_accents(text).upper())
+    if re.search(r"(?:ΠΟΣΟΤ\w*|ΠΟΣΟ\s+ΤΗΤΑ).{0,120}ΤΙΜ", normalized):
+        return False
     if re.search(r"ΠΟΣΟΤΗΤΑ.{0,80}ΜΟΝΑΔΑΣ", normalized):
         return False
     return bool(
