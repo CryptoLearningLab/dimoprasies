@@ -355,11 +355,13 @@ def _parse_budget_table_lines(text: str, *, unit_price_before_quantity: bool = F
     parsed: list[PricingBudgetRow] = []
     for index, line in enumerate(lines):
         previous_line = lines[index - 1] if index > 0 else ""
+        previous_lines = lines[max(0, index - 3) : index]
         next_line = lines[index + 1] if index + 1 < len(lines) else ""
         next_lines = lines[index + 1 : min(len(lines), index + 4)]
         row = _parse_budget_table_line(
             line,
             previous_line=previous_line,
+            previous_lines=previous_lines,
             next_line=next_line,
             next_lines=next_lines,
             unit_price_before_quantity=unit_price_before_quantity,
@@ -387,6 +389,7 @@ def _parse_budget_table_line(
     line: str,
     *,
     previous_line: str = "",
+    previous_lines: list[str] | None = None,
     next_line: str = "",
     next_lines: list[str] | None = None,
     unit_price_before_quantity: bool = False,
@@ -422,34 +425,44 @@ def _parse_budget_table_line(
     revision_tokens: list[str] = []
     article_code: str | None = None
     description_tokens: list[str] = []
-    local_after_unit = _split_local_article_budget_prefix(post_unit_tokens, allow_empty_description=True)
-    if local_after_unit is not None:
-        article_code, article_description_tokens, revision_tokens = local_after_unit
-        description_tokens = [*prefix_tokens, *article_description_tokens]
-    else:
-        work_budget_structured = _split_work_budget_prefix(prefix_tokens, next_line=next_line)
-        if work_budget_structured is not None:
-            row_number, article_code, description_tokens, revision_tokens, consumed_next_line = work_budget_structured
-            previous_line = ""
-            if consumed_next_line:
-                next_line = ""
+    wrapped_article = _split_wrapped_article_across_lines(
+        prefix_tokens,
+        previous_lines or ([previous_line] if previous_line else []),
+        next_lines or ([next_line] if next_line else []),
+    )
+    if wrapped_article is not None:
+        row_number, article_code, description_tokens, revision_tokens = wrapped_article
+        next_line = ""
+        previous_line = ""
+    if article_code is None:
+        local_after_unit = _split_local_article_budget_prefix(post_unit_tokens, allow_empty_description=True)
+        if local_after_unit is not None:
+            article_code, article_description_tokens, revision_tokens = local_after_unit
+            description_tokens = [*prefix_tokens, *article_description_tokens]
         else:
-            structured = _split_structured_table_prefix(prefix_tokens, next_line=next_line)
-            if structured is not None:
-                row_number, article_code, description_tokens, revision_tokens, consumed_next_line = structured
+            work_budget_structured = _split_work_budget_prefix(prefix_tokens, next_line=next_line)
+            if work_budget_structured is not None:
+                row_number, article_code, description_tokens, revision_tokens, consumed_next_line = work_budget_structured
                 previous_line = ""
                 if consumed_next_line:
                     next_line = ""
             else:
-                local_article = _split_local_article_budget_prefix(prefix_tokens)
-                if local_article is not None:
-                    article_code, description_tokens, revision_tokens = local_article
+                structured = _split_structured_table_prefix(prefix_tokens, next_line=next_line)
+                if structured is not None:
+                    row_number, article_code, description_tokens, revision_tokens, consumed_next_line = structured
                     previous_line = ""
+                    if consumed_next_line:
+                        next_line = ""
                 else:
-                    article_code, description_tokens = _split_article_and_description(prefix_tokens)
-                    if not revision_tokens and _tokens_are_only_revision_codes(description_tokens) and _is_description_continuation(previous_line):
-                        revision_tokens = description_tokens
-                        description_tokens = []
+                    local_article = _split_local_article_budget_prefix(prefix_tokens)
+                    if local_article is not None:
+                        article_code, description_tokens, revision_tokens = local_article
+                        previous_line = ""
+                    else:
+                        article_code, description_tokens = _split_article_and_description(prefix_tokens)
+                        if not revision_tokens and _tokens_are_only_revision_codes(description_tokens) and _is_description_continuation(previous_line):
+                            revision_tokens = description_tokens
+                            description_tokens = []
     if article_code and re.fullmatch(r"\d{3}", _clean_token(article_code)):
         surrounding_article = _split_article_from_surrounding_lines(prefix_tokens, previous_line, next_line)
         if surrounding_article is not None:
@@ -662,6 +675,94 @@ def _find_work_budget_article_start(tokens: list[str]) -> int | None:
         if last in {"ΑΤΗΕ", "ΝΕΤ", "ΝΑΟΙΚ", "ΝΑΥΔΡ", "ΟΙΚ", "ΥΔΡ"}:
             return len(tokens) - 1
     return None
+
+
+def _split_wrapped_article_across_lines(
+    tokens: list[str],
+    previous_lines: list[str],
+    next_lines: list[str],
+) -> tuple[int, str, list[str], list[str]] | None:
+    at_index = next(
+        (
+            index
+            for index, token in enumerate(tokens)
+            if re.fullmatch(r"\d{3}", _clean_token(token))
+        ),
+        None,
+    )
+    if at_index is None:
+        return None
+    if at_index > 0 and not _tokens_look_like_article_fragment(tokens[:at_index]):
+        return None
+    suffix_tokens: list[str] = []
+    suffix_line_index: int | None = None
+    suffix_index: int | None = None
+    for line_index, line in enumerate(next_lines[:3]):
+        line_tokens = _clean_text(line).split()
+        found = _find_article_suffix_index(line_tokens)
+        if found is not None:
+            suffix_tokens = line_tokens
+            suffix_line_index = line_index
+            suffix_index = found
+            break
+    if suffix_index is None or suffix_line_index is None:
+        return None
+    prefix_line_tokens: list[str] = []
+    prefix_index: int | None = None
+    for line in reversed(previous_lines[-3:]):
+        line_tokens = _clean_text(line).split()
+        found = _find_wrapped_article_prefix_index(line_tokens)
+        if found is not None:
+            prefix_line_tokens = line_tokens
+            prefix_index = found
+            break
+    if prefix_index is None:
+        return None
+    suffix_description_tokens = suffix_tokens[:suffix_index]
+    suffix_article_connector: list[str] = []
+    if suffix_description_tokens and _tokens_look_like_article_connector([suffix_description_tokens[-1]]):
+        suffix_article_connector = [suffix_description_tokens[-1]]
+        suffix_description_tokens = suffix_description_tokens[:-1]
+    article_tokens = [
+        *prefix_line_tokens[prefix_index : prefix_index + 2],
+        *tokens[:at_index],
+        *suffix_article_connector,
+        suffix_tokens[suffix_index],
+    ]
+    article_code = " ".join(token for token in article_tokens if token)
+    if not re.search(r"\d", article_code):
+        return None
+    current_description_tokens = [] if _tokens_look_like_article_fragment(tokens[:at_index]) else tokens[:at_index]
+    description_tokens = [*prefix_line_tokens[:prefix_index], *current_description_tokens]
+    for line in next_lines[:suffix_line_index]:
+        description_tokens.extend(_clean_text(line).split())
+    description_tokens.extend(suffix_description_tokens)
+    revision_codes = _extract_revision_codes(" ".join(previous_lines[-3:]))
+    revision_tokens = revision_codes or prefix_line_tokens[prefix_index + 2 :]
+    return int(_clean_token(tokens[at_index])), article_code, description_tokens, revision_tokens
+
+
+def _find_wrapped_article_prefix_index(tokens: list[str]) -> int | None:
+    for index, token in enumerate(tokens):
+        clean = strip_accents(_clean_token(token)).upper().rstrip(".")
+        if clean == "ΝΕΤ":
+            return index
+        if clean in {"ΝΕΟ", "ΝΕΟ_ΗΛΜ", "ΝΕΟΗΛΜ", "ΣΧΕΤ_ΟΔΟ"}:
+            return index
+        if clean in ARTICLE_CODE_PREFIXES:
+            return index
+    return None
+
+
+def _tokens_look_like_article_fragment(tokens: list[str]) -> bool:
+    if not tokens or len(tokens) > 3:
+        return False
+    if any(re.search(r"[a-zα-ωάέήίόύώϊϋΐΰ]", token) for token in tokens):
+        return False
+    text = strip_accents(" ".join(tokens)).upper()
+    if any(prefix in text for prefix in ARTICLE_CODE_PREFIXES):
+        return True
+    return bool(re.fullmatch(r"[A-ZΑ-ΩΒ.\\/_ -]+", text))
 
 
 def _find_structured_article_index(tokens: list[str]) -> int | None:
