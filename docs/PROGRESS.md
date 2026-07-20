@@ -15,6 +15,13 @@
   entering OCR because the archive parent contained `ΜΕΛΕΤΗ`; nested children
   now require their own pricing signal, unless the archive parent has a strong
   budget/pricing signal such as `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ`.
+- Live `v0.1.47` guarded force smoke over the first three active ESHIDIS
+  candidates completed without the previous OCR storm. `221325` now records
+  `41` `SKIPPED_NON_PRICING_DOCUMENT` rows, `6` archive rows and `3` text
+  extracted rows; nested drawing files are skipped quickly. The project remains
+  partial because no budget rows were parsed from
+  `Οικονομική_προσφορά_Έργου_αρ___190626.pdf`, despite a reference total being
+  detected there. That is the next parsing issue, not a download/OCR hang.
 - Reverse-pricing `v0.1.46` adds a pre-OCR guard for nested drawing PDFs inside
   archive bundles. A live force-refetch stress run exposed ESHIDIS `221325`
   spending many minutes OCR-ing files such as

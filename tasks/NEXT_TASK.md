@@ -17,6 +17,11 @@ minutes OCR-ing nested drawing files from `ΣΧΕΔΙΑ ΑΡΧ.ΜΕΛΕΤΗΣ ..
 guarded; rerun a small force batch before attempting a larger active-window
 pass.
 
+The `v0.1.47` three-candidate live smoke finished. The next repair target is
+budget-row parsing for ESHIDIS `221325`, where
+`Οικονομική_προσφορά_Έργου_αρ___190626.pdf` exposes a valid reference total
+(`566.708,16`) but no budget rows were parsed.
+
 The repair command is:
 
 ```bash
