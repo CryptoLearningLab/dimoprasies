@@ -365,6 +365,9 @@ def _apply_at_unit_prices_from_text(
         if row.row_number is None or row.row_number not in unit_prices:
             adjusted.append(row)
             continue
+        if _raw_budget_row_has_complete_numeric_tail(row, unit_price_before_quantity=unit_price_before_quantity):
+            adjusted.append(row)
+            continue
         quantity = _quantity_from_budget_row_raw_text(row, unit_price_before_quantity=unit_price_before_quantity)
         unit_price = unit_prices[row.row_number]
         if quantity is None or unit_price is None:
@@ -385,6 +388,42 @@ def _apply_at_unit_prices_from_text(
             )
         )
     return adjusted
+
+
+def _raw_budget_row_has_complete_numeric_tail(
+    row: PricingBudgetRow,
+    *,
+    unit_price_before_quantity: bool,
+) -> bool:
+    if row.row_number is None or not row.unit:
+        return False
+    tokens = _clean_text(row.raw_text).split()
+    row_token = f"{row.row_number:03d}"
+    clean_unit = row.unit.lower().rstrip(".")
+    for row_index, token in enumerate(tokens):
+        if _clean_token(token) not in {row_token, str(row.row_number)}:
+            continue
+        for unit_index in range(row_index + 1, min(len(tokens), row_index + 14)):
+            if tokens[unit_index].lower().rstrip(".") != clean_unit:
+                continue
+            numeric_after_unit = [
+                item
+                for item in tokens[unit_index + 1 : min(len(tokens), unit_index + 6)]
+                if NUMERIC_RE.match(item)
+            ]
+            if len(numeric_after_unit) < 3:
+                return False
+            if unit_price_before_quantity:
+                unit_price = parse_greek_decimal(numeric_after_unit[0])
+                quantity = parse_greek_decimal(numeric_after_unit[1])
+            else:
+                quantity = parse_greek_decimal(numeric_after_unit[0])
+                unit_price = parse_greek_decimal(numeric_after_unit[1])
+            amount = parse_greek_decimal(numeric_after_unit[2])
+            if quantity is None or unit_price is None or amount is None:
+                return False
+            return abs(round(float(quantity) * float(unit_price), 2) - float(amount)) <= 0.02
+    return False
 
 
 def _complete_budget_lines_with_at_unit_prices(
