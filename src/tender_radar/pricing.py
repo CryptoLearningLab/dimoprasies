@@ -822,9 +822,10 @@ def _pricing_budget_router_prompt(*, eshidis_id: str, documents: list[dict[str, 
             }
         )
     return (
-        "Εντόπισε το αρχείο και το εύρος σελίδων που περιέχουν τον πραγματικό προϋπολογισμό δημόσιου έργου.\n"
-        "Δεν θέλουμε τιμολόγιο χωρίς ποσότητες, τεχνική περιγραφή, σχέδια ή απλή οικονομική προσφορά αν δεν έχει αναλυτικές γραμμές.\n"
+        "Εντόπισε το αρχείο και το εύρος σελίδων που περιέχουν τον πλήρη αναλυτικό προϋπολογισμό δημόσιου έργου.\n"
+        "Δεν θέλουμε τιμολόγιο χωρίς ποσότητες, τεχνική περιγραφή, σχέδια, συνοπτική προμέτρηση, πίνακα ομάδων ή απλή οικονομική προσφορά αν δεν έχει όλες τις αναλυτικές γραμμές.\n"
         "Προτίμησε πίνακα με Α/Α ή Α.Τ., άρθρο, περιγραφή, άρθρα αναθεώρησης, μονάδα, ποσότητα, τιμή μονάδας, δαπάνη.\n"
+        "Αν ένα έγγραφο δείχνει μόνο σύνολα ομάδων ή λίγες γραμμές και άλλο έγγραφο δείχνει πολλές αναλυτικές γραμμές άρθρων, διάλεξε το δεύτερο.\n"
         "Αν ο προϋπολογισμός είναι μέσα σε ενιαίο PDF μελέτης/διακήρυξης, δώσε page_start/page_end ή line hints.\n"
         "Αν υπάρχουν πολλοί υποψήφιοι, διάλεξε εκείνον που περιέχει αναλυτικές ποσότητες και επίσημο σύνολο εργασιών.\n"
         "Μην εφεύρεις σελίδες ή στοιχεία που δεν φαίνονται στα snippets.\n"
@@ -2686,7 +2687,7 @@ def reprocess_pricing_project_from_texts(
     merged_budget = consolidate_pricing_project_budget(db_path, eshidis_id=eshidis_id)
     document_total_validation = merged_budget.get("document_total_validation") or {}
     amount_validation = merged_budget.get("amount_validation") or {}
-    return {
+    payload = {
         "ok": failed == 0 and bool(amount_validation.get("ok")) and bool(document_total_validation.get("ok")),
         "eshidis_id": eshidis_id,
         "summary": {
@@ -2708,6 +2709,26 @@ def reprocess_pricing_project_from_texts(
         "merged_budget": merged_budget,
         "ai_budget_router": _compact_pricing_budget_route_report(router_report),
     }
+    if selected_document_id is not None and not payload["ok"]:
+        fallback = reprocess_pricing_project_from_texts(
+            db_path,
+            eshidis_id=eshidis_id,
+            use_ai_fallback=use_ai_fallback,
+            ai_fallback_mode=ai_fallback_mode,
+            use_ai_budget_router=False,
+        )
+        fallback_summary = fallback.get("summary") if isinstance(fallback.get("summary"), dict) else {}
+        fallback_summary["ai_budget_router_used"] = True
+        fallback_summary["ai_budget_router_selected_document_id"] = selected_document_id
+        fallback_summary["ai_budget_router_fallback_to_full"] = True
+        fallback["summary"] = fallback_summary
+        fallback["ai_budget_router"] = {
+            **(_compact_pricing_budget_route_report(router_report) or {}),
+            "fallback_to_full_reprocess": True,
+            "routed_parse_summary": payload.get("summary"),
+        }
+        return fallback
+    return payload
 
 
 def reprocess_existing_pricing_projects(
