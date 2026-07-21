@@ -1,5 +1,18 @@
 # Decision Log
 
+## D-091 — Structured budget rows use the last A/T before unit
+**Status:** Accepted
+
+For reverse-pricing budget rows where article/revision tokens appear before the
+A/T column, the parser must treat the last three-digit token before the unit as
+the A/T number. Earlier three-digit tokens may belong to revision codes such as
+`ΗΛΜ 103` or `ΠΡΣ 5321`. The supported layout is:
+
+`description -> article prefix -> revision code -> A/T -> unit -> quantity -> unit price -> amount`.
+
+Examples include `ΝΑΠΡΣ ΠΡΣ 5321 283`, `ΑΤΗΕ ΗΛΜ 34 473` and
+`ΗΛΜ Ν\45.1.2 ΗΛΜ 103 348`.
+
 ## D-090 — Strict budget filename-only parsing is not a production path
 **Status:** Rejected
 

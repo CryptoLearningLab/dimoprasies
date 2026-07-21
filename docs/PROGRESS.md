@@ -10,6 +10,13 @@
 `tasks/NEXT_TASK.md`
 
 ## Completed Milestones
+- Reverse-pricing `v0.1.51` adds a deterministic parser fallback for OCR table
+  rows where the article prefix and revision code appear before the A/T number,
+  for example `ΝΑΠΡΣ ΠΡΣ 5321 283`, `ΑΤΗΕ ΗΛΜ 34 473` and
+  `ΗΛΜ Ν\45.1.2 ΗΛΜ 103 348`. It also accepts 4-decimal unit prices,
+  Latin `TEM` units, and parenthesized units such as `(Kgr)`. Regression
+  coverage was added in `tests/test_pricing.py`; the focused pricing suite
+  passed with `61` tests and the full suite passed with `290` tests.
 - Reverse-pricing `v0.1.50` fixes monetary subtotal selection when an official
   total line also contains a trailing percentage. Lines such as
   `ΣΥΝΟΛΟ 1.148.787,69 € 100,00%` now use the euro amount as the reference

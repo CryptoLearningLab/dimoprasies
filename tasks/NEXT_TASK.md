@@ -1,12 +1,24 @@
 # NEXT TASK
 
 Execute:
-`Classify and fix remaining reverse-pricing review projects after clean storage`
+`Validate v0.1.51 parser fallback against live reverse-pricing review projects`
 
 ## Current Input
 
 The independent reverse-pricing workflow remains disconnected from cron.
 Production storage cleanup/refetch has now run successfully on `v0.1.49`.
+`v0.1.51` adds parser support for budget rows where the article prefix and
+revision code appear before the A/T number, plus 4-decimal unit prices,
+Latin `TEM`, and parenthesized units.
+
+After deploy, run targeted live reprocess first on `221720`, then decide
+whether to apply the same parser baseline to the remaining review projects:
+
+```bash
+tender-radar pricing reprocess-existing --db data/tender_radar.sqlite \
+  --eshidis-id 221720 \
+  --report work/reports/pricing_reprocess_221720_after_v0151.json
+```
 
 Current live storage state after apply:
 

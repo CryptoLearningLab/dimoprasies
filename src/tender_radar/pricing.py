@@ -31,7 +31,7 @@ SPARSE_OCR_ROW_RE = re.compile(r"^\s*(?P<row>\d{1,3}|[~])\s+(?P<rest>.+)$")
 MERGED_BUDGET_SOURCE_DOCUMENT = "__PROJECT_BUDGET_MERGED__"
 PRICING_AI_PROMPT_VERSION = "2026-07-20-budget-row-extraction-v1"
 PRICING_ROUTER_AI_PROMPT_VERSION = "2026-07-20-budget-router-v1"
-NUMERIC_RE = re.compile(r"^\d+(?:[.,]\d{1,3})*\*?$")
+NUMERIC_RE = re.compile(r"^\d+(?:[.,]\d{1,4})*\*?$")
 REVISION_RE = re.compile(
     r"(?:(?P<pct>\d+(?:[.,]\d+)?)\s*%)?\s*(?P<code>[A-ZΑ-ΩΟ∆Δ.]{2,8})\s*[-–—]?\s*(?P<num>\d+[A-ZΑ-ΩA-Z0-9]*)",
     re.IGNORECASE,
@@ -58,6 +58,7 @@ KNOWN_UNITS = {
     "ημ/σ",
     "τεμ",
     "τεμ.",
+    "tem",
     "τεμαχ",
     "τεμαχι",
     "τεμαχιο",
@@ -2232,6 +2233,13 @@ def _split_structured_table_prefix(tokens: list[str], *, next_line: str = "") ->
     row_number = int(tokens[-1]) if tokens[-1].isdigit() else 0
     work_tokens = tokens[:-1]
     split_continuation = _split_article_prefix_from_next_line(work_tokens, next_line)
+    split_prefix_revision = _split_article_prefix_revision_before_at(work_tokens)
+    if split_prefix_revision is not None:
+        article_code, description_tokens, revision_tokens = split_prefix_revision
+        if split_continuation is not None and not re.search(r"\d", article_code):
+            article_code, description_tokens, revision_tokens = split_continuation
+            return row_number, article_code, description_tokens, revision_tokens, True
+        return row_number, article_code, description_tokens, revision_tokens, False
     article_index = _find_structured_article_index(work_tokens)
     if article_index is None:
         split_article = split_continuation or _split_article_from_next_line(work_tokens, next_line)
@@ -2296,7 +2304,8 @@ def _split_work_budget_prefix(tokens: list[str], *, next_line: str = "") -> tupl
     at_index = next(
         (
             index
-            for index, token in enumerate(tokens)
+            for index in range(len(tokens) - 1, -1, -1)
+            for token in [tokens[index]]
             if re.fullmatch(r"\d{3}", _clean_token(token))
         ),
         None,
@@ -2507,6 +2516,25 @@ def _find_structured_article_index(tokens: list[str]) -> int | None:
     return None
 
 
+def _split_article_prefix_revision_before_at(tokens: list[str]) -> tuple[str, list[str], list[str]] | None:
+    for index, token in enumerate(tokens[:-1]):
+        prefix = strip_accents(_clean_token(token)).upper().rstrip(".")
+        if prefix not in ARTICLE_CODE_PREFIXES:
+            continue
+        next_clean = strip_accents(_clean_token(tokens[index + 1])).upper().rstrip(".")
+        article_end = index + 1
+        if next_clean not in ARTICLE_CODE_PREFIXES and re.search(r"\d", tokens[index + 1]):
+            article_end = index + 2
+        article_tokens = tokens[index:article_end]
+        revision_tokens = tokens[article_end:]
+        if not tokens[:index] or not revision_tokens:
+            continue
+        if not _extract_revision_codes(" ".join(revision_tokens)):
+            continue
+        return " ".join(article_tokens), tokens[:index], revision_tokens
+    return None
+
+
 def _split_article_from_next_line(tokens: list[str], next_line: str) -> tuple[str, list[str], list[str]] | None:
     next_tokens = _clean_text(next_line).split()
     if not next_tokens:
@@ -2584,6 +2612,8 @@ def _tokens_look_like_article_connector(tokens: list[str]) -> bool:
 
 
 def _split_article_prefix_from_next_line(tokens: list[str], next_line: str) -> tuple[str, list[str], list[str]] | None:
+    if TABLE_ROW_RE.match(next_line):
+        return None
     next_tokens = _clean_text(next_line).split()
     if not next_tokens:
         return None
@@ -2622,7 +2652,7 @@ def _find_article_suffix_index(tokens: list[str]) -> int | None:
 
 def _find_unit_end(tokens: list[str], before_index: int) -> tuple[int, str] | None:
     for index in range(before_index - 1, -1, -1):
-        token = tokens[index].lower().rstrip(".")
+        token = tokens[index].lower().strip("()[]{}").rstrip(".")
         if token == "αποκοπή" and index > 0 and tokens[index - 1].lower().startswith("κατ"):
             return index - 1, "κατ' αποκοπή"
         if token in {unit.rstrip(".") for unit in KNOWN_UNITS}:

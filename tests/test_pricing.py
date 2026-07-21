@@ -561,6 +561,29 @@ def test_parse_budget_rows_handles_split_backslash_articles_and_special_units() 
     assert rows[1].amount == 3000
 
 
+def test_parse_budget_rows_handles_prefix_revision_before_at_number() -> None:
+    text = r"""
+      35 Άρδευση φυτών από παροχές       ΝΑΠΡΣ          ΠΡΣ 5321      283     ΤΕΜ            1,00     0,0225                0,02
+      159 Ταύ καπνοδόχου 90ο μοιρών      ΑΤΗΕ           ΗΛΜ 34        473     TEM            1,00     235,26           235,26
+      34 Αγωγός γυμνός χάλκινος,         ΗΛΜ Ν\45.1.2   ΗΛΜ 103       348      m             1,00       6,08             6,08
+      155 Κατασκευές υδραυλικές από      ΑΤΗΕ 8052.2ΣΧ  ΗΛΜ 2         469     (Kgr)          1,00      24,34            24,34
+    """
+
+    rows = parse_budget_rows_from_text(text)
+    by_row_number = {row.row_number: row for row in rows}
+
+    assert {283, 473, 348, 469} <= set(by_row_number)
+    assert by_row_number[283].article_code == "ΝΑΠΡΣ"
+    assert by_row_number[283].revision_codes == ["ΠΡΣ-5321"]
+    assert by_row_number[283].amount == 0.02
+    assert by_row_number[473].article_code == "ΑΤΗΕ"
+    assert by_row_number[473].revision_codes == ["ΗΛΜ-34"]
+    assert by_row_number[348].article_code == r"ΗΛΜ Ν\45.1.2"
+    assert by_row_number[348].revision_codes == ["ΗΛΜ-103"]
+    assert by_row_number[469].article_code == "ΑΤΗΕ 8052.2ΣΧ"
+    assert by_row_number[469].revision_codes == ["ΗΛΜ-2"]
+
+
 def test_parse_budget_rows_handles_article_suffix_continuation_without_revision_column() -> None:
     text = """
       8 Επιστρώσεις με ΝΑΟΔΟ ΟΔΟΝ 2922 16 m2 490,00 35,00 17.150,00
