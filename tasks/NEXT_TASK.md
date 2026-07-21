@@ -40,6 +40,10 @@ complete, `/api/discover` skips the expensive ESHIDIS/KIMDIS steps. The browser
 also avoids the follow-up AI/enrichment chain when discovery returns
 `skipped=true`.
 
+ESHIDIS attachment downloads are now stored under per-tender directories inside
+the configured root, e.g. `work/download_audit/<eshidis_id>/`, to prevent common
+filenames from colliding across projects.
+
 ## Current Input
 
 The independent reverse-pricing workflow remains disconnected from cron.

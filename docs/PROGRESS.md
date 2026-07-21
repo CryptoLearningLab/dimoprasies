@@ -1,5 +1,28 @@
 # Project Progress
 
+## 2026-07-21 - ESHIDIS attachment download integrity guard
+
+Production UI attachment audit found that visible ESHIDIS rows expose downloaded
+documents through `/api/document-preview`, but flat storage under
+`work/download_audit` allowed common filenames such as `espd-request-v2.xml` to
+collide between projects.
+
+The ESHIDIS download command now stores new downloads under
+`work/download_audit/<eshidis_id>/` while preserving the configured root path.
+This keeps UI document links backed by attachment-specific `local_path` values
+and prevents later downloads from overwriting earlier files with the same
+filename.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest \
+  tests/test_cli.py::CliTests::test_download_attachment_uses_eshidis_scoped_directory \
+  tests/test_cli.py::CliTests::test_eshidis_download_dir_does_not_double_scope_existing_id_directory \
+  tests/test_cli.py::CliTests::test_documents_analyze_skips_existing_text_artifact -q
+# 3 passed
+```
+
 ## 2026-07-21 - UI discovery backfill skip guard
 
 The public-works UI search buttons were checked against the deployed behavior:

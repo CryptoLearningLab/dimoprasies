@@ -1,5 +1,17 @@
 # Decision Log
 
+## D-096 — ESHIDIS downloads are scoped by tender id
+**Status:** Accepted
+
+ESHIDIS attachment downloads must be stored under an ESHIDIS-specific directory
+inside the configured download root, for example
+`work/download_audit/221744/espd-request-v2.xml`.
+
+The UI and database keep using attachment ids and stored `local_path` values,
+but new downloads avoid flat-directory filename collisions between projects.
+This is required for common filenames such as `espd-request-v2.xml` and for
+sha256 integrity checks to remain meaningful.
+
 ## D-095 — UI backfill search may skip only after a complete unchanged window
 **Status:** Accepted
 

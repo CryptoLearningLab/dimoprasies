@@ -3,7 +3,7 @@ from io import StringIO
 from unittest.mock import patch
 import unittest
 
-from tender_radar.cli import _import_resource_payload, _parse_row_indexes, build_parser, main
+from tender_radar.cli import _eshidis_download_dir, _import_resource_payload, _parse_row_indexes, build_parser, main
 from tender_radar.db import connect, initialize
 
 
@@ -277,6 +277,75 @@ class CliTests(unittest.TestCase):
 
     def test_parse_row_indexes_deduplicates_and_preserves_order(self) -> None:
         self.assertEqual([0, 2, 1], _parse_row_indexes("0, 2, 0, 1"))
+
+    def test_download_attachment_uses_eshidis_scoped_directory(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_path = root / "radar.sqlite"
+            download_dir = root / "downloads"
+            initialize(db_path)
+            connection = connect(db_path)
+            try:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO tenders (eshidis_id, title, created_at, updated_at)
+                    VALUES ('221744', 'Test tender', '2026-07-21T00:00:00+00:00', '2026-07-21T00:00:00+00:00')
+                    """
+                )
+                tender_id = int(cursor.lastrowid)
+                connection.execute(
+                    """
+                    INSERT INTO attachments (tender_id, original_name, source_url, retrieved_at, is_latest)
+                    VALUES (?, 'espd-request-v2.xml', 'https://example.test/221744', '2026-07-21T00:00:00+00:00', 1)
+                    """,
+                    (tender_id,),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            captured = {}
+
+            def fake_download(eshidis_id, row_index, audit_path, target_dir, **kwargs):
+                captured["target_dir"] = target_dir
+                path = target_dir / "espd-request-v2.xml"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("xml", encoding="utf-8")
+                return {
+                    "eshidis_id": eshidis_id,
+                    "downloaded_file": {
+                        "path": str(path),
+                        "name": "espd-request-v2.xml",
+                        "size_bytes": 3,
+                        "sha256": "abc123",
+                    },
+                }
+
+            with patch("tender_radar.cli.download_attachment_audit", fake_download):
+                self.assertEqual(
+                    0,
+                    main(
+                        [
+                            "sources",
+                            "download-attachment",
+                            "221744",
+                            "--db",
+                            str(db_path),
+                            "--download-dir",
+                            str(download_dir),
+                        ]
+                    ),
+                )
+
+            self.assertEqual(download_dir / "221744", captured["target_dir"])
+
+    def test_eshidis_download_dir_does_not_double_scope_existing_id_directory(self) -> None:
+        from pathlib import Path
+
+        self.assertEqual(Path("work/download_audit/221744"), _eshidis_download_dir(Path("work/download_audit/221744"), "221744"))
 
     def test_import_resource_allows_missing_attachment_table(self) -> None:
         import tempfile

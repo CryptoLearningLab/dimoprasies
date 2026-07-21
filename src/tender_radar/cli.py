@@ -5,6 +5,7 @@ from datetime import date
 from datetime import datetime, timezone
 import json
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -1299,7 +1300,7 @@ def _sources_download_attachment(args: argparse.Namespace) -> int:
             args.eshidis_id,
             row_index,
             audit_path,
-            Path(args.download_dir),
+            _eshidis_download_dir(Path(args.download_dir), args.eshidis_id),
             allow_insecure_tls=args.allow_insecure_tls,
             headful=args.headful,
         )
@@ -1374,6 +1375,18 @@ def _should_skip_download(status: AttachmentStatus, *, force: bool) -> bool:
     if force or not status.local_path or not status.sha256:
         return False
     return Path(status.local_path).exists()
+
+
+def _eshidis_download_dir(base_dir: Path, eshidis_id: str) -> Path:
+    safe_id = _safe_path_part(eshidis_id)
+    if base_dir.name == safe_id:
+        return base_dir
+    return base_dir / safe_id
+
+
+def _safe_path_part(value: str) -> str:
+    cleaned = re.sub(r"[^0-9A-Za-z._-]+", "_", str(value).strip())
+    return cleaned.strip("._") or "unknown"
 
 
 def _sources_import_download_audit(download_audit_json: Path, db_path: Path) -> int:
