@@ -13,6 +13,19 @@ This keeps UI document links backed by attachment-specific `local_path` values
 and prevents later downloads from overwriting earlier files with the same
 filename.
 
+Production repair after deploy:
+
+- deployed commit: `37fb57a`;
+- force re-downloaded the 8 visible ESHIDIS dashboard rows into scoped
+  directories;
+- `101` ESHIDIS attachments were downloaded during repair, `0` failed;
+- post-repair UI/document audit: `101/101` preview documents available,
+  `101/101` files present on disk, `101/101` sha256 matches;
+- follow-up non-force download run over the same 8 ESHIDIS rows returned
+  `downloaded=0`, `skipped=101`, `failed=0`;
+- production dashboard after repair: `12` visible rows, `8` ESHIDIS and `4`
+  KIMDIS; the visible KIMDIS rows each expose `1` available KIMDIS document.
+
 Verification:
 
 ```bash

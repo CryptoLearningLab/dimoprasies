@@ -44,6 +44,10 @@ ESHIDIS attachment downloads are now stored under per-tender directories inside
 the configured root, e.g. `work/download_audit/<eshidis_id>/`, to prevent common
 filenames from colliding across projects.
 
+Production repair has been applied to the current visible dashboard ESHIDIS
+rows: `101/101` preview documents are available, present on disk and sha256
+verified; a follow-up non-force download run skipped all `101`.
+
 ## Current Input
 
 The independent reverse-pricing workflow remains disconnected from cron.
