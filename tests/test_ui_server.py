@@ -82,6 +82,43 @@ def test_ui_exposes_source_polling_audit() -> None:
     assert "sourceHealthClass" in APP_JS
     assert "Health warnings" in APP_JS
     assert "refreshRuntimeViews" in APP_JS
+    assert "$('entalmata').classList.contains('active')" in APP_JS
+    assert "$('workflow').classList.contains('active')" in APP_JS
+
+
+def test_cached_payload_reuses_builder_and_marks_cache_hit() -> None:
+    ui_server.invalidate_ui_payload_cache()
+    calls = {"count": 0}
+
+    def builder():
+        calls["count"] += 1
+        return {"ok": True, "value": calls["count"]}
+
+    first = ui_server.cached_payload(("unit",), builder, ttl_seconds=30)
+    second = ui_server.cached_payload(("unit",), builder, ttl_seconds=30)
+
+    assert calls["count"] == 1
+    assert first["cache"]["hit"] is False
+    assert second["cache"]["hit"] is True
+    assert second["value"] == 1
+    ui_server.invalidate_ui_payload_cache()
+
+
+def test_cached_dashboard_payload_does_not_run_expired_cleanup(monkeypatch) -> None:
+    ui_server.invalidate_ui_payload_cache()
+    captured = {}
+
+    def fake_dashboard_payload(*, scope, sort, user_email=None, perform_expired_cleanup=True, **kwargs):
+        captured["perform_expired_cleanup"] = perform_expired_cleanup
+        return {"ok": True, "scope": scope, "sort": sort, "user_email": user_email}
+
+    monkeypatch.setattr(ui_server, "dashboard_payload", fake_dashboard_payload)
+
+    payload = ui_server.cached_dashboard_payload(scope="focus", sort="deadline_asc", user_email="owner@example.test")
+
+    assert payload["ok"] is True
+    assert captured["perform_expired_cleanup"] is False
+    ui_server.invalidate_ui_payload_cache()
 
 
 def test_ui_exposes_entalmata_tab() -> None:

@@ -1,5 +1,18 @@
 # Decision Log
 
+## D-107 — UI rendering is read-only and cache-backed
+**Status:** Accepted
+
+Interactive dashboard/admin GET requests should not perform maintenance work
+such as deleting expired downloads or rewriting audit-derived state unless
+strictly required for the displayed payload. Page rendering should be fast,
+read-mostly and cache-backed for a short interval.
+
+Maintenance jobs such as expired file cleanup should run through scheduled or
+explicit runtime paths. UI payload caches must be invalidated after discovery,
+fetch, AI triage, enrichment, dismiss/restore and similar state-changing
+actions.
+
 ## D-106 — Production credentials are admin-only local secrets
 **Status:** Accepted
 

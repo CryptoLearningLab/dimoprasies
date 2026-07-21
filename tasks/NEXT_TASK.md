@@ -89,6 +89,11 @@ The admin panel now has an admin-only production secrets form that writes
 returning plaintext values. This only stores credentials; any future TEE
 automation must be implemented separately and must respect login, CAPTCHA, 2FA
 and terms-of-use constraints.
+UI performance pass is in place: GET dashboard/admin payloads use short
+runtime cache, dashboard rendering no longer runs expired-download cleanup,
+shared JSON/SQLite readers use mtime-aware cache, and tabs load lazily. Next
+public-works product work can start from the project timeline / "why visible"
+view, but keep measuring live endpoint timings after each UI-heavy change.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked
 ESHIDIS ids (`64.3%`). The 5 unresolved rows completed KIMDIS fetch and

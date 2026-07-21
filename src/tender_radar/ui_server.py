@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
@@ -109,6 +110,11 @@ ADMIN_SESSIONS_LOCK = threading.Lock()
 ADMIN_SESSIONS: dict[str, dict[str, str]] = {}
 ADMIN_LOGIN_CODES_LOCK = threading.Lock()
 ADMIN_LOGIN_CODES: dict[str, dict[str, Any]] = {}
+PAYLOAD_CACHE_LOCK = threading.Lock()
+PAYLOAD_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+PAYLOAD_CACHE_TTL_SECONDS = 90
+DATA_CACHE_LOCK = threading.Lock()
+DATA_CACHE: dict[tuple[Any, ...], Any] = {}
 
 
 def runtime_db_path() -> Path:
@@ -177,7 +183,7 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             scope = query.get("scope", ["focus"])[0]
             sort = query.get("sort", ["deadline_asc"])[0]
             session = self._admin_session() or {}
-            self._send_json(dashboard_payload(scope=scope, sort=sort, user_email=session.get("email")))
+            self._send_json(cached_dashboard_payload(scope=scope, sort=sort, user_email=session.get("email")))
             return
         if parsed.path == "/api/source-polling":
             self._send_json(source_polling_payload())
@@ -196,7 +202,7 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             if not self._admin_authenticated():
                 self._send_json({"ok": False, "authenticated": False, **admin_status_payload()}, status=401)
                 return
-            self._send_json(admin_audit_payload())
+            self._send_json(cached_admin_audit_payload())
             return
         if parsed.path == "/api/admin/users":
             session = self._admin_session()
@@ -801,6 +807,7 @@ def _run_job(job_id: str, target: Any, args: tuple[Any, ...], kwargs: dict[str, 
         result = None
         status = "failed"
         error = str(exc)
+    invalidate_ui_payload_cache()
     with JOBS_LOCK:
         job = JOBS.get(job_id)
         if not job:
@@ -820,6 +827,69 @@ def prune_jobs(*, now: float, max_age_seconds: int = 3600) -> None:
     expired = [job_id for job_id, job in JOBS.items() if now - float(job.get("updated_at") or 0) > max_age_seconds]
     for job_id in expired:
         JOBS.pop(job_id, None)
+
+
+def cached_payload(key: tuple[Any, ...], builder: Any, *, ttl_seconds: int = PAYLOAD_CACHE_TTL_SECONDS) -> dict[str, Any]:
+    now = time.time()
+    with PAYLOAD_CACHE_LOCK:
+        cached = PAYLOAD_CACHE.get(key)
+        if cached and now - float(cached.get("created_at") or 0) <= ttl_seconds:
+            payload = deepcopy(cached.get("payload") or {})
+            payload["cache"] = {"hit": True, "age_seconds": round(now - float(cached.get("created_at") or now), 3)}
+            return payload
+    started = time.perf_counter()
+    payload = builder()
+    elapsed = time.perf_counter() - started
+    if isinstance(payload, dict):
+        payload = {**payload, "cache": {"hit": False, "age_seconds": 0.0, "generated_seconds": round(elapsed, 3)}}
+    with PAYLOAD_CACHE_LOCK:
+        PAYLOAD_CACHE[key] = {"created_at": now, "payload": deepcopy(payload)}
+    if elapsed >= 1.0:
+        print(f"[ui-perf] cache_miss key={key!r} seconds={elapsed:.3f}", flush=True)
+    return deepcopy(payload)
+
+
+def invalidate_ui_payload_cache() -> None:
+    with PAYLOAD_CACHE_LOCK:
+        PAYLOAD_CACHE.clear()
+    with DATA_CACHE_LOCK:
+        DATA_CACHE.clear()
+
+
+def path_mtime_ns(path: Path) -> int | None:
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
+def cached_data(key: tuple[Any, ...], builder: Any) -> Any:
+    with DATA_CACHE_LOCK:
+        if key in DATA_CACHE:
+            return deepcopy(DATA_CACHE[key])
+    value = builder()
+    with DATA_CACHE_LOCK:
+        DATA_CACHE[key] = deepcopy(value)
+    return deepcopy(value)
+
+
+def cached_dashboard_payload(*, scope: str, sort: str, user_email: str | None = None) -> dict[str, Any]:
+    safe_scope = dashboard_scope(scope)
+    safe_sort = sort if sort in {"deadline_asc", "budget_desc"} else "deadline_asc"
+    key = ("dashboard", safe_scope, safe_sort, user_email or "")
+    return cached_payload(
+        key,
+        lambda: dashboard_payload(
+            scope=safe_scope,
+            sort=safe_sort,
+            user_email=user_email,
+            perform_expired_cleanup=False,
+        ),
+    )
+
+
+def cached_admin_audit_payload() -> dict[str, Any]:
+    return cached_payload(("admin_audit",), admin_audit_payload)
 
 
 def run_selected_fetch(identifier: str) -> dict[str, Any]:
@@ -1352,10 +1422,35 @@ def document_evidence_for_row(row: dict[str, Any], *, row_key: str) -> list[dict
 
 
 def sqlite_source_document_evidence(row_key: str) -> list[dict[str, Any]]:
+    grouped = source_document_evidence_by_row_key()
+    if grouped is not None:
+        return grouped.get(row_key, [])
     try:
         source_documents = list_source_documents(runtime_db_path(), row_key=row_key)
     except (OSError, sqlite3.Error):
         return []
+    return source_document_evidence_payloads(row_key, source_documents)
+
+
+def source_document_evidence_by_row_key() -> dict[str, list[dict[str, Any]]] | None:
+    db_path = runtime_db_path()
+    if not db_path.exists():
+        return {}
+    key = ("source_documents", str(db_path), path_mtime_ns(db_path))
+    try:
+        return cached_data(key, lambda: build_source_document_evidence_by_row_key(db_path))
+    except (OSError, sqlite3.Error):
+        return None
+
+
+def build_source_document_evidence_by_row_key(db_path: Path) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for source_document in list_source_documents(db_path):
+        grouped.setdefault(source_document.row_key, []).append(source_document)
+    return {row_key: source_document_evidence_payloads(row_key, documents) for row_key, documents in grouped.items()}
+
+
+def source_document_evidence_payloads(row_key: str, source_documents: list[Any]) -> list[dict[str, Any]]:
     evidence: list[dict[str, Any]] = []
     for source_document in source_documents:
         metadata = source_document.metadata if isinstance(source_document.metadata, dict) else {}
@@ -3814,7 +3909,7 @@ def candidates_payload() -> dict[str, Any]:
     path = REPO_ROOT / "work/reports/eshidis_active_candidates.json"
     if not path.exists():
         return {"exists": False, "path": str(path), "candidates": [], "coverage": {}}
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = cached_data(("candidates", str(path), path_mtime_ns(path)), lambda: json.loads(path.read_text(encoding="utf-8")))
     return {
         "exists": True,
         "path": str(path),
@@ -3833,6 +3928,7 @@ def dashboard_payload(
     *,
     apply_triage: bool = True,
     user_email: str | None = None,
+    perform_expired_cleanup: bool = True,
 ) -> dict[str, Any]:
     safe_scope = dashboard_scope(scope)
     profile = location_focus_profile()
@@ -3846,10 +3942,14 @@ def dashboard_payload(
     rows = [row_with_document_evidence(row) for row in rows]
     canonical_rows, duplicate_hidden_rows = suppress_linked_eshidis_duplicates(rows)
     official_deadlines = official_eshidis_deadlines_by_id(canonical_rows)
-    cleanup_report = cleanup_expired_public_work_downloads(
-        canonical_rows,
-        as_of=as_of,
-        official_deadlines=official_deadlines,
+    cleanup_report = (
+        cleanup_expired_public_work_downloads(
+            canonical_rows,
+            as_of=as_of,
+            official_deadlines=official_deadlines,
+        )
+        if perform_expired_cleanup
+        else empty_expired_cleanup_report()
     )
     active_rows = [
         row
@@ -4560,6 +4660,7 @@ def dismiss_tender(row_key: str, *, user_email: str) -> dict[str, Any]:
         reason="Δεν με ενδιαφέρει",
         metadata={"source": "front_page"},
     )
+    invalidate_ui_payload_cache()
     ignored = ignored_tender_keys(user_email=normalized_email)
     return {
         "ok": True,
@@ -4594,6 +4695,7 @@ def restore_admin_row(*, row_key: str, reason: str | None = None) -> dict[str, A
         reason=reason,
         metadata={"source": "admin_panel"},
     )
+    invalidate_ui_payload_cache()
     return {"ok": True, "row_key": row_key, "dashboard": dashboard_payload(scope="focus"), "admin": admin_audit_payload()}
 
 
@@ -5420,7 +5522,7 @@ def latest_discovery_run_payload() -> dict[str, Any] | None:
 
 def location_focus_profile() -> dict[str, Any]:
     path = REPO_ROOT / "config" / "locations.yml"
-    data = load_config(path) if path.exists() else {}
+    data = cached_data(("locations", str(path), path_mtime_ns(path)), lambda: load_config(path) if path.exists() else {})
     municipalities = data.get("municipalities", []) if isinstance(data, dict) else []
     regions = data.get("regions", []) if isinstance(data, dict) else []
     return {
@@ -5465,7 +5567,7 @@ def expanded_report_payload() -> dict[str, Any]:
     path = REPO_ROOT / "work/reports/expanded_discovery_report.json"
     if not path.exists():
         return {"exists": False, "path": str(path), "focus_open_proc_candidates": [], "focus_authority_candidates": []}
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = cached_data(("expanded_report", str(path), path_mtime_ns(path)), lambda: json.loads(path.read_text(encoding="utf-8")))
     return {
         "exists": True,
         "path": str(path),
@@ -5612,7 +5714,7 @@ def authority_document_index_payload() -> dict[str, Any]:
     path = authority_document_index_path()
     if not path.exists():
         return {"exists": False, "path": str(path), "documents": []}
-    return json.loads(path.read_text(encoding="utf-8"))
+    return cached_data(("authority_documents", str(path), path_mtime_ns(path)), lambda: json.loads(path.read_text(encoding="utf-8")))
 
 
 def authority_documents_by_key() -> dict[str, list[dict[str, Any]]]:
@@ -5749,7 +5851,7 @@ def kimdis_document_index_payload() -> dict[str, Any]:
     path = REPO_ROOT / "work/derived/kimdis_open_proc_documents.json"
     if not path.exists():
         return {"exists": False, "path": str(path), "documents": []}
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = cached_data(("kimdis_documents", str(path), path_mtime_ns(path)), lambda: json.loads(path.read_text(encoding="utf-8")))
     return {
         "exists": True,
         "path": str(path),
@@ -5799,6 +5901,10 @@ def sqlite_tender_rows() -> list[dict[str, Any]]:
     db_path = REPO_ROOT / "data" / "tender_radar.sqlite"
     if not db_path.exists():
         return []
+    return cached_data(("sqlite_tender_rows", str(db_path), path_mtime_ns(db_path)), lambda: read_sqlite_tender_rows(db_path))
+
+
+def read_sqlite_tender_rows(db_path: Path) -> list[dict[str, Any]]:
     connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     try:
@@ -6337,6 +6443,23 @@ def official_eshidis_deadlines_by_id(rows: list[dict[str, Any]]) -> dict[str, st
     return deadlines
 
 
+def empty_expired_cleanup_report() -> dict[str, Any]:
+    return {
+        "ok": True,
+        "summary": {
+            "expired_rows_checked": 0,
+            "files_deleted": 0,
+            "bytes_deleted": 0,
+            "attachments_cleared": 0,
+            "source_documents_cleared": 0,
+            "legacy_documents_cleared": 0,
+            "errors": 0,
+        },
+        "rows": [],
+        "errors": [],
+    }
+
+
 def cleanup_expired_public_work_downloads(
     rows: list[dict[str, Any]],
     *,
@@ -6602,8 +6725,9 @@ def deadline_datetime(value: str) -> datetime | None:
 
 
 def dashboard_timezone() -> ZoneInfo:
+    path = REPO_ROOT / "config" / "locations.yml"
     try:
-        config = load_config(REPO_ROOT / "config" / "locations.yml")
+        config = cached_data(("dashboard_timezone_config", str(path), path_mtime_ns(path)), lambda: load_config(path))
         name = str(config.get("timezone") or "Europe/Athens")
         return ZoneInfo(name)
     except (OSError, ZoneInfoNotFoundError, ValueError):
@@ -8133,6 +8257,9 @@ document.querySelectorAll('.nav').forEach((button) => {
     if (button.dataset.view === 'entalmata') {
       loadEntalmata().catch((error) => { $('statusText').textContent = String(error); });
     }
+    if (button.dataset.view === 'workflow' && state.session && ['admin', 'pricing'].includes(state.session.role)) {
+      loadPricingIngestStatus().catch((error) => { $('pricingIngestStatus').textContent = String(error); });
+    }
   });
 });
 
@@ -8195,11 +8322,13 @@ async function refresh() {
   fillSelect('ruleProfileSelect', state.evaluationProfiles);
   await loadDashboard();
   await loadSourcePolling();
-  await loadEntalmata();
-  if (state.session && ['admin', 'pricing'].includes(state.session.role)) {
+  if ($('entalmata').classList.contains('active')) {
+    await loadEntalmata();
+  }
+  if ($('workflow').classList.contains('active') && state.session && ['admin', 'pricing'].includes(state.session.role)) {
     await loadPricingIngestStatus();
   }
-  if (!state.evaluationConfig && $('ruleProfileSelect').value) {
+  if ($('rules').classList.contains('active') && !state.evaluationConfig && $('ruleProfileSelect').value) {
     await loadRules();
   }
 }
@@ -8397,9 +8526,14 @@ function renderEntalmata(payload) {
 async function refreshRuntimeViews() {
   await loadDashboard();
   await loadSourcePolling();
-  await loadEntalmata();
+  if ($('entalmata').classList.contains('active')) {
+    await loadEntalmata();
+  }
   if (!$('adminContent').hidden) {
     await loadAdminAudit();
+  }
+  if ($('workflow').classList.contains('active') && state.session && ['admin', 'pricing'].includes(state.session.role)) {
+    await loadPricingIngestStatus();
   }
 }
 

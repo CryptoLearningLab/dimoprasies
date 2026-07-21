@@ -1,5 +1,43 @@
 # Project Progress
 
+## 2026-07-21 - UI payload performance cache and lazy tab loading
+
+The runtime/UI version was bumped from `0.1.62` to `0.1.63`.
+
+The public dashboard and admin audit now use a short in-memory payload cache
+for GET requests. Cache entries are invalidated when background jobs finish or
+when user/admin row state changes, and responses include cache metadata so
+slow cache misses can be distinguished from fast hits.
+
+The browser dashboard endpoint no longer performs expired-download cleanup
+during page rendering. The cleanup routine remains available for explicit
+runtime/scheduled paths, but page rendering is now read-only. This removes
+file deletion and SQLite update work from the operator's initial screen load.
+
+Shared data readers for JSON discovery/document indexes, SQLite tender rows,
+source-document evidence and dashboard timezone config now use mtime-aware
+runtime caching. This avoids repeatedly reading the same files/SQLite tables
+while building a single dashboard/admin payload.
+
+The frontend initial refresh was also made lazy: the first app load fetches
+the public-works dashboard and source health only. Entalmata, pricing status,
+rules and admin audit are loaded when their tabs are opened.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_cached_payload_reuses_builder_and_marks_cache_hit \
+  tests/test_ui_server.py::test_cached_dashboard_payload_does_not_run_expired_cleanup \
+  tests/test_ui_server.py::test_ui_exposes_source_polling_audit \
+  tests/test_ui_server.py::test_dashboard_cleanup_deletes_expired_eshidis_downloads \
+  tests/test_ui_server.py::test_dashboard_cleanup_deletes_expired_kimdis_downloads_and_legacy_index \
+  tests/test_ui_server.py::test_ui_shows_current_version_badge -q
+# 6 passed
+
+.venv/bin/python -m pytest -q
+# 317 passed
+```
+
 ## 2026-07-21 - Admin-only production secrets form
 
 The runtime/UI version was bumped from `0.1.61` to `0.1.62`.
