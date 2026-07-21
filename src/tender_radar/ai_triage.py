@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 
 
 DEFAULT_MODEL = "gpt-4.1-mini"
-AI_TRIAGE_PROMPT_VERSION = "2026-07-21-road-maintenance-works-v1"
+AI_TRIAGE_PROMPT_VERSION = "2026-07-21-road-maintenance-works-v2"
 RESPONSES_URL = "https://api.openai.com/v1/responses"
 
 KEEP_DECISIONS = {"KEEP_ACTIVE_TENDER", "REVIEW_TENDER_CANDIDATE", "EARLY_SIGNAL"}
@@ -451,7 +451,7 @@ def _normalize_classification(item: dict[str, Any], *, row: dict[str, Any] | Non
     except (TypeError, ValueError):
         confidence = 0.0
     reason = str(item.get("reason") or "")
-    if decision == "DROP_OUT_OF_SCOPE_SUPPLY_SERVICE" and row and should_keep_road_maintenance_candidate(row):
+    if decision == "DROP_OUT_OF_SCOPE_SUPPLY_SERVICE" and row and should_keep_road_maintenance_candidate(row, ai_reason=reason):
         decision = "REVIEW_TENDER_CANDIDATE"
         reason = (
             "Programmatic guard: συντήρηση οδικού/επαρχιακού δικτύου με διαγωνιστική ένδειξη "
@@ -471,7 +471,7 @@ def _normalize_classification(item: dict[str, Any], *, row: dict[str, Any] | Non
     }
 
 
-def should_keep_road_maintenance_candidate(row: dict[str, Any]) -> bool:
+def should_keep_road_maintenance_candidate(row: dict[str, Any], *, ai_reason: str | None = None) -> bool:
     text = _normalize(
         " ".join(
             str(row.get(key) or "")
@@ -485,9 +485,22 @@ def should_keep_road_maintenance_candidate(row: dict[str, Any]) -> bool:
                 "budget",
                 "official_url",
                 "text_sample",
+                ai_reason,
             )
         )
     )
+    exclusion_terms = (
+        "απευθειας αναθεση",
+        "απευθειας αναθεσης",
+        "αρθρο 118",
+        "αρ. 118",
+        "οχι ανοιχτος διαγωνισμος",
+        "οχι ανοικτος διαγωνισμος",
+        "συμβαση",
+        "υπογεγραμμενη συμβαση",
+    )
+    if any(term in text for term in exclusion_terms):
+        return False
     road_terms = (
         "οδικου δικτυου",
         "επαρχιακου δικτυου",
@@ -503,10 +516,12 @@ def should_keep_road_maintenance_candidate(row: dict[str, Any]) -> bool:
     tender_terms = ("διαγωνισ", "διακηρυ", "υποβολη", "προσφορ", "προθεσμι", "deadline")
     has_deadline = bool(str(row.get("deadline") or "").strip())
     has_budget = bool(str(row.get("budget") or "").strip()) or bool(re.search(r"\d[\d.]*,\d{2}\s*(?:€|eur)", text))
+    has_tender_signal = any(term in text for term in tender_terms)
     return (
         any(term in text for term in road_terms)
         and any(term in text for term in maintenance_terms)
-        and (has_deadline or any(term in text for term in tender_terms))
+        and has_tender_signal
+        and has_deadline
         and has_budget
     )
 

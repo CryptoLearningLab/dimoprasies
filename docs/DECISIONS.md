@@ -12,6 +12,9 @@ Snow-removal or winter-maintenance packages are also kept for review when the
 row has tender/deadline and budget evidence plus road-network infrastructure
 wording.
 
+This rule does not override direct assignments, article 118 procedures, signed
+contracts or rows whose evidence says they are not open tenders.
+
 ## D-101 — Admin audit AI rows use semantic rejection categories
 **Status:** Accepted
 

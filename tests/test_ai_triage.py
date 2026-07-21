@@ -135,6 +135,40 @@ def test_ai_triage_keeps_road_network_maintenance_for_review() -> None:
     assert ai["confidence"] == 0.74
 
 
+def test_ai_triage_does_not_restore_direct_assignment_road_rows() -> None:
+    rows = [
+        {
+            "row_key": "KIMDIS:26PROC019421668",
+            "source_label": "ΚΗΜΔΗΣ",
+            "display_id": "26PROC019421668",
+            "title": "ΒΕΛΤΙΩΣΕΙΣ -ΤΣΙΜΕΝΤΟΣΤΡΩΣΕΙΣ ΠΡΟΣΒΑΣΙΜΟΤΗΤΑΣ ΔΗΜΟΤΙΚΩΝ ΟΔΩΝ",
+            "authority_name": "ΔΗΜΟΣ ΑΓΡΙΝΙΟΥ",
+            "current_deadline_at": "2026-07-24T10:00:00",
+            "budget_with_vat": "74400.0",
+            "text_sample": "Απευθείας ανάθεση με άρθρο 118, όχι ανοιχτός διαγωνισμός έργου",
+        }
+    ]
+    ai_result = [
+        {
+            "row_key": "KIMDIS:26PROC019421668",
+            "decision": "DROP_OUT_OF_SCOPE_SUPPLY_SERVICE",
+            "confidence": 0.95,
+            "reason": "Απευθείας ανάθεση με άρθρο 118, όχι ανοιχτός διαγωνισμός έργου",
+            "eshidis_id_candidates": [],
+        }
+    ]
+
+    with patch("tender_radar.ai_triage.load_openai_api_key", return_value="test-key"), patch(
+        "tender_radar.ai_triage.classify_batch_with_openai", return_value=ai_result
+    ):
+        report = build_ai_triage_report(rows, batch_size=10)
+
+    ai = report["rows"][0]["ai"]
+    assert not should_keep_road_maintenance_candidate(report["rows"][0], ai_reason=ai_result[0]["reason"])
+    assert ai["decision"] == "DROP_OUT_OF_SCOPE_SUPPLY_SERVICE"
+    assert ai["keep_for_daily_review"] is False
+
+
 def test_ai_triage_prompt_excludes_observed_non_works_false_keeps() -> None:
     prompt = _prompt_text(
         [
