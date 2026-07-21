@@ -1,5 +1,19 @@
 # Decision Log
 
+## D-092 — Economic offer is validation-first, not the primary budget source
+**Status:** Accepted
+
+Reverse-pricing should not start analytical budget extraction from
+`ΟΙΚΟΝΟΜΙΚΗ ΠΡΟΣΦΟΡΑ`. Economic-offer documents remain useful for official
+subtotal validation, but they must be penalized in budget routing unless they
+visibly contain the complete analytical table with quantities and unit prices.
+
+Standalone `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ` files are the strongest budget source. A filename
+token such as `ΠΥ` is only weak evidence because it may mean either
+`Προϋπολογισμός` or `Πυρασφάλεια`; it needs text/table confirmation before
+heavy parsing. Drawings and special studies are skipped before expensive OCR
+unless explicit budget evidence is present.
+
 ## D-091 — Structured budget rows use the last A/T before unit
 **Status:** Accepted
 

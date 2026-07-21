@@ -1,15 +1,17 @@
 # NEXT TASK
 
 Execute:
-`Validate v0.1.51 parser fallback against live reverse-pricing review projects`
+`Validate v0.1.52 routing guard against live reverse-pricing review projects`
 
 ## Current Input
 
 The independent reverse-pricing workflow remains disconnected from cron.
 Production storage cleanup/refetch has now run successfully on `v0.1.49`.
-`v0.1.51` adds parser support for budget rows where the article prefix and
-revision code appear before the A/T number, plus 4-decimal unit prices,
-Latin `TEM`, and parenthesized units.
+`v0.1.52` keeps the `v0.1.51` parser fallback and adds a stricter
+document-routing guard. Economic-offer documents are validation-first,
+standalone `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ` filenames are strong budget evidence, `ΠΥ` is weak
+evidence only, and drawings/special studies are skipped before expensive OCR
+unless explicit budget evidence is present.
 
 Live targeted reprocess after deploy completed `221720`, which now belongs to
 the skipped-complete set. The latest incomplete-set baseline is:

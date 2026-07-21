@@ -1,5 +1,34 @@
 # Project Progress
 
+## 2026-07-21 - Reverse-pricing document routing guard v0.1.52
+
+Reverse-pricing now has a stricter document-routing gate before OCR/budget
+routing:
+
+- `ΟΙΚΟΝΟΜΙΚΗ ΠΡΟΣΦΟΡΑ` remains available for official total validation, but
+  is penalized as a primary analytical-budget source;
+- standalone filenames containing `ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ` / `ΠΡΟΥΠΟΛΟΓ` with prefixes
+  such as `04`, `04.` or `04_` remain strong budget evidence;
+- `ΠΥ` is treated only as weak evidence because it can also mean
+  `Πυρασφάλεια`; it must be confirmed by budget text/table evidence before it
+  becomes a real budget source;
+- drawings and special studies such as static, Η/Μ, electromechanical,
+  environmental, geological, fire-safety, architectural, reinforcement and
+  layout material are skipped before expensive OCR unless the filename/text
+  carries explicit budget evidence;
+- the AI budget-router prompt now states the same routing rules and asks for
+  page-range evidence when the budget is embedded inside a study/declaration.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_pricing.py
+# 65 passed
+
+.venv/bin/python -m pytest
+# 294 passed
+```
+
 ## Current Phase
 `PHASE_2_SQLITE_VERTICAL_SLICE_PARTIAL`
 

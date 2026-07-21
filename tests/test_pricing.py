@@ -6,8 +6,10 @@ from tender_radar.pricing import (
     _extract_zip_with_greek_filename_repair,
     _guard_official_standalone_budget_route,
     _is_pricing_candidate_document,
+    _official_budget_document_priority,
     _pricing_document_text_contains_budget,
     _pricing_document_should_preserve_until_deadline,
+    _pricing_router_document_score,
     _pricing_budget_router_documents,
     _pricing_rows_from_ai_payload,
     _repair_zip_member_name,
@@ -817,6 +819,61 @@ def test_pricing_candidate_document_accepts_budget_inside_archive() -> None:
         "ΤΕΥΧΗ ΔΗΜΟΠΡΑΤΗΣΗΣ.zip/2_ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
         Path("2_ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf"),
     )
+
+
+def test_pricing_candidate_document_accepts_numbered_budget_filename_variants() -> None:
+    for name in (
+        "04 ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        "04. ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        "06_ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        "07-Προϋπολογισμός έργου.pdf",
+        "2_-προυπολογισμός-4.pdf.pdf",
+    ):
+        assert _is_pricing_candidate_document(name, Path(name)), name
+        assert _pricing_document_should_preserve_until_deadline(name), name
+
+
+def test_pricing_document_routing_treats_py_as_weak_budget_signal() -> None:
+    name = "02_ΒΡΑΧΟΠΡΟΣΤΑΣΙΑ ΛΙΜΕΝΑ ΠΟΡΟΥ_ΠY {5000KJ-6m}_signed2.pdf"
+
+    assert _is_pricing_candidate_document(name, Path(name)) is False
+    assert _official_budget_document_priority(name) == 20
+    assert _pricing_router_document_score(name, "pdf", [], []) < _pricing_router_document_score(
+        "04_ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf",
+        "pdf",
+        [],
+        [],
+    )
+
+
+def test_pricing_router_penalizes_financial_offer_as_budget_source() -> None:
+    offer_name = "10_ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ.pdf"
+    budget_name = "2 ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf"
+
+    assert _is_pricing_candidate_document(offer_name, Path(offer_name))
+    assert _official_budget_document_priority(offer_name) == 0
+    assert _pricing_router_document_score(offer_name, "pdf", ["ΟΙΚΟΝΟΜΙΚΗ ΠΡΟΣΦΟΡΑ"], []) < _pricing_router_document_score(
+        budget_name,
+        "pdf",
+        ["ΠΡΟΥΠΟΛΟΓΙΣ"],
+        [],
+    )
+
+
+def test_pricing_candidate_document_skips_non_budget_special_studies_and_drawings() -> None:
+    skipped = [
+        "Σ08 ΟΠΛΙΣΜΟΙ.pdf",
+        "ΣΧΕΔΙΑ ΚΑΤΟΨΕΙΣ.pdf",
+        "ΣΤΑΤΙΚΗ ΜΕΛΕΤΗ.pdf",
+        "ΜΕΛΕΤΗ Η/Μ.pdf",
+        "ΗΛΕΚΤΡΟΜΗΧΑΝΟΛΟΓΙΚΗ ΜΕΛΕΤΗ.pdf",
+        "ΓΕΩΛΟΓΙΚΗ ΜΕΛΕΤΗ.pdf",
+        "ΠΕΡΙΒΑΛΛΟΝΤΙΚΗ ΜΕΛΕΤΗ.pdf",
+        "ΜΕΛΕΤΗ ΠΥΡΑΣΦΑΛΕΙΑΣ.pdf",
+    ]
+    for name in skipped:
+        assert not _is_pricing_candidate_document(name, Path(name)), name
+        assert not _pricing_document_should_preserve_until_deadline(name), name
 
 
 def test_pricing_retention_preserves_only_essential_operational_documents() -> None:

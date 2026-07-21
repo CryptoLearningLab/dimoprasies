@@ -30,7 +30,7 @@ TABLE_ROW_RE = re.compile(r"^\s*(?P<row>\d{1,3})\s+(?P<rest>.+)$")
 SPARSE_OCR_ROW_RE = re.compile(r"^\s*(?P<row>\d{1,3}|[~])\s+(?P<rest>.+)$")
 MERGED_BUDGET_SOURCE_DOCUMENT = "__PROJECT_BUDGET_MERGED__"
 PRICING_AI_PROMPT_VERSION = "2026-07-20-budget-row-extraction-v1"
-PRICING_ROUTER_AI_PROMPT_VERSION = "2026-07-20-budget-router-v1"
+PRICING_ROUTER_AI_PROMPT_VERSION = "2026-07-21-budget-router-v2"
 NUMERIC_RE = re.compile(r"^\d+(?:[.,]\d{1,4})*\*?$")
 REVISION_RE = re.compile(
     r"(?:(?P<pct>\d+(?:[.,]\d+)?)\s*%)?\s*(?P<code>[A-ZΑ-ΩΟ∆Δ.]{2,8})\s*[-–—]?\s*(?P<num>\d+[A-ZΑ-ΩA-Z0-9]*)",
@@ -790,14 +790,16 @@ def _official_budget_document_priority(document_name: str, document_type: str | 
     if not _is_standalone_pricing_document_name(document_name):
         return 0
     normalized = strip_accents(f"{document_name} {document_type or ''}").upper()
-    if "ΟΙΚΟΝΟΜΙΚ" in normalized and "ΠΡΟΣΦΟΡ" in normalized:
+    if _pricing_name_is_financial_offer(normalized):
         return 0
-    if "ΠΡΟΜΕΤΡΗΣ" in normalized and "ΠΡΟΥΠΟΛΟΓ" in normalized:
+    if _pricing_name_has_strong_budget_signal(normalized) and "ΠΡΟΜΕΤΡΗΣ" in normalized:
         return 90
-    if "ΠΡΟΥΠΟΛΟΓ" in normalized:
+    if _pricing_name_has_strong_budget_signal(normalized):
         return 80
     if "ΠΡΟΜΕΤΡΗΣ" in normalized:
-        return 70
+        return 45
+    if _pricing_name_has_weak_budget_signal(normalized):
+        return 20
     return 0
 
 
@@ -808,7 +810,7 @@ def _pricing_document_should_preserve_until_deadline(document_name: str, documen
     normalized = strip_accents(f"{document_name} {document_type or ''}").upper()
     if _pricing_name_has_non_budget_study_or_drawing_signal(normalized):
         return False
-    if "ΟΙΚΟΝΟΜΙΚ" in normalized and "ΠΡΟΣΦΟΡ" in normalized:
+    if _pricing_name_is_financial_offer(normalized):
         return False
     essential_markers = {
         "ΠΡΟΣΚΛΗΣ",
@@ -823,8 +825,26 @@ def _pricing_document_should_preserve_until_deadline(document_name: str, documen
     return False
 
 
+def _pricing_name_is_financial_offer(normalized_name: str) -> bool:
+    return "ΟΙΚΟΝΟΜΙΚ" in normalized_name and "ΠΡΟΣΦΟΡ" in normalized_name
+
+
+def _pricing_name_has_strong_budget_signal(normalized_name: str) -> bool:
+    compact = re.sub(r"[^A-ZΑ-Ω0-9]+", "", normalized_name)
+    return "ΠΡΟΥΠΟΛΟΓ" in normalized_name or "ΠΡΟΥΠΟΛΟΓ" in compact
+
+
+def _pricing_name_has_weak_budget_signal(normalized_name: str) -> bool:
+    tokens = {
+        token
+        for token in re.split(r"[^A-ZΑ-Ω0-9]+", normalized_name)
+        if token
+    }
+    return bool(tokens.intersection({"ΠΥ", "ΠY", "PY"}))
+
+
 def _pricing_name_has_non_budget_study_or_drawing_signal(normalized_name: str) -> bool:
-    if "ΠΡΟΥΠΟΛΟΓ" in normalized_name:
+    if _pricing_name_has_strong_budget_signal(normalized_name):
         return False
     drawing_markers = {
         "ΣΧΕΔ",
@@ -841,6 +861,7 @@ def _pricing_name_has_non_budget_study_or_drawing_signal(normalized_name: str) -
         "ΣΤΑΤΙΚΗ",
         "Η/Μ",
         "ΗΛΕΚΤΡΟΜΗΧΑΝΟΛ",
+        "ΠΥΡΑΣΦΑΛ",
         "ΚΛΙΜΑΤΙΣΜ",
         "FAN COIL",
         "FAN_COIL",
@@ -1280,10 +1301,12 @@ def _pricing_router_document_score(document_name: str, document_type: str, keywo
         + len(keyword_hits)
         + sum(int(page.get("score") or 0) for page in pages[:2])
     )
-    if "ΠΡΟΥΠΟΛΟΓΙΣ" in normalized_name:
+    if _pricing_name_has_strong_budget_signal(normalized_name):
         score += 15
-    if "ΟΙΚΟΝΟΜΙΚ" in normalized_name and "ΠΡΟΣΦΟΡ" in normalized_name:
-        score += 8
+    if _pricing_name_is_financial_offer(normalized_name):
+        score -= 12
+    if _pricing_name_has_weak_budget_signal(normalized_name):
+        score += 2
     if "ΤΙΜΟΛΟΓ" in normalized_name:
         score -= 5
     if "ΣΧΕΔ" in normalized_name or "LAYOUT" in normalized_name:
@@ -1327,9 +1350,14 @@ def _pricing_budget_router_prompt(*, eshidis_id: str, documents: list[dict[str, 
         )
     return (
         "Εντόπισε το αρχείο και το εύρος σελίδων που περιέχουν τον πλήρη αναλυτικό προϋπολογισμό δημόσιου έργου.\n"
+        "Πρώτη επιλογή είναι έγγραφο που περιέχει ρητά ΠΡΟΫΠΟΛΟΓΙΣΜΟΣ / ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ, με ή χωρίς αριθμό μπροστά όπως 04, 04., 04_ ή παρόμοια.\n"
+        "Δεν ξεκινάμε από ΟΙΚΟΝΟΜΙΚΗ ΠΡΟΣΦΟΡΑ. Τη χρησιμοποιούμε κυρίως για validation συνόλων, όχι ως κύριο αναλυτικό προϋπολογισμό, εκτός αν φαίνονται όλες οι αναλυτικές γραμμές με ποσότητες και τιμές.\n"
+        "Το ΠΥ είναι αδύναμο σήμα: μπορεί να σημαίνει προϋπολογισμός αλλά σε οικοδομικά έργα μπορεί να σημαίνει πυρασφάλεια. Διάλεξέ το μόνο αν τα snippets δείχνουν πραγματικό αναλυτικό προϋπολογισμό.\n"
         "Δεν θέλουμε τιμολόγιο χωρίς ποσότητες, τεχνική περιγραφή, σχέδια, συνοπτική προμέτρηση, πίνακα ομάδων ή απλή οικονομική προσφορά αν δεν έχει όλες τις αναλυτικές γραμμές.\n"
-        "Αν υπάρχει standalone επίσημο συνημμένο ΕΣΗΔΗΣ με όνομα που περιέχει ΠΡΟΜΕΤΡΗΣΗ ή ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ, έχει προτεραιότητα έναντι αρχείου μέσα σε ZIP/μελέτη.\n"
+        "Αν υπάρχει standalone επίσημο συνημμένο ΕΣΗΔΗΣ με όνομα που περιέχει ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ, έχει προτεραιότητα έναντι αρχείου μέσα σε ZIP/μελέτη.\n"
         "Μην επιλέξεις nested συνοπτικό προϋπολογισμό από ZIP όταν υπάρχει standalone επίσημος προϋπολογισμός, εκτός αν το standalone έγγραφο φαίνεται ρητά ότι δεν περιέχει αναλυτικές γραμμές.\n"
+        "Αν δεν υπάρχει standalone προϋπολογισμός, τότε έλεγξε guarded fallback σε ενιαίο αρχείο ΜΕΛΕΤΗ/ΔΙΑΚΗΡΥΞΗ μόνο στις σελίδες όπου φαίνεται τίτλος όπως ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΜΕΛΕΤΗΣ, ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΕΡΓΑΣΙΩΝ, ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ ΕΡΓΟΥ ή ΑΝΑΛΥΤΙΚΟΣ ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.\n"
+        "Μην επιλέξεις σχέδια ή ειδικές μελέτες όπως στατική, Η/Μ, ηλεκτρομηχανολογική, περιβαλλοντική, γεωλογική, αρχιτεκτονική, οπλισμοί ή τοπογραφικό αν δεν φαίνεται ρητός τίτλος προϋπολογισμού.\n"
         "Προτίμησε πίνακα με Α/Α ή Α.Τ., άρθρο, περιγραφή, άρθρα αναθεώρησης, μονάδα, ποσότητα, τιμή μονάδας, δαπάνη.\n"
         "Αν ένα έγγραφο δείχνει μόνο σύνολα ομάδων ή λίγες γραμμές και άλλο έγγραφο δείχνει πολλές αναλυτικές γραμμές άρθρων, διάλεξε το δεύτερο.\n"
         "Αν ο προϋπολογισμός είναι μέσα σε ενιαίο PDF μελέτης/διακήρυξης, δώσε page_start/page_end ή line hints.\n"
@@ -4896,7 +4924,6 @@ def _is_pricing_candidate_document(document_name: str, local_path: Path) -> bool
     strong_candidate_terms = (
         "ΠΡΟΥΠΟΛΟΓ",
         "ΤΙΜΟΛΟΓ",
-        "ΟΙΚΟΝΟΜΙΚ",
         "ΠΡΟΜΕΤΡ",
         "ΑΝΑΛΥΤΙΚ",
     )
@@ -4905,7 +4932,13 @@ def _is_pricing_candidate_document(document_name: str, local_path: Path) -> bool
         "ΤΕΧΝΙΚΗ_ΕΚΘΕΣΗ",
         "ΜΕΛΕΤΗ",
     )
-    leaf_has_strong_signal = any(term in normalized_leaf or term in compact_leaf for term in strong_candidate_terms)
+    if _pricing_name_is_financial_offer(normalized_leaf):
+        return True
+
+    leaf_has_strong_signal = (
+        _pricing_name_has_strong_budget_signal(normalized_leaf)
+        or any(term in normalized_leaf or term in compact_leaf for term in strong_candidate_terms)
+    )
     if leaf_has_strong_signal:
         return True
 
@@ -4917,7 +4950,9 @@ def _is_pricing_candidate_document(document_name: str, local_path: Path) -> bool
     if "/" in normalized_name:
         normalized_parent = strip_accents(str(PurePosixPath(normalized_name).parent)).upper()
         compact_parent = re.sub(r"[^A-ZΑ-Ω0-9]+", "", normalized_parent)
-        parent_has_strong_pricing_signal = any(term in normalized_parent or term in compact_parent for term in strong_candidate_terms)
+        parent_has_strong_pricing_signal = _pricing_name_has_strong_budget_signal(normalized_parent) or any(
+            term in normalized_parent or term in compact_parent for term in strong_candidate_terms
+        )
         return parent_has_strong_pricing_signal
 
     leaf_has_broad_signal = any(term in normalized_leaf or term in compact_leaf for term in broad_candidate_terms)
@@ -4926,7 +4961,9 @@ def _is_pricing_candidate_document(document_name: str, local_path: Path) -> bool
 
     normalized_full = strip_accents(f"{document_name} {local_path.name}").upper()
     compact_full = re.sub(r"[^A-ZΑ-Ω0-9]+", "", normalized_full)
-    return any(term in normalized_full or term in compact_full for term in (*strong_candidate_terms, *broad_candidate_terms))
+    return _pricing_name_has_strong_budget_signal(normalized_full) or any(
+        term in normalized_full or term in compact_full for term in (*strong_candidate_terms, *broad_candidate_terms)
+    )
 
 
 def _extract_pricing_archive(path: Path, destination: Path, *, force: bool = False) -> dict[str, Any]:
