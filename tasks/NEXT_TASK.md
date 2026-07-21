@@ -84,6 +84,11 @@ in that false-negative review queue; they remain visible in the full admin
 audit as out-of-scope supply/service with a specific reason. Keep any future
 automatic suppression narrow and evidence-backed, because generic procurement
 or installation wording can still describe contractor-relevant public works.
+The admin panel now has an admin-only production secrets form that writes
+`TEE_USERNAME` and `TEE_PASSWORD` to droplet-local `.env.local` without
+returning plaintext values. This only stores credentials; any future TEE
+automation must be implemented separately and must respect login, CAPTCHA, 2FA
+and terms-of-use constraints.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked
 ESHIDIS ids (`64.3%`). The 5 unresolved rows completed KIMDIS fetch and

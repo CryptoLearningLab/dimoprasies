@@ -117,6 +117,36 @@ def test_login_screen_exposes_password_reset_and_legal_footer() -> None:
     assert "Οδηγίες" in INDEX_HTML
 
 
+def test_admin_panel_exposes_production_secrets_form() -> None:
+    assert 'id="teeUsernameInput"' in INDEX_HTML
+    assert 'id="teePasswordInput"' in INDEX_HTML
+    assert 'id="saveTeeSecretsBtn"' in INDEX_HTML
+    assert "/api/admin/secrets" in APP_JS
+    assert "renderAdminSecrets" in APP_JS
+
+
+def test_admin_secret_payload_redacts_values_and_writes_env(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / ".env.local").write_text(
+        'SMTP_HOST="smtp.example.test"\nTEE_USERNAME="old-user"\n',
+        encoding="utf-8",
+    )
+
+    result = ui_server.update_admin_secrets(
+        {"TEE_USERNAME": "tee-user", "TEE_PASSWORD": "tee-pass"},
+        actor_email="owner@example.test",
+    )
+    text = (tmp_path / ".env.local").read_text(encoding="utf-8")
+
+    assert 'SMTP_HOST="smtp.example.test"' in text
+    assert 'TEE_USERNAME="tee-user"' in text
+    assert 'TEE_PASSWORD="tee-pass"' in text
+    assert result["keys"]["TEE_USERNAME"] == {"configured": True}
+    assert result["keys"]["TEE_PASSWORD"] == {"configured": True}
+    assert "tee-pass" not in json.dumps(result)
+    assert result["actor_email"] == "owner@example.test"
+
+
 def test_reverse_search_payload_searches_active_dashboard_and_documents(monkeypatch, tmp_path: Path) -> None:
     text_path = tmp_path / "declaration.txt"
     text_path.write_text("Τεχνική περιγραφή για γέφυρα και ασφαλτόστρωση δημοτικής οδού.", encoding="utf-8")

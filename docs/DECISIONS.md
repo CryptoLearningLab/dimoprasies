@@ -1,5 +1,17 @@
 # Decision Log
 
+## D-106 — Production credentials are admin-only local secrets
+**Status:** Accepted
+
+Operational credentials such as TEE login details must not be sent through chat
+or committed to GitHub. The production UI may provide an admin-only form that
+writes approved secret keys to the droplet-local `.env.local` file.
+
+The endpoint must return configured/missing status only and must never return
+plaintext secret values. Storing credentials is separate from using them:
+automation against a third-party login must still respect CAPTCHA, 2FA,
+access-rights and terms-of-use constraints.
+
 ## D-105 — Obvious supply/service exclusions do not need false-negative review
 **Status:** Accepted
 

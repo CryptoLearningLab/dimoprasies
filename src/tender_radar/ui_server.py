@@ -205,6 +205,13 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(admin_users_payload())
             return
+        if parsed.path == "/api/admin/secrets":
+            session = self._admin_session()
+            if not session or session.get("role") != "admin":
+                self._send_json({"ok": False, "error": "Admin login required."}, status=401)
+                return
+            self._send_json(admin_secrets_payload())
+            return
         if parsed.path == "/api/document-preview":
             query = parse_qs(parsed.query)
             eshidis_id = require_eshidis_id({"eshidis_id": query.get("eshidis_id", [""])[0]})
@@ -428,6 +435,13 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                     self._send_json({"ok": False, "error": "Admin login required."}, status=401)
                     return
                 self._send_json(update_admin_user_role(payload, actor_email=session.get("email")))
+                return
+            if parsed.path == "/api/admin/secrets":
+                session = self._admin_session()
+                if not session or session.get("role") != "admin":
+                    self._send_json({"ok": False, "error": "Admin login required."}, status=401)
+                    return
+                self._send_json(update_admin_secrets(payload, actor_email=session.get("email")))
                 return
             if parsed.path == "/api/admin/logout":
                 self._admin_logout()
@@ -3179,6 +3193,75 @@ def load_local_env() -> dict[str, str]:
         key, value = line.split("=", 1)
         values[key.strip()] = value.strip().strip('"').strip("'")
     return values
+
+
+ADMIN_SECRET_KEYS = ("TEE_USERNAME", "TEE_PASSWORD")
+
+
+def admin_secrets_payload() -> dict[str, Any]:
+    env = load_local_env()
+    return {
+        "ok": True,
+        "path": ".env.local",
+        "keys": {key: {"configured": bool(env.get(key))} for key in ADMIN_SECRET_KEYS},
+    }
+
+
+def update_admin_secrets(payload: dict[str, Any], *, actor_email: str | None = None) -> dict[str, Any]:
+    updates: dict[str, str] = {}
+    clear_keys: set[str] = set()
+    for key in ADMIN_SECRET_KEYS:
+        value = payload.get(key)
+        if value is None:
+            continue
+        text = str(value)
+        if not text:
+            clear_keys.add(key)
+            continue
+        updates[key] = text
+    if not updates and not clear_keys:
+        raise ValueError("No secret values were provided.")
+    write_local_env_values(updates, clear_keys=clear_keys)
+    return {**admin_secrets_payload(), "updated": sorted(updates), "cleared": sorted(clear_keys), "actor_email": actor_email}
+
+
+def write_local_env_values(updates: dict[str, str], *, clear_keys: set[str] | None = None) -> None:
+    clear_keys = clear_keys or set()
+    path = REPO_ROOT / ".env.local"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing_lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    written_keys: set[str] = set()
+    output: list[str] = []
+    for line in existing_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in line:
+            output.append(line)
+            continue
+        key, _value = line.split("=", 1)
+        clean_key = key.strip()
+        if clean_key in clear_keys:
+            written_keys.add(clean_key)
+            continue
+        if clean_key in updates:
+            output.append(f"{clean_key}={env_file_quote(updates[clean_key])}")
+            written_keys.add(clean_key)
+            continue
+        output.append(line)
+    for key, value in updates.items():
+        if key not in written_keys:
+            output.append(f"{key}={env_file_quote(value)}")
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text("\n".join(output).rstrip() + "\n", encoding="utf-8")
+    tmp_path.replace(path)
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+
+
+def env_file_quote(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    return f'"{escaped}"'
 
 
 def quick_source_fingerprint(*, timeout_seconds: int = 8) -> dict[str, Any]:
@@ -6949,6 +7032,15 @@ INDEX_HTML = f"""<!doctype html>
           <button id="updateUserRoleBtn" class="secondary">Αλλαγή ρόλου</button>
           <span id="roleUpdateStatus" class="noteText"></span>
         </div>
+        <details class="adminSecretsBox" open>
+          <summary>Secrets παραγωγής</summary>
+          <div class="toolbar adminSecretsToolbar">
+            <label>TEE username <input id="teeUsernameInput" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Δεν εμφανίζεται η αποθηκευμένη τιμή"></label>
+            <label>TEE password <input id="teePasswordInput" type="password" autocomplete="new-password" placeholder="Δεν εμφανίζεται η αποθηκευμένη τιμή"></label>
+            <button id="saveTeeSecretsBtn" class="secondary">Αποθήκευση TEE</button>
+            <span id="teeSecretsStatus" class="noteText">Φόρτωση κατάστασης...</span>
+          </div>
+        </details>
         <details class="adminUsersBox">
           <summary>Χρήστες</summary>
           <div class="tableWrap adminTableWrap adminUsersTableWrap">
@@ -8023,6 +8115,7 @@ const state = {
   evaluationConfig: null,
   selectedRuleId: null,
   adminAudit: null,
+  adminSecrets: null,
   entalmata: null,
   reverseSearch: null,
   session: null,
@@ -8439,11 +8532,42 @@ async function loadAdminAudit() {
     $('adminLockedBox').hidden = true;
     $('adminContent').hidden = false;
     renderAdminAudit(payload);
+    await loadAdminSecrets();
     await loadAdminUsers();
   } catch (error) {
     $('adminContent').hidden = true;
     $('adminLockedBox').hidden = false;
   }
+}
+
+async function loadAdminSecrets() {
+  const payload = await adminApi('/api/admin/secrets');
+  state.adminSecrets = payload;
+  renderAdminSecrets(payload);
+}
+
+function renderAdminSecrets(payload) {
+  const keys = payload.keys || {};
+  const username = keys.TEE_USERNAME?.configured ? 'TEE_USERNAME αποθηκευμένο' : 'TEE_USERNAME λείπει';
+  const password = keys.TEE_PASSWORD?.configured ? 'TEE_PASSWORD αποθηκευμένο' : 'TEE_PASSWORD λείπει';
+  $('teeSecretsStatus').textContent = `${username} · ${password}`;
+}
+
+async function saveTeeSecrets() {
+  const username = $('teeUsernameInput').value;
+  const password = $('teePasswordInput').value;
+  const payload = {};
+  if (username) payload.TEE_USERNAME = username;
+  if (password) payload.TEE_PASSWORD = password;
+  if (!Object.keys(payload).length) {
+    $('teeSecretsStatus').textContent = 'Συμπλήρωσε username ή password για αποθήκευση.';
+    return;
+  }
+  $('teeSecretsStatus').textContent = 'Αποθήκευση στο .env.local...';
+  const result = await adminApi('/api/admin/secrets', { method: 'POST', body: JSON.stringify(payload) });
+  $('teeUsernameInput').value = '';
+  $('teePasswordInput').value = '';
+  renderAdminSecrets(result);
 }
 
 async function loadAuthStatus() {
@@ -9206,6 +9330,7 @@ $('deleteRuleBtn').addEventListener('click', deleteRule);
 $('setupPasswordBtn').addEventListener('click', () => setupPassword().catch((error) => { $('setupPasswordStatus').textContent = String(error); }));
 $('inviteUserBtn').addEventListener('click', () => inviteUser().catch((error) => { $('inviteStatus').textContent = String(error); }));
 $('updateUserRoleBtn').addEventListener('click', () => updateUserRole().catch((error) => { $('roleUpdateStatus').textContent = String(error); }));
+$('saveTeeSecretsBtn').addEventListener('click', () => saveTeeSecrets().catch((error) => { $('teeSecretsStatus').textContent = String(error); }));
 $('adminRefreshBtn').addEventListener('click', () => loadAdminAudit().catch(() => {}));
 $('entalmataRefreshBtn').addEventListener('click', () => loadEntalmata().catch((error) => { $('statusText').textContent = String(error); }));
 $('entalmataScanBtn').addEventListener('click', () => runAction('/api/entalmata/scan', {}, 'Σάρωση Διαύγειας για εντάλματα...'));

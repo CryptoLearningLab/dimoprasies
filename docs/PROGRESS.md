@@ -1,5 +1,37 @@
 # Project Progress
 
+## 2026-07-21 - Admin-only production secrets form
+
+The runtime/UI version was bumped from `0.1.61` to `0.1.62`.
+
+The admin panel now includes a production secrets section for writing TEE
+credentials to the droplet-local `.env.local` file from the browser. The form
+accepts `TEE_USERNAME` and `TEE_PASSWORD`, preserves existing environment
+settings such as SMTP/admin values, writes the env file with owner-only
+permissions when possible, and clears the password field after save.
+
+The `/api/admin/secrets` endpoint is admin-only. GET returns only configured
+status for each key; POST writes supplied values and then returns redacted
+status. Plaintext secret values are never returned to the browser or committed
+to the repository.
+
+This only stores credentials. Any automated TEE login/use still requires a
+separate implementation that respects the remote service's login, CAPTCHA,
+2FA and terms-of-use constraints.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_admin_panel_exposes_production_secrets_form \
+  tests/test_ui_server.py::test_admin_secret_payload_redacts_values_and_writes_env \
+  tests/test_ui_server.py::test_ui_exposes_admin_panel \
+  tests/test_ui_server.py::test_login_screen_exposes_password_reset_and_legal_footer -q
+# 4 passed
+
+.venv/bin/python -m pytest -q
+# 315 passed
+```
+
 ## 2026-07-21 - Obvious supply/service rows stay out of false-negative review
 
 The runtime/UI version was bumped from `0.1.60` to `0.1.61`.
