@@ -67,6 +67,10 @@ deadline.
 AI-hidden admin audit rows remain visible, but now use semantic AI rejection
 categories such as administrative/non-tender, supply/service out of scope, not
 public works, or early signal, with the stored AI reason and confidence.
+Road-network maintenance tenders are in scope: open tenders for maintenance of
+road/provincial networks, including winter maintenance or snow-removal packages
+with deadline and budget evidence, should be kept/reviewed by triage rather
+than dropped as generic services.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked
 ESHIDIS ids (`64.3%`). The 5 unresolved rows completed KIMDIS fetch and

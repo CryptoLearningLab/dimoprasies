@@ -1,5 +1,30 @@
 # Project Progress
 
+## 2026-07-21 - Road-network maintenance stays in public-works triage
+
+The runtime/UI version was bumped from `0.1.56` to `0.1.57`.
+
+AI triage now treats open tenders for maintenance of road, provincial and other
+road-infrastructure networks as in-scope public-works candidates. The prompt
+explicitly tells the classifier not to drop road-network maintenance merely
+because the wording resembles a service, and a programmatic guard converts an
+AI `DROP_OUT_OF_SCOPE_SUPPLY_SERVICE` result into `REVIEW_TENDER_CANDIDATE`
+when the row has road-network maintenance wording plus tender/deadline and
+budget evidence.
+
+This is intended to recover cases such as "ΧΕΙΜΕΡΙΝΗ ΣΥΝΤΗΡΗΣΗ ΟΔΙΚΟΥ
+ΔΙΚΤΥΟΥ" through the normal triage flow, not through a manual admin override.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ai_triage.py -q
+# 8 passed
+
+.venv/bin/python -m pytest -q
+# 308 passed
+```
+
 ## 2026-07-21 - Admin audit shows specific AI rejection reasons
 
 The runtime/UI version was bumped from `0.1.55` to `0.1.56`.

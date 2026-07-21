@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 
 
 DEFAULT_MODEL = "gpt-4.1-mini"
-AI_TRIAGE_PROMPT_VERSION = "2026-07-19-strict-non-works-v2"
+AI_TRIAGE_PROMPT_VERSION = "2026-07-21-road-maintenance-works-v1"
 RESPONSES_URL = "https://api.openai.com/v1/responses"
 
 KEEP_DECISIONS = {"KEEP_ACTIVE_TENDER", "REVIEW_TENDER_CANDIDATE", "EARLY_SIGNAL"}
@@ -117,7 +117,7 @@ def build_ai_triage_report(
             "reason": "AI classification missing; keep for human review.",
             "eshidis_id_candidates": [],
         }
-        rows_out.append({**item, "ai": _normalize_classification(classification)})
+        rows_out.append({**item, "ai": _normalize_classification(classification, row=item)})
     summary = _summary(rows_out, errors)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -398,6 +398,11 @@ def _prompt_text(batch: list[dict[str, Any]]) -> str:
         "must be DROP_OUT_OF_SCOPE_SUPPLY_SERVICE or DROP_ADMIN unless the row is an active open construction/"
         "public-works tender with a future submission deadline. Do not use REVIEW_TENDER_CANDIDATE as a parking "
         "state for clearly excluded services, supplies, studies or already-awarded/direct-assignment acts.\n"
+        "Road-network maintenance is usually in scope for this contractor dashboard. Keep or review open tenders "
+        "for συντήρηση οδικού δικτύου, επαρχιακού δικτύου, οδοποιία, ασφαλτοστρώσεις, τεχνικά έργα οδών, winter "
+        "road maintenance or snow-removal/ice-control packages when they are published as open tenders with a "
+        "deadline, budget and public-works/road-infrastructure wording. Do not drop them merely because the title "
+        "uses service-like maintenance wording.\n"
         "Use document_evidence before listing metadata when present. It contains extracted/OCR text snippets from "
         "downloaded PDFs/DOCX/ZIP contents plus extraction_status and ocr_status; weak or failed OCR is not proof "
         "against the tender, it only means evidence may be incomplete.\n"
@@ -430,7 +435,7 @@ def _strip_json_fence(text: str) -> str:
     return stripped
 
 
-def _normalize_classification(item: dict[str, Any]) -> dict[str, Any]:
+def _normalize_classification(item: dict[str, Any], *, row: dict[str, Any] | None = None) -> dict[str, Any]:
     decision = str(item.get("decision") or "REVIEW_TENDER_CANDIDATE").strip()
     if decision not in {
         "KEEP_ACTIVE_TENDER",
@@ -445,16 +450,65 @@ def _normalize_classification(item: dict[str, Any]) -> dict[str, Any]:
         confidence = float(item.get("confidence"))
     except (TypeError, ValueError):
         confidence = 0.0
+    reason = str(item.get("reason") or "")
+    if decision == "DROP_OUT_OF_SCOPE_SUPPLY_SERVICE" and row and should_keep_road_maintenance_candidate(row):
+        decision = "REVIEW_TENDER_CANDIDATE"
+        reason = (
+            "Programmatic guard: συντήρηση οδικού/επαρχιακού δικτύου με διαγωνιστική ένδειξη "
+            "κρατιέται για έλεγχο δημοσίων έργων. "
+            + reason
+        ).strip()
+        confidence = min(confidence, 0.74)
     hints = [str(value) for value in item.get("eshidis_id_candidates") or [] if re.fullmatch(r"\d{5,6}", str(value))]
     if decision not in KEEP_DECISIONS:
         hints = []
     return {
         "decision": decision,
         "confidence": max(0.0, min(1.0, confidence)),
-        "reason": str(item.get("reason") or ""),
+        "reason": reason,
         "eshidis_id_candidates": list(dict.fromkeys(hints)),
         "keep_for_daily_review": decision in KEEP_DECISIONS,
     }
+
+
+def should_keep_road_maintenance_candidate(row: dict[str, Any]) -> bool:
+    text = _normalize(
+        " ".join(
+            str(row.get(key) or "")
+            for key in (
+                "display_id",
+                "source_label",
+                "record_type",
+                "title",
+                "authority_name",
+                "deadline",
+                "budget",
+                "official_url",
+                "text_sample",
+            )
+        )
+    )
+    road_terms = (
+        "οδικου δικτυου",
+        "επαρχιακου δικτυου",
+        "οδικο δικτυο",
+        "επαρχιακο δικτυο",
+        "οδοποι",
+        "οδων",
+        "ασφαλτοστρω",
+        "αποχιον",
+        "χιονο",
+    )
+    maintenance_terms = ("συντηρη", "επισκευ", "αποκαταστα", "βελτιω")
+    tender_terms = ("διαγωνισ", "διακηρυ", "υποβολη", "προσφορ", "προθεσμι", "deadline")
+    has_deadline = bool(str(row.get("deadline") or "").strip())
+    has_budget = bool(str(row.get("budget") or "").strip()) or bool(re.search(r"\d[\d.]*,\d{2}\s*(?:€|eur)", text))
+    return (
+        any(term in text for term in road_terms)
+        and any(term in text for term in maintenance_terms)
+        and (has_deadline or any(term in text for term in tender_terms))
+        and has_budget
+    )
 
 
 def _summary(rows: list[dict[str, Any]], errors: list[dict[str, Any]]) -> dict[str, Any]:

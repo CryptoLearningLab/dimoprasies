@@ -6,6 +6,7 @@ from tender_radar.ai_triage import (
     deterministic_signals,
     _prompt_text,
     render_ai_triage_markdown,
+    should_keep_road_maintenance_candidate,
 )
 
 
@@ -99,6 +100,41 @@ def test_ai_triage_clears_eshidis_hints_for_dropped_rows() -> None:
     assert report["rows"][0]["ai"]["eshidis_id_candidates"] == []
 
 
+def test_ai_triage_keeps_road_network_maintenance_for_review() -> None:
+    rows = [
+        {
+            "row_key": "AUTHORITY:AUTH-road-maintenance",
+            "source_label": "Φορέας",
+            "title": "Ηλεκτρονικός Ανοικτός Διεθνής Διαγωνισμός με τίτλο «ΧΕΙΜΕΡΙΝΗ ΣΥΝΤΗΡΗΣΗ ΟΔΙΚΟΥ ΔΙΚΤΥΟΥ ΑΡΜΟΔΙΟΤΗΤΑΣ Π.Ε. ΦΩΚΙΔΑΣ ΠΕΡΙΟΔΟΥ 2026-2027»",
+            "authority_name": "Περιφέρεια Στερεάς Ελλάδας / Π.Ε. Φωκίδας",
+            "current_deadline_at": "2026-08-06 10:00",
+            "budget_with_vat": "600.000,00 €",
+            "official_url": "https://example.test/road-maintenance",
+        }
+    ]
+    ai_result = [
+        {
+            "row_key": "AUTHORITY:AUTH-road-maintenance",
+            "decision": "DROP_OUT_OF_SCOPE_SUPPLY_SERVICE",
+            "confidence": 0.95,
+            "reason": "Συντήρηση οδικού δικτύου υπηρεσίες.",
+            "eshidis_id_candidates": [],
+        }
+    ]
+
+    with patch("tender_radar.ai_triage.load_openai_api_key", return_value="test-key"), patch(
+        "tender_radar.ai_triage.classify_batch_with_openai", return_value=ai_result
+    ):
+        report = build_ai_triage_report(rows, batch_size=10)
+
+    ai = report["rows"][0]["ai"]
+    assert should_keep_road_maintenance_candidate(report["rows"][0])
+    assert ai["decision"] == "REVIEW_TENDER_CANDIDATE"
+    assert ai["keep_for_daily_review"] is True
+    assert "συντήρηση οδικού/επαρχιακού δικτύου" in ai["reason"]
+    assert ai["confidence"] == 0.74
+
+
 def test_ai_triage_prompt_excludes_observed_non_works_false_keeps() -> None:
     prompt = _prompt_text(
         [
@@ -113,6 +149,21 @@ def test_ai_triage_prompt_excludes_observed_non_works_false_keeps() -> None:
     assert "direct assignments" in prompt
     assert "supplies even with installation" in prompt
     assert "Do not use REVIEW_TENDER_CANDIDATE" in prompt
+
+
+def test_ai_triage_prompt_keeps_road_network_maintenance() -> None:
+    prompt = _prompt_text(
+        [
+            {
+                "row_key": "AUTH-road",
+                "title": "ΧΕΙΜΕΡΙΝΗ ΣΥΝΤΗΡΗΣΗ ΟΔΙΚΟΥ ΔΙΚΤΥΟΥ Π.Ε. ΦΩΚΙΔΑΣ",
+            }
+        ]
+    )
+
+    assert "Road-network maintenance is usually in scope" in prompt
+    assert "συντήρηση οδικού δικτύου" in prompt
+    assert "Do not drop them merely because" in prompt
 
 
 def test_ai_triage_markdown_contains_summary() -> None:

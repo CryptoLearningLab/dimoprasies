@@ -1,5 +1,17 @@
 # Decision Log
 
+## D-102 — Road-network maintenance is in scope
+**Status:** Accepted
+
+Open tenders for maintenance of road, provincial and other road-infrastructure
+networks are in scope for the public-works dashboard. They may still require
+human review when the documents are ambiguous, but they must not be dropped as
+out-of-scope supplies/services merely because maintenance wording is used.
+
+Snow-removal or winter-maintenance packages are also kept for review when the
+row has tender/deadline and budget evidence plus road-network infrastructure
+wording.
+
 ## D-101 — Admin audit AI rows use semantic rejection categories
 **Status:** Accepted
 
