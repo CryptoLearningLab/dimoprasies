@@ -52,6 +52,12 @@ KIMDIS/authority previews now render linked ESHIDIS documents directly when
 local official files exist; ZIP availability is no longer the only indication
 for rows such as `26PROC019429074` linked to `ΕΣΗΔΗΣ 207024`.
 
+Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked
+ESHIDIS ids (`64.3%`). The 5 unresolved rows completed KIMDIS fetch and
+connected-acts lookup with `ok=true` but no extracted ESHIDIS id:
+`26PROC019476093`, `26PROC019466646`, `26PROC019450787`, `26PROC019449707`,
+`26PROC019421668`.
+
 ## Current Input
 
 The independent reverse-pricing workflow remains disconnected from cron.

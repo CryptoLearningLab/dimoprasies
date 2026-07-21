@@ -1,5 +1,41 @@
 # Project Progress
 
+## 2026-07-21 - KIMDIS 26PROC to ESHIDIS extraction audit
+
+Production audit over current focus `26PROC` KIMDIS candidates measured the
+current ESHIDIS-link extraction success rate.
+
+Baseline before targeted retries:
+
+- `14` focus candidates with `official_id` starting `26PROC`;
+- `13/14` already had a local KIMDIS document;
+- `9/14` already had linked ESHIDIS ids;
+- current success rate: `64.3%`.
+
+Targeted `run_selected_fetch` was then executed for the 5 unresolved `26PROC`
+rows:
+
+- `26PROC019476093`;
+- `26PROC019466646`;
+- `26PROC019450787`;
+- `26PROC019449707`;
+- `26PROC019421668`.
+
+All 5 targeted runs completed with `ok=true`, KIMDIS fetch success and
+`connected_acts.chain_status=FETCHED`, but none yielded a new linked ESHIDIS
+id. Final post-run result remained:
+
+- `14/14` have local KIMDIS documents;
+- `9/14` have linked ESHIDIS ids;
+- `5/14` remain without linked ESHIDIS ids;
+- final success rate: `64.3%`.
+
+For the unresolved rows, document evidence was found for local scope/authority
+and connected acts were available, but `connected_linked_ids=[]` and no
+connected errors were reported. These rows should remain KIMDIS-only unless a
+new extraction rule is justified from manual inspection of the official
+documents.
+
 ## 2026-07-21 - Linked ESHIDIS documents render in KIMDIS previews
 
 The KIMDIS preview for rows with a verified/known ESHIDIS link previously only
