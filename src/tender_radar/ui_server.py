@@ -8262,7 +8262,7 @@ async function runAction(path, body, label) {
     const finalResult = result.result || result;
     $('statusText').textContent = finalResult.ok === false || result.status === 'failed' ? 'Τελείωσε με σφάλματα' : 'Ολοκληρώθηκε';
     await refreshRuntimeViews();
-    if (path === '/api/discover' && !body?.backfill && finalResult.ok !== false) {
+    if (path === '/api/discover' && !body?.backfill && finalResult.ok !== false && !finalResult.skipped) {
       startAiTriageThenEnrichment().catch((error) => {
         $('statusText').textContent = `Σφάλμα AI ελέγχου: ${error}`;
       });

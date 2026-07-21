@@ -16,6 +16,10 @@ returns `skipped=true` with
 `skip_reason=SKIPPED_UNCHANGED_BACKFILL_COMPLETE` and does not invoke the
 expensive CLI discovery steps.
 
+The browser action also suppresses follow-up AI triage/enrichment when
+`/api/discover` returns `skipped=true`, so a skipped search does not keep the
+operator waiting on downstream background jobs.
+
 Production check on the deployed droplet showed that the current live preflight
 would not skip at that moment because it detected changed sources
 (`eshidis_active_search`, `diavgeia_pste`) and transient Diavgeia 503/timeouts.

@@ -2576,6 +2576,7 @@ def test_ai_triage_job_runs_openai_backed_cli_and_refreshes_dashboard(monkeypatc
 def test_discover_ui_starts_ai_triage_before_candidate_enrichment() -> None:
     assert "/api/ai-triage" in APP_JS
     assert "startAiTriageThenEnrichment" in APP_JS
+    assert "finalResult.ok !== false && !finalResult.skipped" in APP_JS
     assert APP_JS.index("await pollJob(initial.job_id, 'AI διαλογή έργων με OpenAI')") < APP_JS.index("await startCandidateEnrichment()")
 
 

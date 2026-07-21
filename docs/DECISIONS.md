@@ -13,6 +13,11 @@ However, if source preflight is unchanged and the latest successful discovery
 run already has a complete watermark, the UI backfill path now returns an
 immediate skip instead of repeating expensive ESHIDIS/KIMDIS discovery.
 
+When `/api/discover` returns `skipped=true`, the browser does not start the
+follow-up AI triage/enrichment chain. Skipped discovery should end quickly for
+the operator instead of occupying the runtime command lock with downstream work
+against unchanged rows.
+
 ## D-094 — Entalmata scans reuse processed ADA documents
 **Status:** Accepted
 

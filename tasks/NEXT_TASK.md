@@ -36,7 +36,9 @@ Production deployment has also been verified on the DigitalOcean droplet:
 The public-works UI discovery button now has the same source-preflight guard
 for completed unchanged backfill windows: when `Backfill safety` is enabled but
 sources are unchanged and the previous successful discovery watermark is
-complete, `/api/discover` skips the expensive ESHIDIS/KIMDIS steps.
+complete, `/api/discover` skips the expensive ESHIDIS/KIMDIS steps. The browser
+also avoids the follow-up AI/enrichment chain when discovery returns
+`skipped=true`.
 
 ## Current Input
 
