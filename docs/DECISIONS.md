@@ -1,5 +1,17 @@
 # Decision Log
 
+## D-097 — Linked ESHIDIS files are visible in source previews
+**Status:** Accepted
+
+KIMDIS and authority previews must not only state that linked ESHIDIS files are
+available for ZIP. When linked ESHIDIS attachments exist locally, the preview
+payload includes `linked_eshidis_documents` and the browser renders those files
+with normal `Open` actions below the link notice.
+
+This keeps the row preview consistent: if the system says official ESHIDIS
+files exist, the operator can inspect them directly without first downloading a
+ZIP archive.
+
 ## D-096 — ESHIDIS downloads are scoped by tender id
 **Status:** Accepted
 

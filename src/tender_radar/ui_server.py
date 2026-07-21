@@ -5525,6 +5525,22 @@ def document_preview_payload(eshidis_id: str) -> dict[str, Any]:
     }
 
 
+def linked_eshidis_preview_documents(eshidis_ids: list[str]) -> list[dict[str, Any]]:
+    documents: list[dict[str, Any]] = []
+    for eshidis_id in list(dict.fromkeys(str(value).strip() for value in eshidis_ids if str(value).strip())):
+        for document in document_preview_payload(eshidis_id).get("documents") or []:
+            if not isinstance(document, dict):
+                continue
+            documents.append(
+                {
+                    **document,
+                    "eshidis_id": eshidis_id,
+                    "label": f"ΕΣΗΔΗΣ {eshidis_id} · {document.get('label') or 'Αρχείο'}",
+                }
+            )
+    return documents
+
+
 def kimdis_document_preview_payload(official_id: str) -> dict[str, Any]:
     document = kimdis_documents_by_official_id().get(official_id)
     if not document:
@@ -5549,7 +5565,8 @@ def kimdis_document_preview_payload(official_id: str) -> dict[str, Any]:
         "view_url": f"/api/kimdis-document-file?official_id={official_id}" if local_path else None,
     }
     linked_eshidis_ids = [str(value) for value in document.get("linked_eshidis_ids") or [] if str(value).strip()]
-    linked_eshidis_file_count = sum(len(eshidis_document_paths(eshidis_id)) for eshidis_id in linked_eshidis_ids)
+    linked_eshidis_documents = linked_eshidis_preview_documents(linked_eshidis_ids)
+    linked_eshidis_file_count = len(linked_eshidis_documents)
     return {
         "official_id": official_id,
         "source_label": "ΚΗΜΔΗΣ",
@@ -5558,6 +5575,7 @@ def kimdis_document_preview_payload(official_id: str) -> dict[str, Any]:
         "verification_status": document.get("verification_status"),
         "linked_eshidis_ids": linked_eshidis_ids,
         "linked_eshidis_file_count": linked_eshidis_file_count,
+        "linked_eshidis_documents": linked_eshidis_documents,
         "documents": [doc],
         "featured": [doc],
     }
@@ -5591,7 +5609,8 @@ def authority_document_preview_payload(row_key: str) -> dict[str, Any]:
             }
         )
     linked_eshidis_ids = authority_linked_eshidis_ids(row_key, documents=documents)
-    linked_eshidis_file_count = sum(len(eshidis_document_paths(eshidis_id)) for eshidis_id in linked_eshidis_ids)
+    linked_eshidis_documents = linked_eshidis_preview_documents(linked_eshidis_ids)
+    linked_eshidis_file_count = len(linked_eshidis_documents)
     return {
         "row_key": row_key,
         "source_label": "Φορέας",
@@ -5600,6 +5619,7 @@ def authority_document_preview_payload(row_key: str) -> dict[str, Any]:
         "official_status": "LINKED_TO_ESHIDIS" if linked_eshidis_ids else "NO_ESHIDIS_ID_FOUND",
         "linked_eshidis_ids": linked_eshidis_ids,
         "linked_eshidis_file_count": linked_eshidis_file_count,
+        "linked_eshidis_documents": linked_eshidis_documents,
         "documents": docs,
         "featured": [doc for doc in docs if doc["kind"] in {"declaration", "technical_description", "budget", "price_list"}],
     }
@@ -8188,6 +8208,7 @@ async function renderAuthorityPreview(rowKey) {
   const payload = await api(`/api/authority-document-preview?row_key=${encodeURIComponent(rowKey)}`);
   const docs = payload.documents || [];
   const linkedIds = payload.linked_eshidis_ids || [];
+  const linkedDocs = payload.linked_eshidis_documents || [];
   const linkedFileCount = Number(payload.linked_eshidis_file_count || 0);
   if (!docs.length) {
     $('previewBody').innerHTML = '<div class="emptyState">Υπάρχουν links εγγράφων στη σελίδα του φορέα. Πάτα Fetch για να κατέβουν τοπικά και μετά ZIP.</div>';
@@ -8196,7 +8217,16 @@ async function renderAuthorityPreview(rowKey) {
   const linkedBlock = linkedIds.length
     ? `<div class="docItem linkedBox"><h4>Σύνδεση με ΕΣΗΔΗΣ</h4><p>Βρέθηκε Α/Α ΕΣΗΔΗΣ ${escapeHtml(linkedIds.join(', '))}. ${linkedFileCount ? `Υπάρχουν ήδη ${linkedFileCount} επίσημα αρχεία ΕΣΗΔΗΣ διαθέσιμα για zip.` : 'Το Fetch αυτής της γραμμής θα επιχειρήσει να κατεβάσει και τον επίσημο φάκελο ΕΣΗΔΗΣ.'}</p></div>`
     : `<div class="docItem"><h4>Δεν βρέθηκε ακόμα ΕΣΗΔΗΣ</h4><p>Κρατάμε τη δημοσίευση του φορέα ως υποψήφια. Τα κατεβασμένα έντυπα ελέγχθηκαν για άρθρο 2.2, links και Α/Α ΕΣΗΔΗΣ.</p></div>`;
-  $('previewBody').innerHTML = linkedBlock + docs.map((doc) => `
+  const linkedDocuments = linkedDocs.map((doc) => `
+    <article class="docItem linkedBox">
+      <h4>${escapeHtml(doc.label)}${doc.available ? '' : ' · δεν έχει κατέβει'}</h4>
+      <p>${escapeHtml(doc.name || '')}</p>
+      <div class="docActions">
+        ${doc.view_url ? `<a class="button tinyButton" href="${escapeHtml(doc.view_url)}" target="_blank" rel="noreferrer">Open</a>` : ''}
+      </div>
+    </article>
+  `).join('');
+  $('previewBody').innerHTML = linkedBlock + linkedDocuments + docs.map((doc) => `
     <article class="docItem">
       <h4>${escapeHtml(doc.label)}${doc.available ? '' : ' · δεν έχει κατέβει'}</h4>
       <p>${escapeHtml(doc.name || '')}</p>
@@ -8212,6 +8242,7 @@ async function renderKimdisPreview(officialId) {
   const payload = await api(`/api/kimdis-document-preview?official_id=${encodeURIComponent(officialId)}`);
   const docs = payload.documents || [];
   const linkedIds = payload.linked_eshidis_ids || [];
+  const linkedDocs = payload.linked_eshidis_documents || [];
   const linkedFileCount = Number(payload.linked_eshidis_file_count || 0);
   if (!docs.length) {
     $('previewBody').innerHTML = '<div class="emptyState">Δεν υπάρχει ακόμα structured ΚΗΜΔΗΣ preview για αυτό το ΑΔΑΜ.</div>';
@@ -8220,7 +8251,16 @@ async function renderKimdisPreview(officialId) {
   const linkedBlock = linkedIds.length
     ? `<div class="docItem linkedBox"><h4>Σύνδεση με ΕΣΗΔΗΣ</h4><p>Βρέθηκε Α/Α ΕΣΗΔΗΣ ${escapeHtml(linkedIds.join(', '))}. ${linkedFileCount ? `Υπάρχουν ήδη ${linkedFileCount} επίσημα αρχεία ΕΣΗΔΗΣ διαθέσιμα για zip.` : 'Το Fetch αυτής της γραμμής θα επιχειρήσει να κατεβάσει και τον επίσημο φάκελο ΕΣΗΔΗΣ.'}</p></div>`
     : '';
-  $('previewBody').innerHTML = linkedBlock + docs.map((doc) => `
+  const linkedDocuments = linkedDocs.map((doc) => `
+    <article class="docItem linkedBox">
+      <h4>${escapeHtml(doc.label)}${doc.available ? '' : ' · δεν έχει κατέβει'}</h4>
+      <p>${escapeHtml(doc.name || '')}</p>
+      <div class="docActions">
+        ${doc.view_url ? `<a class="button tinyButton" href="${escapeHtml(doc.view_url)}" target="_blank" rel="noreferrer">Open</a>` : ''}
+      </div>
+    </article>
+  `).join('');
+  $('previewBody').innerHTML = linkedBlock + linkedDocuments + docs.map((doc) => `
     <article class="docItem">
       <h4>${escapeHtml(doc.label)}${doc.available ? '' : ' · δεν έχει κατέβει'}</h4>
       <p>${escapeHtml(doc.name || '')}</p>

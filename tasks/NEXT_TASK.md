@@ -48,6 +48,10 @@ Production repair has been applied to the current visible dashboard ESHIDIS
 rows: `101/101` preview documents are available, present on disk and sha256
 verified; a follow-up non-force download run skipped all `101`.
 
+KIMDIS/authority previews now render linked ESHIDIS documents directly when
+local official files exist; ZIP availability is no longer the only indication
+for rows such as `26PROC019429074` linked to `ΕΣΗΔΗΣ 207024`.
+
 ## Current Input
 
 The independent reverse-pricing workflow remains disconnected from cron.

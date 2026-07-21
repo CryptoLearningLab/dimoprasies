@@ -1399,6 +1399,7 @@ def test_dashboard_rows_select_preview_on_click() -> None:
     assert "highlightSelectedRow" in APP_JS
     assert "row.addEventListener('click', () => selectTender(row.dataset.key, false))" in APP_JS
     assert "event.stopPropagation()" in APP_JS
+    assert "linked_eshidis_documents" in APP_JS
 
 
 def test_dashboard_includes_authority_candidates_and_actions(tmp_path, monkeypatch) -> None:
@@ -2147,6 +2148,8 @@ def test_dashboard_exposes_local_kimdis_preview_and_download(tmp_path, monkeypat
               tender_id INTEGER,
               original_name TEXT,
               local_path TEXT,
+              size_bytes INTEGER,
+              sha256 TEXT,
               is_latest INTEGER
             );
             """
@@ -2160,7 +2163,7 @@ def test_dashboard_exposes_local_kimdis_preview_and_download(tmp_path, monkeypat
             """
         )
         connection.execute(
-            "INSERT INTO attachments (tender_id, original_name, local_path, is_latest) VALUES (1, 'spec.pdf', ?, 1)",
+            "INSERT INTO attachments (tender_id, original_name, local_path, size_bytes, sha256, is_latest) VALUES (1, 'spec.pdf', ?, 4, 'linkedabc', 1)",
             (str(linked_pdf_path.relative_to(tmp_path)),),
         )
         connection.commit()
@@ -2233,6 +2236,8 @@ regions: []
     assert payload["tenders"][0]["linked_eshidis_ids"] == ["221473"]
     assert preview["linked_eshidis_ids"] == ["221473"]
     assert preview["linked_eshidis_file_count"] == 1
+    assert preview["linked_eshidis_documents"][0]["eshidis_id"] == "221473"
+    assert preview["linked_eshidis_documents"][0]["view_url"] == "/api/document-file?attachment_id=1"
     assert preview["documents"][0]["label"] == "Διακήρυξη"
     assert preview["documents"][0]["view_url"] == "/api/kimdis-document-file?official_id=26PROC000000001"
     assert file_path == pdf_path.resolve()

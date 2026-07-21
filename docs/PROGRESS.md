@@ -1,5 +1,29 @@
 # Project Progress
 
+## 2026-07-21 - Linked ESHIDIS documents render in KIMDIS previews
+
+The KIMDIS preview for rows with a verified/known ESHIDIS link previously only
+showed a notice such as "Υπάρχουν ήδη 14 επίσημα αρχεία ΕΣΗΔΗΣ διαθέσιμα για
+zip" plus the KIMDIS document itself. Operators could download the ZIP but could
+not inspect the linked ESHIDIS files directly in the preview pane.
+
+KIMDIS and authority preview payloads now include `linked_eshidis_documents`.
+The browser renders those linked official ESHIDIS files as normal preview
+items with `Open` actions below the "Σύνδεση με ΕΣΗΔΗΣ" notice.
+
+This fixes the observed `26PROC019429074` / `ΕΣΗΔΗΣ 207024` case: when the
+linked ESHIDIS folder has local files, the row preview should show the KIMDIS
+document and the linked ESHIDIS documents, not only the ZIP availability note.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest \
+  tests/test_ui_server.py::test_dashboard_exposes_local_kimdis_preview_and_download \
+  tests/test_ui_server.py::test_dashboard_rows_select_preview_on_click -q
+# 2 passed
+```
+
 ## 2026-07-21 - ESHIDIS attachment download integrity guard
 
 Production UI attachment audit found that visible ESHIDIS rows expose downloaded
