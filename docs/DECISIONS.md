@@ -1,5 +1,18 @@
 # Decision Log
 
+## D-095 — UI backfill search may skip only after a complete unchanged window
+**Status:** Accepted
+
+The public-works UI `Νέα αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ` button uses `/api/discover`.
+Bounded searches run source preflight and may skip or selectively refresh only
+changed source families.
+
+When `Backfill safety` is enabled, the search is intentionally deeper and may
+repeat source discovery until it overlaps the previous successful window.
+However, if source preflight is unchanged and the latest successful discovery
+run already has a complete watermark, the UI backfill path now returns an
+immediate skip instead of repeating expensive ESHIDIS/KIMDIS discovery.
+
 ## D-094 — Entalmata scans reuse processed ADA documents
 **Status:** Accepted
 

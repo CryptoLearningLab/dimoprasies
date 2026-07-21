@@ -3541,6 +3541,43 @@ def test_backfill_discovery_retries_until_previous_window_overlap(tmp_path, monk
     assert [args[args.index("--kimdis-pages") + 1] for args in expanded_calls] == ["20", "40"]
 
 
+def test_backfill_discovery_skips_when_sources_unchanged_and_previous_window_complete(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        "timezone: Europe/Athens\nmunicipalities: []\nregions: []\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps({"focus_authority_candidates": [], "focus_open_proc_candidates": []}),
+        encoding="utf-8",
+    )
+    append_discovery_run(
+        tmp_path / "work/derived/discovery_runs.json",
+        {
+            "run_id": "previous",
+            "success": True,
+            "watermark": {"complete": True},
+        },
+    )
+    fingerprint = {"ok": True, "hash": "same", "sources": [], "errors": []}
+    ui_server.save_source_fingerprint(fingerprint)
+    monkeypatch.setattr(ui_server, "quick_source_fingerprint", lambda timeout_seconds=8: fingerprint)
+
+    def fail_run_cli_process(args, *, timeout):
+        raise AssertionError("complete unchanged backfill should be skipped")
+
+    monkeypatch.setattr(ui_server, "run_cli_process", fail_run_cli_process)
+
+    result = run_discovery_search(limit=100, backfill=True)
+
+    assert result["ok"] is True
+    assert result["skipped"] is True
+    assert result["skip_reason"] == "SKIPPED_UNCHANGED_BACKFILL_COMPLETE"
+    assert result["steps"] == []
+
+
 def test_discovery_skips_when_source_fingerprint_is_unchanged(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "config").mkdir()

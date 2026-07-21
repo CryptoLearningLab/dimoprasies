@@ -1,5 +1,38 @@
 # Project Progress
 
+## 2026-07-21 - UI discovery backfill skip guard
+
+The public-works UI search buttons were checked against the deployed behavior:
+
+- `Νέα αναζήτηση ΕΣΗΔΗΣ + ΚΗΜΔΗΣ` calls `/api/discover`;
+- without `Backfill safety`, `/api/discover` runs source preflight and can
+  skip or selectively refresh changed source families;
+- with `Backfill safety`, the UI intentionally requests `backfill=true`, which
+  can run deeper ESHIDIS/KIMDIS passes.
+
+The backfill path now has an additional guard: if source preflight is unchanged
+and the latest successful discovery run already has a complete watermark, it
+returns `skipped=true` with
+`skip_reason=SKIPPED_UNCHANGED_BACKFILL_COMPLETE` and does not invoke the
+expensive CLI discovery steps.
+
+Production check on the deployed droplet showed that the current live preflight
+would not skip at that moment because it detected changed sources
+(`eshidis_active_search`, `diavgeia_pste`) and transient Diavgeia 503/timeouts.
+The entalmata UI path is connected to the skip-aware scanner; the latest
+production payload showed `skipped_existing=115`, `errors=0`.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest \
+  tests/test_ui_server.py::test_backfill_discovery_retries_until_previous_window_overlap \
+  tests/test_ui_server.py::test_backfill_discovery_skips_when_sources_unchanged_and_previous_window_complete \
+  tests/test_ui_server.py::test_discovery_skips_when_source_fingerprint_is_unchanged \
+  tests/test_ui_server.py::test_discovery_runs_when_source_fingerprint_changed -q
+# 4 passed
+```
+
 ## 2026-07-21 - Entalmata scan reuse guard and cron readiness smoke
 
 The Diavgeia entalmata scanner now reuses already processed ADA rows:

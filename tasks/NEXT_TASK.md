@@ -14,7 +14,7 @@ document pipeline was backfilled and made skip-aware:
   document analysis rows;
 - skip-only verification completed in about `1.0s` with
   `documents_seen=137`, `documents_analyzed=0`, `documents_skipped=137`;
-- full test suite passed with `297` tests.
+- full test suite passed with `298` tests.
 
 The entalmata stage was also made skip-aware for repeated ADA rows:
 
@@ -24,11 +24,19 @@ The entalmata stage was also made skip-aware for repeated ADA rows:
 - combined scheduled dry-run with `--recipient smoke@example.test` completed
   in about `132s` with `ok=true`, `errors=[]` and `warnings=[]`.
 
-Remaining cron prerequisite: configure/verify real SMTP recipient environment
-for this host before enabling the timer without `--dry-run`. The local
-`.env.local` visible in this checkout only exposes `OPENAI_API_KEY`; real
-email send requires `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`,
-`SMTP_PASSWORD`, `EMAIL_FROM` and `ALERT_EMAIL_TO` or equivalent runtime env.
+Production deployment has also been verified on the DigitalOcean droplet:
+
+- GitHub `main` deploy updates `/root/workspace/dimoprasies`;
+- latest verified deployed commit: `b662d5b`;
+- `tender-radar-scheduled.timer` is `enabled` and `active`;
+- the production `.env.local` has the real SMTP/recipient settings;
+- production scheduled dry-run completed with `ok=true`;
+- entalmata UI/scheduled scan reported `skipped_existing=115`, `errors=0`.
+
+The public-works UI discovery button now has the same source-preflight guard
+for completed unchanged backfill windows: when `Backfill safety` is enabled but
+sources are unchanged and the previous successful discovery watermark is
+complete, `/api/discover` skips the expensive ESHIDIS/KIMDIS steps.
 
 ## Current Input
 

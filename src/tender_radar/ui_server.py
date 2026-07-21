@@ -2007,28 +2007,33 @@ def run_discovery_search(*, limit: int, backfill: bool = False) -> dict[str, Any
     records: list[dict[str, Any]] = []
     preflight: dict[str, Any] | None = None
     try:
-        if not backfill:
-            preflight = discovery_change_preflight()
-            if preflight.get("skip"):
-                if preflight.get("current"):
-                    save_source_fingerprint(preflight["current"])
-                return {
-                    "ok": True,
-                    "skipped": True,
-                    "skip_reason": "SKIPPED_UNCHANGED",
-                    "source_preflight": preflight,
-                    "steps": [],
-                    "warnings": [],
-                    "candidates": candidates_payload(),
-                    "expanded_report": expanded_report_payload(),
-                    "discovery_runs": [],
-                    "discovery_run": latest_discovery_run(discovery_history_path()),
-                    "dashboard": dashboard_payload(scope="focus"),
-                }
+        preflight = discovery_change_preflight()
+        previous_success = latest_successful_discovery_run(discovery_history_path())
+        backfill_already_complete = bool(
+            backfill
+            and previous_success
+            and isinstance(previous_success.get("watermark"), dict)
+            and previous_success["watermark"].get("complete") is True
+        )
+        if preflight.get("skip") and (not backfill or backfill_already_complete):
+            if preflight.get("current"):
+                save_source_fingerprint(preflight["current"])
+            return {
+                "ok": True,
+                "skipped": True,
+                "skip_reason": "SKIPPED_UNCHANGED_BACKFILL_COMPLETE" if backfill else "SKIPPED_UNCHANGED",
+                "source_preflight": preflight,
+                "steps": [],
+                "warnings": [],
+                "candidates": candidates_payload(),
+                "expanded_report": expanded_report_payload(),
+                "discovery_runs": [],
+                "discovery_run": latest_discovery_run(discovery_history_path()),
+                "dashboard": dashboard_payload(scope="focus"),
+            }
         mode = "backfill" if backfill else "bounded"
         current_limit = limit
         current_kimdis_pages = DEFAULT_KIMDIS_DISCOVERY_PAGES
-        previous_success = latest_successful_discovery_run(discovery_history_path())
         while True:
             started_at = utc_now_iso()
             pass_results = []
