@@ -4747,7 +4747,16 @@ def admin_audit_payload() -> dict[str, Any]:
     active_source_rows = [row for row in rows if row_key_for_tender(row) not in ignored_keys]
     canonical_rows, duplicate_rows = suppress_linked_eshidis_duplicates(active_source_rows)
     official_deadlines = official_eshidis_deadlines_by_id(canonical_rows)
-    inactive_rows = [row for row in canonical_rows if not dashboard_row_is_active(row, official_deadlines=official_deadlines)]
+    dashboard_candidate_rows = [
+        row
+        for row in canonical_rows
+        if row.get("interest_match") and not row.get("ai_triage_hidden")
+    ]
+    inactive_rows = [
+        row
+        for row in dashboard_candidate_rows
+        if not dashboard_row_is_active(row, official_deadlines=official_deadlines)
+    ]
     duplicate_hidden_rows = [
         admin_hidden_row(
             row,

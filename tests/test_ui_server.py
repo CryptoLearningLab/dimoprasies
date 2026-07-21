@@ -2306,6 +2306,84 @@ regions: []
     assert "10-01-2026 10:00" in by_category["EXPIRED"]["reason"]
 
 
+def test_admin_audit_does_not_mark_out_of_scope_expired_rows_as_hidden(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "data").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Πάτρα", "Πατρών"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "data/tender_radar.sqlite"
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE tenders (
+              id INTEGER PRIMARY KEY,
+              eshidis_id TEXT,
+              title TEXT,
+              authority_name TEXT,
+              region TEXT,
+              budget_with_vat REAL,
+              current_deadline_at TEXT,
+              status TEXT,
+              status_confidence REAL
+            );
+            CREATE TABLE attachments (
+              id INTEGER PRIMARY KEY,
+              tender_id INTEGER,
+              original_name TEXT,
+              local_path TEXT,
+              size_bytes INTEGER,
+              sha256 TEXT,
+              is_latest INTEGER
+            );
+            CREATE TABLE documents (attachment_id INTEGER, document_type TEXT, text_sample TEXT);
+            CREATE TABLE source_documents (
+              id INTEGER PRIMARY KEY,
+              row_key TEXT,
+              document_url TEXT,
+              source_url TEXT,
+              local_path TEXT,
+              size_bytes INTEGER,
+              sha256 TEXT,
+              fetched_at TEXT,
+              fetch_error TEXT,
+              source_signature TEXT,
+              metadata_json TEXT DEFAULT '{}'
+            );
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO tenders (
+              id, eshidis_id, title, authority_name, region, budget_with_vat,
+              current_deadline_at, status, status_confidence
+            ) VALUES (
+              1, '221544', 'Απόφαση δημάρχου για άσχετη σύμβαση',
+              'ΓΝΑ ΕΥΑΓΓΕΛΙΣΜΟΣ', NULL, NULL, '2026-07-21T15:00:00', 'UNKNOWN', 0
+            )
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    audit = ui_server.admin_audit_payload()
+
+    assert audit["summary"]["expired"] == 0
+    assert all(row["display_id"] != "221544" for row in audit["hidden_rows"])
+
+
 def test_admin_audit_marks_possible_eshidis_duplicate_for_missing_deadline() -> None:
     row = {
         "source_label": "Φορέας",

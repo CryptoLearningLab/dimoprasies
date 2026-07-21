@@ -1,5 +1,26 @@
 # Project Progress
 
+## 2026-07-21 - Admin audit expired reasons only apply to dashboard candidates
+
+The runtime/UI version was bumped from `0.1.54` to `0.1.55`.
+
+Admin audit deterministic hidden categories now use the same candidate boundary
+as the public dashboard before labeling rows as `EXPIRED`,
+`NO_DEADLINE_EVIDENCE` or `DUPLICATE_CANDIDATE`: the row must be an
+interest-matched dashboard candidate and not already AI-hidden. This prevents
+out-of-scope ESHIDIS/authority rows, such as unrelated decisions or contracts,
+from appearing as "Ληγμένο" merely because they have an old deadline.
+
+Manual dismissals and AI-hidden rows remain visible in the admin audit because
+they explain explicit operator/AI removals.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest -q
+# 306 passed
+```
+
 ## 2026-07-21 - Public-works dashboard hides expired deadlines by time
 
 The runtime/UI version was bumped from `0.1.53` to `0.1.54`.

@@ -60,6 +60,10 @@ Expired public-works rows also clean up local downloaded binaries automatically:
 ESHIDIS attachment files, KIMDIS source-document files and legacy
 KIMDIS/authority index local paths are removed/cleared after expiry, while
 official links, ids, extracted text evidence and provenance remain.
+Admin audit expired/missing-deadline/duplicate-candidate reasons are restricted
+to rows that would otherwise be dashboard candidates. Unrelated ESHIDIS or
+authority rows should not be labeled "Ληγμένο" just because they have an old
+deadline.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked
 ESHIDIS ids (`64.3%`). The 5 unresolved rows completed KIMDIS fetch and

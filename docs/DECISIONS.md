@@ -1,5 +1,17 @@
 # Decision Log
 
+## D-100 — Admin expired reasons are dashboard-candidate only
+**Status:** Accepted
+
+The admin audit explains why rows were removed from the operational dashboard.
+Deterministic categories such as `EXPIRED`, `NO_DEADLINE_EVIDENCE` and
+`DUPLICATE_CANDIDATE` must therefore apply only to rows that would otherwise
+be candidates for the dashboard: interest-matched and not already AI-hidden.
+
+Out-of-scope rows may still appear under `AI_HIDDEN` when AI triage explicitly
+removed them, but they must not be labeled as expired merely because they have
+a past deadline.
+
 ## D-099 — Expired tender cleanup deletes downloads, not provenance
 **Status:** Accepted
 
