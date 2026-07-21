@@ -1,5 +1,17 @@
 # Decision Log
 
+## D-099 — Expired tender cleanup deletes downloads, not provenance
+**Status:** Accepted
+
+When a public-works row has a parseable expired deadline, the runtime may
+delete local downloaded binary files for that row to control disk usage. It
+must keep official source links, ids, metadata, extracted text evidence and
+provenance so the document can be re-fetched from ESHIDIS, KIMDIS or the
+authority source if needed.
+
+Cleanup is restricted to paths under `work/`. Rows hidden because they lack
+deadline evidence are not considered expired and must not trigger file cleanup.
+
 ## D-098 — Dashboard expiry is automatic and datetime-aware
 **Status:** Accepted
 

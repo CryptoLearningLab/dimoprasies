@@ -2,7 +2,18 @@
 
 ## 2026-07-21 - Public-works dashboard hides expired deadlines by time
 
-The runtime/UI version was bumped from `0.1.52` to `0.1.53`.
+The runtime/UI version was bumped from `0.1.53` to `0.1.54`.
+
+Expired public-works rows now clean up local downloaded binaries automatically
+when the dashboard evaluates visibility. Cleanup applies only to rows with a
+parseable expired deadline; rows with missing deadlines remain hidden for
+review but do not trigger file deletion.
+
+The cleanup deletes local `attachments.local_path` files for ESHIDIS rows and
+local `source_documents.local_path` / legacy KIMDIS-authority index files for
+KIMDIS or authority rows. It clears stale local path, size and sha fields while
+keeping source URLs, official ids, metadata, extracted text evidence and
+provenance. Files are only deleted when the path resolves inside `work/`.
 
 Public-works dashboard visibility is now datetime-aware. Rows with parseable
 `current_deadline_at`, `submission_deadline` or deadline evidence are hidden
@@ -18,7 +29,7 @@ Verification:
 
 ```bash
 .venv/bin/python -m pytest tests/test_ui_server.py -q
-# 119 passed
+# 121 passed
 ```
 
 ## 2026-07-21 - KIMDIS 26PROC to ESHIDIS extraction audit

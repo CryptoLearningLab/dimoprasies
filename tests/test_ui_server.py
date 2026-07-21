@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import date, datetime, timezone
 import json
+import sqlite3
 from types import SimpleNamespace
 import time
 
@@ -1997,6 +1998,210 @@ def test_dashboard_keeps_date_only_deadlines_until_end_of_day() -> None:
 
     assert ui_server.dashboard_row_is_active(row, as_of=datetime(2026, 7, 21, 23, 59, tzinfo=athens))
     assert not ui_server.dashboard_row_is_active(row, as_of=datetime(2026, 7, 22, 0, 0, tzinfo=athens))
+
+
+def test_dashboard_cleanup_deletes_expired_eshidis_downloads(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        "timezone: Europe/Athens\nmunicipalities: []\nregions: []\n",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "data/tender_radar.sqlite"
+    db_path.parent.mkdir()
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE tenders (
+              id INTEGER PRIMARY KEY,
+              eshidis_id TEXT,
+              title TEXT,
+              authority_name TEXT,
+              region TEXT,
+              budget_with_vat REAL,
+              current_deadline_at TEXT,
+              status TEXT,
+              status_confidence REAL
+            );
+            CREATE TABLE attachments (
+              id INTEGER PRIMARY KEY,
+              tender_id INTEGER,
+              original_name TEXT,
+              local_path TEXT,
+              size_bytes INTEGER,
+              sha256 TEXT,
+              is_latest INTEGER
+            );
+            CREATE TABLE documents (attachment_id INTEGER, document_type TEXT, text_sample TEXT);
+            CREATE TABLE source_documents (
+              id INTEGER PRIMARY KEY,
+              row_key TEXT,
+              document_url TEXT,
+              source_url TEXT,
+              local_path TEXT,
+              size_bytes INTEGER,
+              sha256 TEXT,
+              fetched_at TEXT,
+              fetch_error TEXT,
+              source_signature TEXT,
+              metadata_json TEXT DEFAULT '{}'
+            );
+            """
+        )
+        pdf_path = tmp_path / "work/download_audit/221566/spec.pdf"
+        pdf_path.parent.mkdir(parents=True)
+        pdf_path.write_bytes(b"expired")
+        connection.execute(
+            """
+            INSERT INTO tenders (
+              id, eshidis_id, title, authority_name, region, budget_with_vat,
+              current_deadline_at, status, status_confidence
+            ) VALUES (1, '221566', 'Ληγμένο έργο', 'ΔΗΜΟΣ', '', 1000, '2026-07-21T10:00:00', 'UNKNOWN', 0)
+            """
+        )
+        connection.execute(
+            "INSERT INTO attachments (tender_id, original_name, local_path, size_bytes, sha256, is_latest) VALUES (1, 'spec.pdf', ?, 7, 'abc', 1)",
+            (str(pdf_path),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    payload = dashboard_payload(scope="focus", as_of=datetime(2026, 7, 21, 10, 1, tzinfo=ui_server.dashboard_timezone()))
+
+    assert payload["summary"]["visible"] == 0
+    assert payload["summary"]["expired_download_cleanup"]["files_deleted"] == 1
+    assert not pdf_path.exists()
+    connection = sqlite3.connect(db_path)
+    try:
+        row = connection.execute("SELECT local_path, size_bytes, sha256 FROM attachments").fetchone()
+    finally:
+        connection.close()
+    assert row == (None, None, None)
+
+
+def test_dashboard_cleanup_deletes_expired_kimdis_downloads_and_legacy_index(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "work/derived").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        "timezone: Europe/Athens\nmunicipalities:\n  - name: Δήμος Πατρέων\n    aliases: [Πάτρα]\nregions: []\n",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "data/tender_radar.sqlite"
+    db_path.parent.mkdir()
+    pdf_path = tmp_path / "work/download_audit/kimdis/26PROC000000001/26PROC000000001.pdf"
+    pdf_path.parent.mkdir(parents=True)
+    pdf_path.write_bytes(b"expired-kimdis")
+    (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
+        json.dumps(
+            {
+                "focus_open_proc_candidates": [
+                    {
+                        "source": "KIMDIS",
+                        "record_type": "PROC",
+                        "official_id": "26PROC000000001",
+                        "title": "Ληγμένο έργο Πάτρας",
+                        "authority": "ΔΗΜΟΣ ΠΑΤΡΕΩΝ",
+                        "submission_deadline": "2026-07-21T10:00:00",
+                        "attachment_url": "https://cerpp.eprocurement.gov.gr/khmdhs-opendata/notice/attachment/26PROC000000001",
+                        "matched_scopes": ["Δήμος Πατρέων"],
+                        "status": "SUBMISSION_OPEN_CANDIDATE",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    index_path = tmp_path / "work/derived/kimdis_open_proc_documents.json"
+    index_path.write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {
+                        "official_id": "26PROC000000001",
+                        "attachment_url": "https://example.test/26PROC000000001.pdf",
+                        "local_path": str(pdf_path),
+                        "size_bytes": len(b"expired-kimdis"),
+                        "sha256": "abc",
+                        "document_analysis": {"text_sample": "Πάτρα"},
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE source_documents (
+              id INTEGER PRIMARY KEY,
+              row_key TEXT,
+              document_url TEXT,
+              source_url TEXT,
+              local_path TEXT,
+              size_bytes INTEGER,
+              sha256 TEXT,
+              fetched_at TEXT,
+              fetch_error TEXT,
+              source_signature TEXT,
+              metadata_json TEXT DEFAULT '{}'
+            );
+            CREATE TABLE attachments (
+              id INTEGER PRIMARY KEY,
+              tender_id INTEGER,
+              original_name TEXT,
+              local_path TEXT,
+              size_bytes INTEGER,
+              sha256 TEXT,
+              is_latest INTEGER
+            );
+            CREATE TABLE tenders (
+              id INTEGER PRIMARY KEY,
+              eshidis_id TEXT,
+              title TEXT,
+              authority_name TEXT,
+              region TEXT,
+              budget_with_vat REAL,
+              current_deadline_at TEXT,
+              status TEXT,
+              status_confidence REAL
+            );
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO source_documents (
+              row_key, document_url, source_url, local_path, size_bytes, sha256, metadata_json
+            ) VALUES ('KIMDIS:26PROC000000001', 'https://example.test/26PROC000000001.pdf', NULL, ?, 14, 'abc', '{}')
+            """,
+            (str(pdf_path),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    payload = dashboard_payload(scope="focus", as_of=datetime(2026, 7, 21, 10, 1, tzinfo=ui_server.dashboard_timezone()))
+
+    assert payload["summary"]["visible"] == 0
+    assert payload["summary"]["expired_download_cleanup"]["files_deleted"] == 1
+    assert not pdf_path.exists()
+    connection = sqlite3.connect(db_path)
+    try:
+        row = connection.execute("SELECT local_path, size_bytes, sha256 FROM source_documents").fetchone()
+    finally:
+        connection.close()
+    assert row == (None, None, None)
+    payload = json.loads(index_path.read_text(encoding="utf-8"))
+    assert payload["documents"][0]["local_path"] is None
+    assert payload["documents"][0]["size_bytes"] is None
+    assert payload["documents"][0]["sha256"] is None
 
 
 def test_deadline_evidence_extracts_submission_deadline_from_document_text() -> None:

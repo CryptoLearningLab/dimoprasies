@@ -56,6 +56,10 @@ Public-works dashboard expiry is automatic and datetime-aware: rows with a
 parseable deadline and time are hidden after that local deadline time, while
 date-only deadlines remain visible until the end of that date. Expired rows are
 hidden from the dashboard/email candidate set, not physically deleted.
+Expired public-works rows also clean up local downloaded binaries automatically:
+ESHIDIS attachment files, KIMDIS source-document files and legacy
+KIMDIS/authority index local paths are removed/cleared after expiry, while
+official links, ids, extracted text evidence and provenance remain.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked
 ESHIDIS ids (`64.3%`). The 5 unresolved rows completed KIMDIS fetch and

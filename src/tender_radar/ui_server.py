@@ -3656,6 +3656,11 @@ def dashboard_payload(
     rows = [row_with_document_evidence(row) for row in rows]
     canonical_rows, duplicate_hidden_rows = suppress_linked_eshidis_duplicates(rows)
     official_deadlines = official_eshidis_deadlines_by_id(canonical_rows)
+    cleanup_report = cleanup_expired_public_work_downloads(
+        canonical_rows,
+        as_of=as_of,
+        official_deadlines=official_deadlines,
+    )
     active_rows = [
         row
         for row in canonical_rows
@@ -3679,6 +3684,7 @@ def dashboard_payload(
             "triage_hidden": len(triage_hidden),
             "triage_kept": len(triage_visible_rows),
             "ignored": len(ignored),
+            "expired_download_cleanup": cleanup_report.get("summary") or {},
         },
         "tenders": visible_rows,
         "discovery_run": latest_discovery_run_payload(),
@@ -5923,6 +5929,19 @@ def dashboard_row_is_active(
     as_of: date | datetime | None = None,
     official_deadlines: dict[str, str] | None = None,
 ) -> bool:
+    raw_deadline = raw_dashboard_deadline(row, official_deadlines=official_deadlines)
+    deadline = deadline_datetime(raw_deadline)
+    if deadline is None:
+        return False
+    if isinstance(as_of, datetime):
+        current = as_of if as_of.tzinfo else as_of.replace(tzinfo=dashboard_timezone())
+        return deadline >= current.astimezone(deadline.tzinfo)
+    if isinstance(as_of, date):
+        return deadline.date() >= as_of
+    return deadline >= datetime.now(dashboard_timezone())
+
+
+def raw_dashboard_deadline(row: dict[str, Any], *, official_deadlines: dict[str, str] | None = None) -> str:
     raw_deadline = str(row.get("current_deadline_at") or row.get("submission_deadline") or "")
     if not raw_deadline and official_deadlines:
         linked_deadlines = [
@@ -5934,15 +5953,7 @@ def dashboard_row_is_active(
             raw_deadline = max(linked_deadlines, key=deadline_sort_key)
     if not raw_deadline:
         raw_deadline = str((row.get("deadline_evidence") or {}).get("deadline_at") or "")
-    deadline = deadline_datetime(raw_deadline)
-    if deadline is None:
-        return False
-    if isinstance(as_of, datetime):
-        current = as_of if as_of.tzinfo else as_of.replace(tzinfo=dashboard_timezone())
-        return deadline >= current.astimezone(deadline.tzinfo)
-    if isinstance(as_of, date):
-        return deadline.date() >= as_of
-    return deadline >= datetime.now(dashboard_timezone())
+    return raw_deadline
 
 
 def official_eshidis_deadlines_by_id(rows: list[dict[str, Any]]) -> dict[str, str]:
@@ -5955,6 +5966,238 @@ def official_eshidis_deadlines_by_id(rows: list[dict[str, Any]]) -> dict[str, st
         if eshidis_id.isdigit() and deadline:
             deadlines[eshidis_id] = deadline
     return deadlines
+
+
+def cleanup_expired_public_work_downloads(
+    rows: list[dict[str, Any]],
+    *,
+    as_of: date | datetime | None = None,
+    official_deadlines: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    db_path = runtime_db_path()
+    report: dict[str, Any] = {
+        "ok": True,
+        "summary": {
+            "expired_rows_checked": 0,
+            "files_deleted": 0,
+            "bytes_deleted": 0,
+            "attachments_cleared": 0,
+            "source_documents_cleared": 0,
+            "legacy_documents_cleared": 0,
+            "errors": 0,
+        },
+        "rows": [],
+        "errors": [],
+    }
+    expired_rows = []
+    for row in rows:
+        if not row_key_for_tender(row):
+            continue
+        raw_deadline = raw_dashboard_deadline(row, official_deadlines=official_deadlines)
+        if deadline_datetime(raw_deadline) is None:
+            continue
+        if not dashboard_row_is_active(row, as_of=as_of, official_deadlines=official_deadlines):
+            expired_rows.append(row)
+    report["summary"]["expired_rows_checked"] = len(expired_rows)
+    if not expired_rows:
+        return report
+    deleted_paths: set[str] = set()
+    for row in expired_rows:
+        row_key = row_key_for_tender(row)
+        row_report: dict[str, Any] = {"row_key": row_key, "display_id": row.get("display_id"), "files_deleted": 0}
+        try:
+            if str(row.get("eshidis_id") or "").strip().isdigit():
+                cleared = cleanup_expired_eshidis_attachment_downloads(
+                    db_path,
+                    eshidis_id=str(row.get("eshidis_id") or "").strip(),
+                    deleted_paths=deleted_paths,
+                )
+                row_report["attachments_cleared"] = cleared.get("records_cleared", 0)
+                report["summary"]["attachments_cleared"] += int(cleared.get("records_cleared") or 0)
+                report["summary"]["files_deleted"] += int(cleared.get("files_deleted") or 0)
+                report["summary"]["bytes_deleted"] += int(cleared.get("bytes_deleted") or 0)
+                row_report["files_deleted"] += int(cleared.get("files_deleted") or 0)
+            cleared_source = cleanup_expired_source_document_downloads(
+                db_path,
+                row_key=row_key,
+                deleted_paths=deleted_paths,
+            )
+            report["summary"]["source_documents_cleared"] += int(cleared_source.get("records_cleared") or 0)
+            report["summary"]["files_deleted"] += int(cleared_source.get("files_deleted") or 0)
+            report["summary"]["bytes_deleted"] += int(cleared_source.get("bytes_deleted") or 0)
+            row_report["source_documents_cleared"] = cleared_source.get("records_cleared", 0)
+            row_report["files_deleted"] += int(cleared_source.get("files_deleted") or 0)
+            cleared_legacy = cleanup_expired_legacy_document_index_downloads(
+                row_key=row_key,
+                deleted_paths=deleted_paths,
+            )
+            report["summary"]["legacy_documents_cleared"] += int(cleared_legacy.get("records_cleared") or 0)
+            report["summary"]["files_deleted"] += int(cleared_legacy.get("files_deleted") or 0)
+            report["summary"]["bytes_deleted"] += int(cleared_legacy.get("bytes_deleted") or 0)
+            row_report["legacy_documents_cleared"] = cleared_legacy.get("records_cleared", 0)
+            row_report["files_deleted"] += int(cleared_legacy.get("files_deleted") or 0)
+        except (OSError, sqlite3.Error, json.JSONDecodeError) as exc:
+            report["ok"] = False
+            report["summary"]["errors"] += 1
+            error = {"row_key": row_key, "error": str(exc)}
+            report["errors"].append(error)
+            row_report["error"] = str(exc)
+        if any(row_report.get(key) for key in ("files_deleted", "attachments_cleared", "source_documents_cleared", "legacy_documents_cleared", "error")):
+            report["rows"].append(row_report)
+    return report
+
+
+def cleanup_expired_eshidis_attachment_downloads(
+    db_path: Path,
+    *,
+    eshidis_id: str,
+    deleted_paths: set[str],
+) -> dict[str, int]:
+    if not db_path.exists():
+        return {"records_cleared": 0, "files_deleted": 0, "bytes_deleted": 0}
+    connection = sqlite3.connect(db_path)
+    connection.row_factory = sqlite3.Row
+    records_cleared = files_deleted = bytes_deleted = 0
+    try:
+        rows = connection.execute(
+            """
+            SELECT attachments.id, attachments.local_path
+            FROM attachments
+            JOIN tenders ON tenders.id = attachments.tender_id
+            WHERE tenders.eshidis_id = ?
+              AND attachments.local_path IS NOT NULL
+            """,
+            (eshidis_id,),
+        ).fetchall()
+        for row in rows:
+            deleted = delete_downloaded_file(_none_or_str(row["local_path"]), deleted_paths=deleted_paths)
+            files_deleted += int(deleted.get("files_deleted") or 0)
+            bytes_deleted += int(deleted.get("bytes_deleted") or 0)
+            connection.execute(
+                """
+                UPDATE attachments
+                SET local_path = NULL, size_bytes = NULL, sha256 = NULL
+                WHERE id = ?
+                """,
+                (row["id"],),
+            )
+            records_cleared += 1
+        connection.commit()
+    finally:
+        connection.close()
+    return {"records_cleared": records_cleared, "files_deleted": files_deleted, "bytes_deleted": bytes_deleted}
+
+
+def cleanup_expired_source_document_downloads(
+    db_path: Path,
+    *,
+    row_key: str,
+    deleted_paths: set[str],
+) -> dict[str, int]:
+    if not db_path.exists():
+        return {"records_cleared": 0, "files_deleted": 0, "bytes_deleted": 0}
+    connection = sqlite3.connect(db_path)
+    connection.row_factory = sqlite3.Row
+    records_cleared = files_deleted = bytes_deleted = 0
+    try:
+        rows = connection.execute(
+            """
+            SELECT id, local_path
+            FROM source_documents
+            WHERE row_key = ?
+              AND local_path IS NOT NULL
+            """,
+            (row_key,),
+        ).fetchall()
+        for row in rows:
+            deleted = delete_downloaded_file(_none_or_str(row["local_path"]), deleted_paths=deleted_paths)
+            files_deleted += int(deleted.get("files_deleted") or 0)
+            bytes_deleted += int(deleted.get("bytes_deleted") or 0)
+            connection.execute(
+                """
+                UPDATE source_documents
+                SET local_path = NULL, size_bytes = NULL, sha256 = NULL
+                WHERE id = ?
+                """,
+                (row["id"],),
+            )
+            records_cleared += 1
+        connection.commit()
+    finally:
+        connection.close()
+    return {"records_cleared": records_cleared, "files_deleted": files_deleted, "bytes_deleted": bytes_deleted}
+
+
+def cleanup_expired_legacy_document_index_downloads(
+    *,
+    row_key: str,
+    deleted_paths: set[str],
+) -> dict[str, int]:
+    if row_key.startswith("KIMDIS:"):
+        official_id = row_key.split(":", 1)[1]
+        return cleanup_legacy_index_documents(
+            REPO_ROOT / "work/derived/kimdis_open_proc_documents.json",
+            lambda document: str(document.get("official_id") or "") == official_id,
+            deleted_paths=deleted_paths,
+        )
+    return cleanup_legacy_index_documents(
+        authority_document_index_path(),
+        lambda document: str(document.get("row_key") or "") == row_key,
+        deleted_paths=deleted_paths,
+    )
+
+
+def cleanup_legacy_index_documents(
+    path: Path,
+    matcher: Any,
+    *,
+    deleted_paths: set[str],
+) -> dict[str, int]:
+    if not path.exists():
+        return {"records_cleared": 0, "files_deleted": 0, "bytes_deleted": 0}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    documents = payload.get("documents") if isinstance(payload.get("documents"), list) else []
+    records_cleared = files_deleted = bytes_deleted = 0
+    changed = False
+    for document in documents:
+        if not isinstance(document, dict) or not matcher(document) or not document.get("local_path"):
+            continue
+        deleted = delete_downloaded_file(_none_or_str(document.get("local_path")), deleted_paths=deleted_paths)
+        files_deleted += int(deleted.get("files_deleted") or 0)
+        bytes_deleted += int(deleted.get("bytes_deleted") or 0)
+        for key in ("local_path", "size_bytes", "sha256"):
+            document[key] = None
+        records_cleared += 1
+        changed = True
+    if changed:
+        payload["updated_at"] = utc_now_iso()
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"records_cleared": records_cleared, "files_deleted": files_deleted, "bytes_deleted": bytes_deleted}
+
+
+def delete_downloaded_file(value: str | None, *, deleted_paths: set[str]) -> dict[str, int]:
+    path = normalize_local_path(value)
+    if path is None:
+        return {"files_deleted": 0, "bytes_deleted": 0}
+    key = str(path)
+    if key in deleted_paths:
+        return {"files_deleted": 0, "bytes_deleted": 0}
+    size = path.stat().st_size
+    path.unlink()
+    deleted_paths.add(key)
+    prune_empty_download_dirs(path.parent)
+    return {"files_deleted": 1, "bytes_deleted": size}
+
+
+def prune_empty_download_dirs(path: Path) -> None:
+    work_dir = (REPO_ROOT / "work").resolve()
+    current = path.resolve()
+    while current != work_dir and work_dir in current.parents:
+        try:
+            current.rmdir()
+        except OSError:
+            return
+        current = current.parent
 
 
 def deadline_date(value: str) -> date | None:
