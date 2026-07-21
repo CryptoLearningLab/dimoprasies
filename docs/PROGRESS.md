@@ -17,6 +17,12 @@
   Latin `TEM` units, and parenthesized units such as `(Kgr)`. Regression
   coverage was added in `tests/test_pricing.py`; the focused pricing suite
   passed with `61` tests and the full suite passed with `290` tests.
+- Live targeted reprocess after `v0.1.51` completed ESHIDIS `221720`: `482`
+  merged rows, row arithmetic `OK`, document-total validation `OK`, and
+  merged amount `111.285,29` matching the official reference total from
+  `10_ Έντυπο Οικονομικής Προσφοράς_ΨΥ.pdf`. A full incomplete-set reprocess
+  then reported `projects_seen=23`, `skipped_complete=11`,
+  `projects_inspected=12`, `needs_review_or_failed=12`.
 - Reverse-pricing `v0.1.50` fixes monetary subtotal selection when an official
   total line also contains a trailing percentage. Lines such as
   `ΣΥΝΟΛΟ 1.148.787,69 € 100,00%` now use the euro amount as the reference

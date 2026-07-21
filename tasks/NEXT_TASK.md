@@ -11,13 +11,29 @@ Production storage cleanup/refetch has now run successfully on `v0.1.49`.
 revision code appear before the A/T number, plus 4-decimal unit prices,
 Latin `TEM`, and parenthesized units.
 
-After deploy, run targeted live reprocess first on `221720`, then decide
-whether to apply the same parser baseline to the remaining review projects:
+Live targeted reprocess after deploy completed `221720`, which now belongs to
+the skipped-complete set. The latest incomplete-set baseline is:
+
+- `projects_seen`: `23`
+- `skipped_complete`: `11`
+- `projects_inspected`: `12`
+- `needs_review_or_failed`: `12`
+
+Next parser work should start from the remaining review buckets, not from
+`221720`:
+
+- no public/usable documents: `220133`, `221381`
+- zero/near-zero rows despite official offer totals: `221006`, `221314`,
+  `221325`, `221452`
+- row arithmetic or document-total mismatches: `219795`, `220220`, `220423`,
+  `220675`, `221155`, `221368`
+
+Useful command for a targeted project:
 
 ```bash
 tender-radar pricing reprocess-existing --db data/tender_radar.sqlite \
-  --eshidis-id 221720 \
-  --report work/reports/pricing_reprocess_221720_after_v0151.json
+  --eshidis-id <ESHIDIS_ID> \
+  --report work/reports/pricing_reprocess_<ESHIDIS_ID>_YYYYMMDD.json
 ```
 
 Current live storage state after apply:
