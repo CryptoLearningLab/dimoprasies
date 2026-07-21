@@ -1,5 +1,34 @@
 # Project Progress
 
+## 2026-07-21 - Admin audit shows specific AI rejection reasons
+
+The runtime/UI version was bumped from `0.1.55` to `0.1.56`.
+
+Admin audit rows hidden by AI triage now expose the specific rejection family
+as the row category instead of a generic `AI` bucket:
+
+- `DROP_ADMIN` renders as administrative/non-tender;
+- `DROP_OUT_OF_SCOPE_SUPPLY_SERVICE` renders as supply/service out of scope;
+- `DROP_NOT_PUBLIC_WORKS` renders as not a public construction work;
+- `EARLY_SIGNAL` renders as an early signal, not an active tender.
+
+The row still carries the raw AI decision and confidence, and the reason starts
+from the AI classification text. This keeps unrelated decisions, studies,
+supplies and services visible in admin with the real reason they were excluded
+from the public-works dashboard.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_admin_restore_ai_hidden_row_forces_keep \
+  tests/test_ui_server.py::test_admin_audit_hidden_rows_are_recent_first \
+  tests/test_ui_server.py::test_admin_audit_ui_exposes_missing_deadline_and_mobile_labels -q
+# 3 passed
+
+.venv/bin/python -m pytest -q
+# 306 passed
+```
+
 ## 2026-07-21 - Admin audit expired reasons only apply to dashboard candidates
 
 The runtime/UI version was bumped from `0.1.54` to `0.1.55`.

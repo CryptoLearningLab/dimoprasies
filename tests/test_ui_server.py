@@ -3326,7 +3326,10 @@ def test_admin_restore_ai_hidden_row_forces_keep(tmp_path, monkeypatch) -> None:
     assert dashboard_payload(scope="focus")["summary"]["visible"] == 0
     audit = ui_server.admin_audit_payload()
     assert audit["summary"]["ai_hidden"] == 1
+    assert audit["hidden_rows"][0]["category"] == "AI_DROP_ADMIN"
     assert audit["hidden_rows"][0]["restorable"] is True
+    assert "διοικητική" in audit["hidden_rows"][0]["reason"]
+    assert "διοικητικό" in audit["hidden_rows"][0]["reason"]
 
     restored = ui_server.restore_admin_row(row_key="AUTHORITY:AUTH-drop", reason="είναι ενεργό έργο")
 
@@ -3395,7 +3398,7 @@ def test_admin_audit_hidden_rows_are_recent_first(tmp_path, monkeypatch) -> None
 
     audit = ui_server.admin_audit_payload()
 
-    assert [row["category"] for row in audit["hidden_rows"][:2]] == ["DISMISSED", "AI_HIDDEN"]
+    assert [row["category"] for row in audit["hidden_rows"][:2]] == ["DISMISSED", "AI_DROP_ADMIN"]
     assert [row["display_id"] for row in audit["hidden_rows"][:2]] == ["AUTH-manual-new", "AUTH-ai-old"]
     assert [row["audit_at"] for row in audit["hidden_rows"][:2]] == [
         "2026-07-19T12:00:00+00:00",

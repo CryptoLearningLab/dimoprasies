@@ -1,5 +1,14 @@
 # Decision Log
 
+## D-101 — Admin audit AI rows use semantic rejection categories
+**Status:** Accepted
+
+Rows excluded by AI triage remain visible in the admin audit, but their
+category must reflect the AI decision family instead of a generic hidden state.
+Administrative/non-tender acts, out-of-scope supplies/services, non-public
+works and early signals should therefore be explainable directly from the audit
+row with the stored AI reason and confidence.
+
 ## D-100 — Admin expired reasons are dashboard-candidate only
 **Status:** Accepted
 

@@ -4736,8 +4736,8 @@ def admin_audit_payload() -> dict[str, Any]:
     triage_hidden_rows = [
         admin_hidden_row(
             row,
-            category="AI_HIDDEN",
-            reason=str(((row.get("ai_triage") or {}).get("reason")) or "AI triage marked this row as not for daily review."),
+            category=admin_ai_hidden_category(row),
+            reason=admin_ai_hidden_reason(row),
             restorable=True,
         )
         for row in rows
@@ -4906,6 +4906,31 @@ def admin_hidden_row_sort_key(row: dict[str, Any]) -> tuple[bool, str, str, str]
         str(row.get("display_id") or ""),
         str(row.get("row_key") or ""),
     )
+
+
+def admin_ai_hidden_category(row: dict[str, Any]) -> str:
+    ai = row.get("ai_triage") if isinstance(row.get("ai_triage"), dict) else {}
+    return {
+        "DROP_ADMIN": "AI_DROP_ADMIN",
+        "DROP_OUT_OF_SCOPE_SUPPLY_SERVICE": "AI_DROP_SUPPLY_SERVICE",
+        "DROP_NOT_PUBLIC_WORKS": "AI_DROP_NOT_PUBLIC_WORKS",
+        "EARLY_SIGNAL": "AI_EARLY_SIGNAL",
+    }.get(str(ai.get("decision") or ""), "AI_HIDDEN")
+
+
+def admin_ai_hidden_reason(row: dict[str, Any]) -> str:
+    ai = row.get("ai_triage") if isinstance(row.get("ai_triage"), dict) else {}
+    decision = str(ai.get("decision") or "")
+    label = {
+        "DROP_ADMIN": "διοικητική/μη διαγωνιστική πράξη",
+        "DROP_OUT_OF_SCOPE_SUPPLY_SERVICE": "προμήθεια ή υπηρεσία εκτός δημοσίων έργων",
+        "DROP_NOT_PUBLIC_WORKS": "όχι δημόσιο έργο κατασκευής",
+        "EARLY_SIGNAL": "πρώιμο σήμα, όχι ενεργός διαγωνισμός",
+    }.get(decision, "μη κατάλληλο για την καθημερινή λίστα")
+    reason = str(ai.get("reason") or "").strip()
+    if reason:
+        return f"AI έλεγχος: {label}. {reason}"
+    return f"AI έλεγχος: {label}."
 
 
 def admin_hidden_row(
@@ -8222,6 +8247,10 @@ function renderAdminAudit(payload) {
 function adminCategoryLabel(category) {
   return {
     AI_HIDDEN: 'AI',
+    AI_DROP_ADMIN: 'Διοικητικό',
+    AI_DROP_SUPPLY_SERVICE: 'Προμήθεια/υπηρεσία',
+    AI_DROP_NOT_PUBLIC_WORKS: 'Όχι δημόσιο έργο',
+    AI_EARLY_SIGNAL: 'Πρώιμο σήμα',
     DISMISSED: 'Δεν με ενδιαφέρει',
     DUPLICATE: 'Διπλότυπο',
     DUPLICATE_CANDIDATE: 'Πιθανό διπλότυπο',
@@ -8232,6 +8261,10 @@ function adminCategoryLabel(category) {
 
 function adminCategoryClass(category) {
   if (category === 'AI_HIDDEN') return 'waiting';
+  if (category === 'AI_DROP_ADMIN') return 'waiting';
+  if (category === 'AI_DROP_SUPPLY_SERVICE') return 'waiting';
+  if (category === 'AI_DROP_NOT_PUBLIC_WORKS') return 'waiting';
+  if (category === 'AI_EARLY_SIGNAL') return 'waiting';
   if (category === 'DISMISSED') return 'error';
   if (category === 'DUPLICATE') return 'unchanged';
   if (category === 'DUPLICATE_CANDIDATE') return 'unchanged';

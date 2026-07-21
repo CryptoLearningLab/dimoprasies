@@ -64,6 +64,9 @@ Admin audit expired/missing-deadline/duplicate-candidate reasons are restricted
 to rows that would otherwise be dashboard candidates. Unrelated ESHIDIS or
 authority rows should not be labeled "Ληγμένο" just because they have an old
 deadline.
+AI-hidden admin audit rows remain visible, but now use semantic AI rejection
+categories such as administrative/non-tender, supply/service out of scope, not
+public works, or early signal, with the stored AI reason and confidence.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked
 ESHIDIS ids (`64.3%`). The 5 unresolved rows completed KIMDIS fetch and
