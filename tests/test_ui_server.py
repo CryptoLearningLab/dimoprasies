@@ -186,6 +186,10 @@ def test_ui_exposes_admin_panel() -> None:
     assert 'id="loginEmailInput"' in INDEX_HTML
     assert 'id="loginPasswordInput"' in INDEX_HTML
     assert 'id="adminHiddenRows"' in INDEX_HTML
+    assert 'id="adminReviewRows"' in INDEX_HTML
+    assert 'id="adminReviewQueueCount"' in INDEX_HTML
+    assert "False negative review queue" in INDEX_HTML
+    assert "renderAdminReviewQueue" in APP_JS
     assert 'id="passwordSetupBox"' in INDEX_HTML
     assert 'id="inviteUserBtn"' in INDEX_HTML
     assert "/api/auth/login" in APP_JS
@@ -3359,6 +3363,8 @@ def test_admin_restore_ai_hidden_row_forces_keep(tmp_path, monkeypatch) -> None:
     assert audit["hidden_rows"][0]["restorable"] is True
     assert "διοικητική" in audit["hidden_rows"][0]["reason"]
     assert "διοικητικό" in audit["hidden_rows"][0]["reason"]
+    assert audit["summary"]["review_queue_total"] == 1
+    assert audit["review_queue"][0]["review_priority"] == "LOW"
 
     restored = ui_server.restore_admin_row(row_key="AUTHORITY:AUTH-drop", reason="είναι ενεργό έργο")
 
@@ -3366,6 +3372,40 @@ def test_admin_restore_ai_hidden_row_forces_keep(tmp_path, monkeypatch) -> None:
     payload = dashboard_payload(scope="focus")
     assert payload["summary"]["visible"] == 1
     assert payload["tenders"][0]["triage_override"]["action"] == "FORCE_KEEP"
+
+
+def test_admin_false_negative_review_queue_prioritizes_ai_drops_with_public_work_terms() -> None:
+    hidden_rows = [
+        {
+            "row_key": "AUTHORITY:AUTH-road",
+            "category": "AI_DROP_SUPPLY_SERVICE",
+            "display_id": "AUTH-road",
+            "source_label": "Φορέας",
+            "title": "Συντήρηση οδικού δικτύου και ασφαλτοστρώσεις",
+            "reason": "AI έλεγχος: προμήθεια ή υπηρεσία εκτός δημοσίων έργων.",
+            "ai_decision": "DROP_OUT_OF_SCOPE_SUPPLY_SERVICE",
+            "ai_confidence": 0.95,
+            "audit_at": "2026-07-19T09:00:00+00:00",
+        },
+        {
+            "row_key": "AUTHORITY:AUTH-admin",
+            "category": "AI_DROP_ADMIN",
+            "display_id": "AUTH-admin",
+            "source_label": "Φορέας",
+            "title": "Απόφαση δημάρχου",
+            "reason": "AI έλεγχος: διοικητική πράξη.",
+            "ai_decision": "DROP_ADMIN",
+            "ai_confidence": 0.95,
+            "audit_at": "2026-07-19T10:00:00+00:00",
+        },
+    ]
+
+    queue = ui_server.admin_false_negative_review_queue(hidden_rows)
+
+    assert [row["row_key"] for row in queue] == ["AUTHORITY:AUTH-road", "AUTHORITY:AUTH-admin"]
+    assert queue[0]["review_priority"] == "HIGH"
+    assert "λέξεις δημοσίων έργων" in queue[0]["review_reason"]
+    assert queue[1]["review_priority"] == "LOW"
 
 
 def test_admin_audit_hidden_rows_are_recent_first(tmp_path, monkeypatch) -> None:

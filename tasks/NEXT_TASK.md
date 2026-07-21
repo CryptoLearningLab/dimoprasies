@@ -75,6 +75,9 @@ Source health is now tracked from recent polling runs. Do not remove a
 public-works source after one HTTP 503; use the admin health status
 (`WATCH`, `DEGRADED`, `DISABLE_CANDIDATE`) plus last-success evidence to decide
 whether to disable, replace or keep monitoring the source.
+Admin audit now includes a false-negative review queue with HIGH/MEDIUM/LOW
+priority. Use it to inspect AI drops, missing-deadline rows and possible
+ESHIDIS duplicates before adding new keep/drop rules.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked
 ESHIDIS ids (`64.3%`). The 5 unresolved rows completed KIMDIS fetch and

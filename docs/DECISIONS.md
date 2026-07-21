@@ -1,5 +1,17 @@
 # Decision Log
 
+## D-104 — False-negative review is audit-first
+**Status:** Accepted
+
+The public-works admin panel should expose a separate false-negative review
+queue for hidden rows that may have been incorrectly excluded. The queue should
+prioritize AI drops with public-works signals, missing-deadline candidates and
+possible ESHIDIS duplicates.
+
+The queue does not automatically restore or promote rows. It gives the
+operator a focused review surface and preserves the existing manual restore
+mechanism for rows that need correction.
+
 ## D-103 — Source removal needs health evidence
 **Status:** Accepted
 

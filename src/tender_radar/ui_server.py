@@ -4924,6 +4924,7 @@ def admin_audit_payload() -> dict[str, Any]:
     hidden_rows = dismissed_rows + triage_hidden_rows + duplicate_hidden_rows + duplicate_candidate_rows + expired_hidden_rows + missing_deadline_rows
     hidden_rows = stamp_admin_hidden_events(hidden_rows)
     hidden_rows = sorted(hidden_rows, key=admin_hidden_row_sort_key, reverse=True)
+    review_queue = admin_false_negative_review_queue(hidden_rows)
     return {
         "ok": True,
         "authenticated": True,
@@ -4938,10 +4939,95 @@ def admin_audit_payload() -> dict[str, Any]:
             "missing_deadline": len(missing_deadline_rows),
             "source_errors": len(errors),
             "manual_force_keep": len(force_keep_keys),
+            "review_queue_total": len(review_queue),
+            "review_queue_high": sum(1 for row in review_queue if row.get("review_priority") == "HIGH"),
+            "review_queue_medium": sum(1 for row in review_queue if row.get("review_priority") == "MEDIUM"),
+            "review_queue_low": sum(1 for row in review_queue if row.get("review_priority") == "LOW"),
         },
         "hidden_rows": hidden_rows,
+        "review_queue": review_queue,
         "source_errors": errors,
     }
+
+
+def admin_false_negative_review_queue(hidden_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    queue = []
+    for row in hidden_rows:
+        review = admin_false_negative_review_metadata(row)
+        if not review:
+            continue
+        queue.append({**row, **review})
+    return sorted(queue, key=admin_review_row_sort_key, reverse=True)
+
+
+def admin_false_negative_review_metadata(row: dict[str, Any]) -> dict[str, str] | None:
+    category = str(row.get("category") or "")
+    ai_decision = str(row.get("ai_decision") or "")
+    confidence = _float_or_none(row.get("ai_confidence"))
+    title = normalize_greek(str(row.get("title") or ""))
+    reason = normalize_greek(str(row.get("reason") or ""))
+    combined = f"{title} {reason}"
+    public_signal = any(
+        term in combined
+        for term in (
+            "εργο",
+            "εργασι",
+            "οδικ",
+            "οδοποι",
+            "συντηρη",
+            "ασφαλτο",
+            "κατασκευ",
+            "επισκευ",
+            "αποκαταστα",
+            "διαγωνισ",
+            "διακηρυ",
+            "προυπολογισ",
+        )
+    )
+    tender_signal = any(term in title for term in ("διαγωνισ", "διακηρυ", "υποβολη", "προσφορ", "προθεσμι"))
+    if category == "NO_DEADLINE_EVIDENCE":
+        return {
+            "review_priority": "HIGH" if tender_signal else "MEDIUM",
+            "review_reason": "Υπάρχει ενδιαφέρον έργου/περιοχής αλλά δεν τεκμηριώθηκε ενεργή προθεσμία.",
+        }
+    if category == "DUPLICATE_CANDIDATE":
+        return {
+            "review_priority": "MEDIUM",
+            "review_reason": "Πιθανό διπλότυπο ΕΣΗΔΗΣ. Θέλει έλεγχο πριν θεωρηθεί ασφαλές κόψιμο.",
+        }
+    if category.startswith("AI_DROP"):
+        if confidence is None or confidence < 0.9:
+            return {
+                "review_priority": "HIGH",
+                "review_reason": "AI απόρριψη με μη υψηλή βεβαιότητα.",
+            }
+        if public_signal and ai_decision in {"DROP_OUT_OF_SCOPE_SUPPLY_SERVICE", "DROP_NOT_PUBLIC_WORKS"}:
+            return {
+                "review_priority": "HIGH",
+                "review_reason": "AI απόρριψη αλλά υπάρχουν λέξεις δημοσίων έργων που μπορεί να δείχνουν false negative.",
+            }
+        if category in {"AI_DROP_SUPPLY_SERVICE", "AI_DROP_NOT_PUBLIC_WORKS"}:
+            return {
+                "review_priority": "MEDIUM",
+                "review_reason": "AI απόρριψη εκτός αντικειμένου. Δειγματοληπτικός έλεγχος για false negatives.",
+            }
+        return {
+            "review_priority": "LOW",
+            "review_reason": "AI απόρριψη χαμηλότερου κινδύνου, κρατιέται για περιοδικό audit.",
+        }
+    return None
+
+
+def admin_review_row_sort_key(row: dict[str, Any]) -> tuple[int, bool, str, str, str]:
+    priority_rank = {"LOW": 1, "MEDIUM": 2, "HIGH": 3}.get(str(row.get("review_priority") or ""), 0)
+    audit_at = str(row.get("audit_at") or "").strip()
+    return (
+        priority_rank,
+        bool(audit_at),
+        deadline_sort_key(audit_at),
+        str(row.get("display_id") or ""),
+        str(row.get("row_key") or ""),
+    )
 
 
 def admin_hidden_event_at(row: dict[str, Any]) -> str:
@@ -6830,7 +6916,27 @@ INDEX_HTML = f"""<!doctype html>
           <div><span id="adminExpiredCount">0</span><small>ληγμένα</small></div>
           <div><span id="adminMissingDeadlineCount">0</span><small>χωρίς deadline</small></div>
           <div><span id="adminSourceErrorCount">0</span><small>source errors</small></div>
+          <div><span id="adminReviewQueueCount">0</span><small>false-negative review</small></div>
+          <div><span id="adminReviewHighCount">0</span><small>high priority</small></div>
         </div>
+        <details class="adminReviewQueueBox" open>
+          <summary>False negative review queue</summary>
+          <div class="tableWrap adminTableWrap">
+            <table class="adminTable">
+              <thead>
+                <tr>
+                  <th>Priority</th>
+                  <th>Κατηγορία</th>
+                  <th>Α/Α</th>
+                  <th>Έργο</th>
+                  <th>Γιατί θέλει έλεγχο</th>
+                  <th>Ενέργεια</th>
+                </tr>
+              </thead>
+              <tbody id="adminReviewRows"></tbody>
+            </table>
+          </div>
+        </details>
         <div class="tableWrap adminTableWrap">
           <table class="adminTable">
             <thead>
@@ -8318,6 +8424,9 @@ function renderAdminAudit(payload) {
   $('adminExpiredCount').textContent = summary.expired || 0;
   $('adminMissingDeadlineCount').textContent = summary.missing_deadline || 0;
   $('adminSourceErrorCount').textContent = summary.source_errors || 0;
+  $('adminReviewQueueCount').textContent = summary.review_queue_total || 0;
+  $('adminReviewHighCount').textContent = summary.review_queue_high || 0;
+  renderAdminReviewQueue(payload.review_queue || []);
   const tbody = $('adminHiddenRows');
   const rows = payload.hidden_rows || [];
   tbody.innerHTML = '';
@@ -8350,6 +8459,40 @@ function renderAdminAudit(payload) {
   document.querySelectorAll('.restoreHiddenRow').forEach((button) => {
     button.addEventListener('click', () => restoreHiddenRow(button.dataset.key));
   });
+}
+
+function renderAdminReviewQueue(rows) {
+  const tbody = $('adminReviewRows');
+  tbody.innerHTML = '';
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="emptyState">Δεν υπάρχουν rows για false-negative review.</td></tr>';
+    return;
+  }
+  for (const row of rows) {
+    const tr = document.createElement('tr');
+    const sourceLink = row.official_url
+      ? `<a class="button secondary tinyButton" href="${escapeHtml(row.official_url)}" target="_blank" rel="noreferrer">Open</a>`
+      : '';
+    const restoreButton = row.restorable
+      ? `<button class="tinyButton restoreHiddenRow" data-key="${escapeHtml(row.row_key)}">Επαναφορά</button>`
+      : '<span class="noteText">Audit only</span>';
+    tr.innerHTML = `
+      <td data-label="Priority"><span class="statusChip ${reviewPriorityClass(row.review_priority)}">${escapeHtml(row.review_priority || '')}</span></td>
+      <td data-label="Κατηγορία"><span class="statusChip ${adminCategoryClass(row.category)}">${escapeHtml(adminCategoryLabel(row.category))}</span></td>
+      <td data-label="Α/Α"><strong>${escapeHtml(row.display_id || '')}</strong><br><span class="noteText">${escapeHtml(row.source_label || '')}</span>${row.audit_at ? `<br><span class="noteText">${escapeHtml(formatDateTime(row.audit_at))}</span>` : ''}</td>
+      <td data-label="Έργο" class="tenderTitle">${escapeHtml(row.title || '')}</td>
+      <td data-label="Γιατί θέλει έλεγχο">${escapeHtml(row.review_reason || '')}<br><span class="noteText">${escapeHtml(row.reason || '')}</span>${row.ai_confidence ? `<br><span class="noteText">confidence ${escapeHtml(row.ai_confidence)}</span>` : ''}</td>
+      <td data-label="Ενέργεια"><div class="actionStack">${sourceLink}${restoreButton}</div></td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function reviewPriorityClass(priority) {
+  if (priority === 'HIGH') return 'error';
+  if (priority === 'MEDIUM') return 'changed';
+  if (priority === 'LOW') return 'waiting';
+  return 'waiting';
 }
 
 function adminCategoryLabel(category) {

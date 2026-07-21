@@ -1,5 +1,38 @@
 # Project Progress
 
+## 2026-07-21 - Admin false-negative review queue
+
+The runtime/UI version was bumped from `0.1.59` to `0.1.60`.
+
+The admin audit now exposes a dedicated false-negative review queue before the
+full hidden-row audit. The queue is built from hidden public-works candidates
+that merit human review:
+
+- AI drops, especially supply/service or not-public-works decisions that still
+  contain public-works wording;
+- rows hidden because deadline evidence is missing;
+- possible ESHIDIS duplicate candidates.
+
+Each row includes `review_priority` (`HIGH`, `MEDIUM`, `LOW`) and a short
+`review_reason` explaining why the row deserves review. Manual restore remains
+available from the queue for restorable AI/manual rows, but the queue itself is
+audit-first and does not auto-promote rows.
+
+Local smoke on current data produced `70` review rows: `24` high, `45` medium
+and `1` low.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_exposes_admin_panel \
+  tests/test_ui_server.py::test_admin_restore_ai_hidden_row_forces_keep \
+  tests/test_ui_server.py::test_admin_false_negative_review_queue_prioritizes_ai_drops_with_public_work_terms -q
+# 3 passed
+
+.venv/bin/python -m pytest -q
+# 311 passed
+```
+
 ## 2026-07-21 - Source health audit tracks repeated failures
 
 The runtime/UI version was bumped from `0.1.58` to `0.1.59`.
