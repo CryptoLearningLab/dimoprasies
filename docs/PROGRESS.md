@@ -2,7 +2,7 @@
 
 ## 2026-07-21 - UI payload performance cache and lazy tab loading
 
-The runtime/UI version was bumped from `0.1.62` to `0.1.63`.
+The runtime/UI version was bumped from `0.1.62` to `0.1.64`.
 
 The public dashboard and admin audit now use a short in-memory payload cache
 for GET requests. Cache entries are invalidated when background jobs finish or
@@ -18,6 +18,9 @@ Shared data readers for JSON discovery/document indexes, SQLite tender rows,
 source-document evidence and dashboard timezone config now use mtime-aware
 runtime caching. This avoids repeatedly reading the same files/SQLite tables
 while building a single dashboard/admin payload.
+
+Document evidence enrichment now builds source/KIMDIS/authority document maps
+once per payload instead of re-reading indexes for every tender row.
 
 The frontend initial refresh was also made lazy: the first app load fetches
 the public-works dashboard and source health only. Entalmata, pricing status,

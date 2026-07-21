@@ -1302,7 +1302,7 @@ def run_incremental_ai_triage(*, scope: str = "focus", sort: str = "deadline_asc
     existing_report = load_ai_triage_report_payload()
     existing_rows = [row for row in existing_report.get("rows") or [] if isinstance(row, dict)]
     existing_by_key = {str(row.get("row_key") or ""): row for row in existing_rows if row.get("row_key")}
-    enriched_rows = [row_with_document_evidence(row) for row in rows]
+    enriched_rows = rows_with_document_evidence(rows)
     enriched_by_key = {str(row.get("row_key") or ""): row for row in enriched_rows if row.get("row_key")}
     pending_rows = []
     retained_rows = []
@@ -1364,11 +1364,38 @@ def run_incremental_ai_triage(*, scope: str = "focus", sort: str = "deadline_asc
     }
 
 
-def row_with_document_evidence(row: dict[str, Any]) -> dict[str, Any]:
+def rows_with_document_evidence(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    source_evidence_by_key = source_document_evidence_by_row_key() or {}
+    kimdis_documents = kimdis_documents_by_official_id()
+    authority_documents = authority_documents_by_key()
+    return [
+        row_with_document_evidence(
+            row,
+            source_evidence_by_key=source_evidence_by_key,
+            kimdis_documents=kimdis_documents,
+            authority_documents=authority_documents,
+        )
+        for row in rows
+    ]
+
+
+def row_with_document_evidence(
+    row: dict[str, Any],
+    *,
+    source_evidence_by_key: dict[str, list[dict[str, Any]]] | None = None,
+    kimdis_documents: dict[str, dict[str, Any]] | None = None,
+    authority_documents: dict[str, list[dict[str, Any]]] | None = None,
+) -> dict[str, Any]:
     row_key = str(row.get("row_key") or row.get("official_id") or row.get("display_id") or "").strip()
     if not row_key:
         return row
-    documents = document_evidence_for_row(row, row_key=row_key)
+    documents = document_evidence_for_row(
+        row,
+        row_key=row_key,
+        source_evidence_by_key=source_evidence_by_key,
+        kimdis_documents=kimdis_documents,
+        authority_documents=authority_documents,
+    )
     if not documents:
         return row
     existing_ids = [str(value) for value in row.get("linked_eshidis_ids") or [] if str(value).strip()]
@@ -1410,11 +1437,28 @@ def ai_triage_signature(row: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(stable, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def document_evidence_for_row(row: dict[str, Any], *, row_key: str) -> list[dict[str, Any]]:
+def document_evidence_for_row(
+    row: dict[str, Any],
+    *,
+    row_key: str,
+    source_evidence_by_key: dict[str, list[dict[str, Any]]] | None = None,
+    kimdis_documents: dict[str, dict[str, Any]] | None = None,
+    authority_documents: dict[str, list[dict[str, Any]]] | None = None,
+) -> list[dict[str, Any]]:
     evidence_by_url: dict[str, dict[str, Any]] = {}
-    for document in sqlite_source_document_evidence(row_key):
+    source_documents = (
+        source_evidence_by_key.get(row_key, [])
+        if source_evidence_by_key is not None
+        else sqlite_source_document_evidence(row_key)
+    )
+    for document in source_documents:
         evidence_by_url[str(document.get("document_url") or document.get("name") or len(evidence_by_url))] = document
-    for document in legacy_row_document_evidence(row, row_key=row_key):
+    for document in legacy_row_document_evidence(
+        row,
+        row_key=row_key,
+        kimdis_documents=kimdis_documents,
+        authority_documents=authority_documents,
+    ):
         evidence_by_url.setdefault(str(document.get("document_url") or document.get("name") or len(evidence_by_url)), document)
     evidence = list(evidence_by_url.values())
     evidence.sort(key=lambda item: document_evidence_rank(item))
@@ -1467,15 +1511,25 @@ def source_document_evidence_payloads(row_key: str, source_documents: list[Any])
     return evidence
 
 
-def legacy_row_document_evidence(row: dict[str, Any], *, row_key: str) -> list[dict[str, Any]]:
+def legacy_row_document_evidence(
+    row: dict[str, Any],
+    *,
+    row_key: str,
+    kimdis_documents: dict[str, dict[str, Any]] | None = None,
+    authority_documents: dict[str, list[dict[str, Any]]] | None = None,
+) -> list[dict[str, Any]]:
     documents: list[dict[str, Any]] = []
     if row_key.startswith("KIMDIS:"):
         official_id = row_key.split(":", 1)[1]
-        document = kimdis_documents_by_official_id().get(official_id)
+        document = (kimdis_documents if kimdis_documents is not None else kimdis_documents_by_official_id()).get(official_id)
         if isinstance(document, dict):
             documents.append(document)
     else:
-        documents.extend(document for document in authority_documents_by_key().get(row_key, []) if isinstance(document, dict))
+        documents.extend(
+            document
+            for document in (authority_documents if authority_documents is not None else authority_documents_by_key()).get(row_key, [])
+            if isinstance(document, dict)
+        )
     evidence: list[dict[str, Any]] = []
     for document in documents:
         metadata = {
@@ -3939,7 +3993,7 @@ def dashboard_payload(
     rows = merged_tender_rows()
     rows = [row for row in rows if str(row.get("row_key") or row.get("eshidis_id") or row.get("display_id") or "") not in ignored]
     rows = [attach_ai_triage(row, triage, overrides=overrides) for row in rows]
-    rows = [row_with_document_evidence(row) for row in rows]
+    rows = rows_with_document_evidence(rows)
     canonical_rows, duplicate_hidden_rows = suppress_linked_eshidis_duplicates(rows)
     official_deadlines = official_eshidis_deadlines_by_id(canonical_rows)
     cleanup_report = (
@@ -4989,7 +5043,7 @@ def admin_audit_payload() -> dict[str, Any]:
     ignored_keys = ignored_tender_keys() - force_keep_keys
     triage = ai_triage_by_row_key()
     rows = [attach_ai_triage(row, triage, overrides=overrides) for row in merged_tender_rows()]
-    rows = [row_with_document_evidence(row) for row in rows]
+    rows = rows_with_document_evidence(rows)
     row_by_key = {row_key_for_tender(row): row for row in rows if row_key_for_tender(row)}
 
     dismissed_rows = []
@@ -5580,6 +5634,7 @@ def expanded_report_payload() -> dict[str, Any]:
 
 def authority_candidate_rows() -> list[dict[str, Any]]:
     payload = expanded_report_payload()
+    authority_documents = authority_documents_by_key()
     rows = []
     for candidate in payload.get("focus_authority_candidates", []):
         if not isinstance(candidate, dict):
@@ -5596,7 +5651,7 @@ def authority_candidate_rows() -> list[dict[str, Any]]:
         is_kimdis = is_kimdis_identifier(official_id)
         is_eshidis = authority_numeric_id_is_eshidis(official_id, candidate)
         row_key = f"KIMDIS:{official_id}" if is_kimdis else official_id if is_eshidis else f"AUTHORITY:{official_id}"
-        authority_docs = authority_documents_by_key().get(row_key, [])
+        authority_docs = authority_documents.get(row_key, [])
         attachment_urls = [str(url) for url in candidate.get("attachment_urls") or [] if str(url).strip()]
         if not attachment_urls and candidate.get("attachment_url"):
             attachment_urls = [str(candidate.get("attachment_url"))]
