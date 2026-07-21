@@ -1,5 +1,17 @@
 # Decision Log
 
+## D-103 — Source removal needs health evidence
+**Status:** Accepted
+
+Public-works sources should not be removed after a single transient failure.
+The admin source audit must show recent checks, recent failures, consecutive
+failures and last successful check so unstable sources can be classified as
+watch, degraded or disable candidates before configuration changes are made.
+
+HTTP 503 from Diavgeia is treated as source health degradation unless it
+persists across repeated runs. Existing successful data remains usable while
+the source is degraded.
+
 ## D-102 — Road-network maintenance is in scope
 **Status:** Accepted
 

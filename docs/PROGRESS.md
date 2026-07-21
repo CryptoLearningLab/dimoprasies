@@ -1,5 +1,36 @@
 # Project Progress
 
+## 2026-07-21 - Source health audit tracks repeated failures
+
+The runtime/UI version was bumped from `0.1.58` to `0.1.59`.
+
+Public-works source polling now reports health from recent `source_runs`, not
+only the latest status. Each source row includes recent checks, recent
+failures, consecutive failures, last successful check and an operator
+recommendation:
+
+- `HEALTHY` when recent runs are clean;
+- `WATCH` when there are occasional recent failures;
+- `DEGRADED` when failures are frequent or consecutive;
+- `DISABLE_CANDIDATE` when repeated failures justify manual review for
+  temporary removal or replacement.
+
+This gives the admin panel the data needed to evaluate unstable sources such
+as Diavgeia endpoints returning HTTP 503 before removing them from daily public
+works discovery.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_exposes_source_polling_audit \
+  tests/test_ui_server.py::test_source_polling_payload_reads_sqlite_state_and_config \
+  tests/test_ui_server.py::test_source_health_marks_disable_candidate_after_repeated_failures -q
+# 3 passed
+
+.venv/bin/python -m pytest -q
+# 310 passed
+```
+
 ## 2026-07-21 - Road-network maintenance stays in public-works triage
 
 The runtime/UI version was bumped from `0.1.56` to `0.1.58`.

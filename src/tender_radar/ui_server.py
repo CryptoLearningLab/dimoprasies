@@ -2384,6 +2384,7 @@ def source_polling_payload() -> dict[str, Any]:
     configured_by_id = {str(entry.get("id") or ""): entry for entry in configured_entries if entry.get("id")}
     source_states = {state.source_id: state for state in list_source_states(runtime_db_path())}
     selective_ids = selective_source_ids_from_config()
+    health_by_id = source_health_by_id()
     ordered_ids = [str(entry.get("id") or "") for entry in configured_entries if entry.get("id")]
     ordered_ids.extend(sorted(source_id for source_id in source_states if source_id not in set(ordered_ids)))
 
@@ -2401,6 +2402,7 @@ def source_polling_payload() -> dict[str, Any]:
             or ""
         )
         last_status = state.last_status if state else "NEVER_CHECKED"
+        health = health_by_id.get(source_id, source_health_from_latest_status(last_status, state.last_error if state else None))
         rows.append(
             {
                 "source_id": source_id,
@@ -2417,10 +2419,12 @@ def source_polling_payload() -> dict[str, Any]:
                 "attempted": metadata.get("attempted"),
                 "reachable": metadata.get("reachable"),
                 "count_hint": metadata.get("count_hint"),
+                "health": health,
             }
         )
 
     latest_checked_values = [str(row["last_checked_at"]) for row in rows if row.get("last_checked_at")]
+    warning_health = {"WATCH", "DEGRADED", "DISABLE_CANDIDATE"}
     summary = {
         "configured_total": len(configured_entries),
         "tracked_total": len(source_states),
@@ -2438,6 +2442,8 @@ def source_polling_payload() -> dict[str, Any]:
         "requires_identifier_total": sum(1 for row in rows if row["last_status"] == "REQUIRES_IDENTIFIER"),
         "never_checked_total": sum(1 for row in rows if row["last_status"] == "NEVER_CHECKED"),
         "selective_capable_total": sum(1 for row in rows if row["selective_refresh_capable"]),
+        "health_warning_total": sum(1 for row in rows if (row.get("health") or {}).get("status") in warning_health),
+        "disable_candidate_total": sum(1 for row in rows if (row.get("health") or {}).get("status") == "DISABLE_CANDIDATE"),
         "last_checked_at": max(latest_checked_values, default=None),
     }
     return {
@@ -2445,6 +2451,107 @@ def source_polling_payload() -> dict[str, Any]:
         "summary": summary,
         "rows": rows,
     }
+
+
+def source_health_from_latest_status(status: str | None, error: str | None) -> dict[str, Any]:
+    if status == "NEVER_CHECKED":
+        return {
+            "status": "UNKNOWN",
+            "label": "Άγνωστο",
+            "recent_checks": 0,
+            "recent_failures": 0,
+            "consecutive_failures": 0,
+            "last_success_at": None,
+            "recommendation": "Δεν έχει ελεγχθεί ακόμα.",
+        }
+    failed = status == "ERROR" or bool(error)
+    return {
+        "status": "WATCH" if failed else "HEALTHY",
+        "label": "Παρακολούθηση" if failed else "Υγιής",
+        "recent_checks": 1,
+        "recent_failures": 1 if failed else 0,
+        "consecutive_failures": 1 if failed else 0,
+        "last_success_at": None,
+        "recommendation": "Τελευταίος έλεγχος απέτυχε." if failed else "Τελευταίος έλεγχος επιτυχής.",
+    }
+
+
+def source_health_by_id(*, recent_limit: int = 20) -> dict[str, dict[str, Any]]:
+    try:
+        connection = sqlite3.connect(runtime_db_path())
+        connection.row_factory = sqlite3.Row
+        source_ids = [
+            str(row["source_id"])
+            for row in connection.execute("SELECT DISTINCT source_id FROM source_runs ORDER BY source_id").fetchall()
+        ]
+        result: dict[str, dict[str, Any]] = {}
+        for source_id in source_ids:
+            rows = connection.execute(
+                """
+                SELECT source_id, started_at, finished_at, status, error
+                FROM source_runs
+                WHERE source_id = ?
+                ORDER BY started_at DESC, id DESC
+                LIMIT ?
+                """,
+                (source_id, max(1, int(recent_limit))),
+            ).fetchall()
+            result[source_id] = source_health_from_runs([dict(row) for row in rows])
+        return result
+    except (OSError, sqlite3.Error):
+        return {}
+    finally:
+        try:
+            connection.close()
+        except UnboundLocalError:
+            pass
+
+
+def source_health_from_runs(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    if not rows:
+        return source_health_from_latest_status("NEVER_CHECKED", None)
+    recent_checks = len(rows)
+    failed_rows = [row for row in rows if source_run_failed(row)]
+    consecutive_failures = 0
+    for row in rows:
+        if source_run_failed(row):
+            consecutive_failures += 1
+            continue
+        break
+    last_success_at = next(
+        (str(row.get("finished_at") or row.get("started_at") or "") for row in rows if not source_run_failed(row)),
+        None,
+    )
+    failure_rate = len(failed_rows) / recent_checks if recent_checks else 0
+    if consecutive_failures >= 5 or (recent_checks >= 10 and failure_rate >= 0.8):
+        status = "DISABLE_CANDIDATE"
+        label = "Υποψήφια αφαίρεση"
+        recommendation = "Επαναλαμβανόμενες αποτυχίες. Θέλει χειροκίνητο έλεγχο ή προσωρινή απενεργοποίηση."
+    elif consecutive_failures >= 2 or (recent_checks >= 5 and failure_rate >= 0.4):
+        status = "DEGRADED"
+        label = "Προβληματική"
+        recommendation = "Συχνές αποτυχίες. Κράτα την πηγή, αλλά μην τη θεωρείς πλήρη κάλυψη."
+    elif failed_rows:
+        status = "WATCH"
+        label = "Παρακολούθηση"
+        recommendation = "Υπάρχουν πρόσφατες αποτυχίες, αλλά όχι αρκετές για αφαίρεση."
+    else:
+        status = "HEALTHY"
+        label = "Υγιής"
+        recommendation = "Οι πρόσφατοι έλεγχοι ολοκληρώθηκαν χωρίς σφάλματα."
+    return {
+        "status": status,
+        "label": label,
+        "recent_checks": recent_checks,
+        "recent_failures": len(failed_rows),
+        "consecutive_failures": consecutive_failures,
+        "last_success_at": last_success_at,
+        "recommendation": recommendation,
+    }
+
+
+def source_run_failed(row: dict[str, Any]) -> bool:
+    return str(row.get("status") or "") == "ERROR" or bool(row.get("error"))
 
 
 def run_email_alerts(
@@ -6504,6 +6611,7 @@ INDEX_HTML = f"""<!doctype html>
                   <th>Πηγή</th>
                   <th>Adapter</th>
                   <th>Status</th>
+                  <th>Health</th>
                   <th>Τελευταίος έλεγχος</th>
                   <th>Error</th>
                   <th>Selective</th>
@@ -8297,17 +8405,21 @@ function renderSourcePolling(payload) {
     ['Skip', summary.unchanged_total || 0],
     ['Errors', summary.error_total || 0],
     ['Selective errors', summary.selective_error_total || 0],
+    ['Health warnings', summary.health_warning_total || 0],
+    ['Disable candidates', summary.disable_candidate_total || 0],
     ['Templates', summary.requires_identifier_total || 0],
     ['Never checked', summary.never_checked_total || 0],
   ].map(([label, value]) => `<span class="sourceAuditMetric">${escapeHtml(label)} ${escapeHtml(value)}</span>`).join('');
   const tbody = $('sourceAuditRows');
   tbody.innerHTML = '';
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="emptyState">Δεν έχει τρέξει ακόμα source polling σε αυτό το runtime.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="emptyState">Δεν έχει τρέξει ακόμα source polling σε αυτό το runtime.</td></tr>';
     return;
   }
   for (const source of rows) {
     const statusClass = sourceStatusClass(source.last_status, source.last_error);
+    const health = source.health || {};
+    const healthClass = sourceHealthClass(health.status);
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>
@@ -8316,6 +8428,12 @@ function renderSourcePolling(payload) {
       </td>
       <td>${escapeHtml(source.family_or_adapter || '')}</td>
       <td><span class="statusChip ${statusClass}">${escapeHtml(source.last_status || 'UNKNOWN')}</span></td>
+      <td>
+        <span class="statusChip ${healthClass}">${escapeHtml(health.label || health.status || 'Άγνωστο')}</span>
+        <br><span class="noteText">${escapeHtml(health.recent_failures || 0)}/${escapeHtml(health.recent_checks || 0)} failures · streak ${escapeHtml(health.consecutive_failures || 0)}</span>
+        ${health.last_success_at ? `<br><span class="noteText">last ok ${escapeHtml(formatDateTime(health.last_success_at))}</span>` : ''}
+        ${health.recommendation ? `<br><span class="noteText">${escapeHtml(health.recommendation)}</span>` : ''}
+      </td>
       <td>${escapeHtml(formatDateTime(source.last_checked_at))}</td>
       <td>${escapeHtml(source.last_error || '')}</td>
       <td>${source.selective_refresh_capable ? 'Ναι' : 'Όχι'}</td>
@@ -8328,6 +8446,14 @@ function sourceStatusClass(status, error) {
   if (error || status === 'ERROR') return 'error';
   if (status === 'CHANGED') return 'changed';
   if (status === 'SKIPPED_UNCHANGED') return 'unchanged';
+  return 'waiting';
+}
+
+function sourceHealthClass(status) {
+  if (status === 'DISABLE_CANDIDATE') return 'error';
+  if (status === 'DEGRADED') return 'changed';
+  if (status === 'WATCH') return 'waiting';
+  if (status === 'HEALTHY') return 'unchanged';
   return 'waiting';
 }
 

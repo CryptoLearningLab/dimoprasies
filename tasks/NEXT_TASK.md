@@ -71,6 +71,10 @@ Road-network maintenance tenders are in scope: open tenders for maintenance of
 road/provincial networks, including winter maintenance or snow-removal packages
 with deadline and budget evidence, should be kept/reviewed by triage rather
 than dropped as generic services.
+Source health is now tracked from recent polling runs. Do not remove a
+public-works source after one HTTP 503; use the admin health status
+(`WATCH`, `DEGRADED`, `DISABLE_CANDIDATE`) plus last-success evidence to decide
+whether to disable, replace or keep monitoring the source.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked
 ESHIDIS ids (`64.3%`). The 5 unresolved rows completed KIMDIS fetch and

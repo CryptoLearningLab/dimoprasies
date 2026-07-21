@@ -76,8 +76,11 @@ def test_ui_shows_current_version_badge() -> None:
 def test_ui_exposes_source_polling_audit() -> None:
     assert 'id="sourceAuditSummary"' in INDEX_HTML
     assert 'id="sourceAuditRows"' in INDEX_HTML
+    assert "<th>Health</th>" in INDEX_HTML
     assert "/api/source-polling" in APP_JS
     assert "renderSourcePolling" in APP_JS
+    assert "sourceHealthClass" in APP_JS
+    assert "Health warnings" in APP_JS
     assert "refreshRuntimeViews" in APP_JS
 
 
@@ -828,6 +831,16 @@ authority_adapters:
         error="timeout",
         metadata={"adapter": "html_listing", "source_group": "authority_adapters", "reachable": False},
     )
+    for index in range(3):
+        ui_server.record_source_run(
+            ui_server.runtime_db_path(),
+            run_id=f"run-{index}",
+            source_id="nafpaktos_tenders",
+            started_at=f"2026-07-18T10:0{index}:00+00:00",
+            finished_at=f"2026-07-18T10:0{index}:01+00:00",
+            status="ERROR",
+            error="timeout",
+        )
 
     payload = source_polling_payload()
 
@@ -837,11 +850,27 @@ authority_adapters:
     assert payload["summary"]["selective_changed_total"] == 1
     assert payload["summary"]["error_total"] == 1
     assert payload["summary"]["selective_error_total"] == 1
+    assert payload["summary"]["health_warning_total"] == 1
     assert payload["summary"]["never_checked_total"] == 1
     by_id = {row["source_id"]: row for row in payload["rows"]}
     assert by_id["eshidis_active_search"]["selective_refresh_capable"] is True
     assert by_id["nafpaktos_tenders"]["last_error"] == "timeout"
+    assert by_id["nafpaktos_tenders"]["health"]["status"] == "DEGRADED"
+    assert by_id["nafpaktos_tenders"]["health"]["consecutive_failures"] == 3
     assert by_id["template_source"]["last_status"] == "NEVER_CHECKED"
+
+
+def test_source_health_marks_disable_candidate_after_repeated_failures() -> None:
+    rows = [
+        {"status": "ERROR", "error": "HTTP Error 503", "started_at": f"2026-07-18T10:0{index}:00+00:00"}
+        for index in range(5)
+    ]
+
+    health = ui_server.source_health_from_runs(rows)
+
+    assert health["status"] == "DISABLE_CANDIDATE"
+    assert health["recent_failures"] == 5
+    assert health["consecutive_failures"] == 5
 
 
 def test_email_alerts_payload_skips_rows_already_sent(tmp_path, monkeypatch) -> None:
