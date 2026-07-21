@@ -1,5 +1,26 @@
 # Project Progress
 
+## 2026-07-21 - Public-works dashboard hides expired deadlines by time
+
+The runtime/UI version was bumped from `0.1.52` to `0.1.53`.
+
+Public-works dashboard visibility is now datetime-aware. Rows with parseable
+`current_deadline_at`, `submission_deadline` or deadline evidence are hidden
+automatically after the configured local deadline time, using the
+`config/locations.yml` timezone (`Europe/Athens` in production).
+
+Rows that only have a date without a time remain visible until the end of that
+date. This preserves date-only behavior while preventing same-day expired
+tenders such as `21-07-2026 10:00:00` from staying on the initial screen for
+the rest of the day.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py -q
+# 119 passed
+```
+
 ## 2026-07-21 - KIMDIS 26PROC to ESHIDIS extraction audit
 
 Production audit over current focus `26PROC` KIMDIS candidates measured the

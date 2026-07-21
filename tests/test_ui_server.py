@@ -1979,6 +1979,26 @@ regions: []
     assert payload["tenders"][0]["display_id"] == "26PROC000000002"
 
 
+def test_dashboard_hides_same_day_deadlines_after_time() -> None:
+    row = {
+        "current_deadline_at": "2026-07-21T10:00:00",
+    }
+    athens = ui_server.dashboard_timezone()
+
+    assert ui_server.dashboard_row_is_active(row, as_of=datetime(2026, 7, 21, 9, 59, tzinfo=athens))
+    assert not ui_server.dashboard_row_is_active(row, as_of=datetime(2026, 7, 21, 10, 1, tzinfo=athens))
+
+
+def test_dashboard_keeps_date_only_deadlines_until_end_of_day() -> None:
+    row = {
+        "current_deadline_at": "2026-07-21",
+    }
+    athens = ui_server.dashboard_timezone()
+
+    assert ui_server.dashboard_row_is_active(row, as_of=datetime(2026, 7, 21, 23, 59, tzinfo=athens))
+    assert not ui_server.dashboard_row_is_active(row, as_of=datetime(2026, 7, 22, 0, 0, tzinfo=athens))
+
+
 def test_deadline_evidence_extracts_submission_deadline_from_document_text() -> None:
     evidence = ui_server.extract_deadline_evidence_from_text(
         """

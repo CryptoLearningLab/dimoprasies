@@ -52,6 +52,11 @@ KIMDIS/authority previews now render linked ESHIDIS documents directly when
 local official files exist; ZIP availability is no longer the only indication
 for rows such as `26PROC019429074` linked to `ΕΣΗΔΗΣ 207024`.
 
+Public-works dashboard expiry is automatic and datetime-aware: rows with a
+parseable deadline and time are hidden after that local deadline time, while
+date-only deadlines remain visible until the end of that date. Expired rows are
+hidden from the dashboard/email candidate set, not physically deleted.
+
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked
 ESHIDIS ids (`64.3%`). The 5 unresolved rows completed KIMDIS fetch and
 connected-acts lookup with `ok=true` but no extracted ESHIDIS id:

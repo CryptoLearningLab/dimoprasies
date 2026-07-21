@@ -1,5 +1,16 @@
 # Decision Log
 
+## D-098 — Dashboard expiry is automatic and datetime-aware
+**Status:** Accepted
+
+Public-works rows must leave the active dashboard automatically after their
+submission deadline has passed. When the row has a time component, visibility
+is checked against the full local datetime in the configured locations
+timezone. Date-only deadlines remain visible until the end of that date.
+
+The system hides expired rows from the operational dashboard instead of
+physically deleting source rows, documents or provenance.
+
 ## D-097 — Linked ESHIDIS files are visible in source previews
 **Status:** Accepted
 

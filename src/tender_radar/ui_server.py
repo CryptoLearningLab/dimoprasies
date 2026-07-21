@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, urlencode, unquote, urlparse, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from tender_radar import __version__
 from tender_radar.config import load_config
@@ -4761,7 +4762,7 @@ def admin_audit_payload() -> dict[str, Any]:
                 admin_hidden_row(
                     row,
                     category="EXPIRED",
-                    reason=f"Κρύφτηκε επειδή η προθεσμία υποβολής ({deadline_display(str(raw_deadline))}) δεν είναι μεταγενέστερη της σημερινής ημερομηνίας.",
+                    reason=f"Κρύφτηκε επειδή η προθεσμία υποβολής ({deadline_display(str(raw_deadline))}) έχει λήξει.",
                     restorable=False,
                 )
             )
@@ -5919,24 +5920,29 @@ def sort_dashboard_rows(rows: list[dict[str, Any]], *, sort: str) -> list[dict[s
 def dashboard_row_is_active(
     row: dict[str, Any],
     *,
-    as_of: date | None = None,
+    as_of: date | datetime | None = None,
     official_deadlines: dict[str, str] | None = None,
 ) -> bool:
-    deadline = deadline_date(str(row.get("current_deadline_at") or row.get("submission_deadline") or ""))
-    if deadline is None and official_deadlines:
+    raw_deadline = str(row.get("current_deadline_at") or row.get("submission_deadline") or "")
+    if not raw_deadline and official_deadlines:
         linked_deadlines = [
-            deadline_date(official_deadlines[eshidis_id])
+            official_deadlines[eshidis_id]
             for eshidis_id in linked_eshidis_ids_for_row(row)
             if eshidis_id in official_deadlines
         ]
-        linked_deadlines = [value for value in linked_deadlines if value is not None]
         if linked_deadlines:
-            deadline = max(linked_deadlines)
-    if deadline is None:
-        deadline = deadline_date(str((row.get("deadline_evidence") or {}).get("deadline_at") or ""))
+            raw_deadline = max(linked_deadlines, key=deadline_sort_key)
+    if not raw_deadline:
+        raw_deadline = str((row.get("deadline_evidence") or {}).get("deadline_at") or "")
+    deadline = deadline_datetime(raw_deadline)
     if deadline is None:
         return False
-    return deadline >= (as_of or date.today())
+    if isinstance(as_of, datetime):
+        current = as_of if as_of.tzinfo else as_of.replace(tzinfo=dashboard_timezone())
+        return deadline >= current.astimezone(deadline.tzinfo)
+    if isinstance(as_of, date):
+        return deadline.date() >= as_of
+    return deadline >= datetime.now(dashboard_timezone())
 
 
 def official_eshidis_deadlines_by_id(rows: list[dict[str, Any]]) -> dict[str, str]:
@@ -5959,6 +5965,37 @@ def deadline_date(value: str) -> date | None:
         return date.fromisoformat(sort_key[:10])
     except ValueError:
         return None
+
+
+def deadline_datetime(value: str) -> datetime | None:
+    sort_key = deadline_sort_key(value)
+    if sort_key == "9999":
+        return None
+    local_tz = dashboard_timezone()
+    date_part = sort_key[:10]
+    rest = sort_key[10:].strip()
+    if not rest:
+        try:
+            return datetime.combine(date.fromisoformat(date_part), datetime.max.time(), tzinfo=local_tz)
+        except ValueError:
+            return None
+    candidate = f"{date_part} {rest}".replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=local_tz)
+    return parsed.astimezone(local_tz)
+
+
+def dashboard_timezone() -> ZoneInfo:
+    try:
+        config = load_config(REPO_ROOT / "config" / "locations.yml")
+        name = str(config.get("timezone") or "Europe/Athens")
+        return ZoneInfo(name)
+    except (OSError, ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("Europe/Athens")
 
 
 def deadline_sort_key(value: str) -> str:
