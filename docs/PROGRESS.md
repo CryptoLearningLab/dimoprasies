@@ -30,6 +30,9 @@ Verification:
 ```bash
 .venv/bin/python -m pytest tests/test_ui_server.py -q
 # 121 passed
+
+.venv/bin/python -m pytest -q
+# 305 passed
 ```
 
 ## 2026-07-21 - KIMDIS 26PROC to ESHIDIS extraction audit
