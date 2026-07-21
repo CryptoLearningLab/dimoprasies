@@ -1,5 +1,45 @@
 # Project Progress
 
+## 2026-07-21 - Obvious supply/service rows stay out of false-negative review
+
+The runtime/UI version was bumped from `0.1.60` to `0.1.61`.
+
+The public-works admin false-negative queue now excludes clear non-public-works
+supply/service rows before asking for human review. Authority/KIMDIS rows whose
+title clearly indicates fuel/lubricants procurement, student transport
+services or telemetry/remote-control system procurement/installation are shown
+in the full hidden audit as `OUT_OF_SCOPE_SUPPLY_SERVICE` with a specific
+reason, but they are not promoted to HIGH review merely because they contain
+generic tender words such as "διακήρυξη" or "διαγωνισμός".
+
+The filter is intentionally narrow. Road-network maintenance remains eligible
+for review, and generic equipment/material procurements are not suppressed
+unless a more specific out-of-scope rule is justified.
+
+The AI triage prompt/signature was also advanced so future AI runs are strict
+about fuel/lubricants, student transport and telemetry/remote-control systems
+as out-of-scope supplies/services.
+
+Local admin audit after the change reported `59` review rows (`19` high, `39`
+medium, `1` low) and moved the observed fuel, telemetry and student-transport
+examples to `OUT_OF_SCOPE_SUPPLY_SERVICE`.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_admin_false_negative_review_queue_prioritizes_ai_drops_with_public_work_terms \
+  tests/test_ui_server.py::test_admin_false_negative_review_queue_skips_obvious_supply_service_rows \
+  tests/test_ui_server.py::test_obvious_supply_service_filter_keeps_road_maintenance_for_review \
+  tests/test_ui_server.py::test_admin_audit_ui_exposes_missing_deadline_and_mobile_labels \
+  tests/test_ai_triage.py::test_ai_triage_prompt_excludes_observed_non_works_false_keeps \
+  tests/test_ai_triage.py::test_ai_triage_prompt_keeps_road_network_maintenance \
+  tests/test_ui_server.py::test_ui_shows_current_version_badge -q
+# 7 passed
+
+.venv/bin/python -m pytest -q
+# 313 passed
+```
+
 ## 2026-07-21 - Admin false-negative review queue
 
 The runtime/UI version was bumped from `0.1.59` to `0.1.60`.

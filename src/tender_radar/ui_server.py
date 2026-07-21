@@ -4902,6 +4902,17 @@ def admin_audit_payload() -> dict[str, Any]:
                     )
                 )
                 continue
+            obvious_drop_reason = obvious_out_of_scope_supply_service_reason(row)
+            if obvious_drop_reason:
+                missing_deadline_rows.append(
+                    admin_hidden_row(
+                        row,
+                        category="OUT_OF_SCOPE_SUPPLY_SERVICE",
+                        reason=obvious_drop_reason,
+                        restorable=False,
+                    )
+                )
+                continue
             missing_deadline_rows.append(
                 admin_hidden_row(
                     row,
@@ -4985,7 +4996,11 @@ def admin_false_negative_review_metadata(row: dict[str, Any]) -> dict[str, str] 
         )
     )
     tender_signal = any(term in title for term in ("διαγωνισ", "διακηρυ", "υποβολη", "προσφορ", "προθεσμι"))
+    if category == "OUT_OF_SCOPE_SUPPLY_SERVICE":
+        return None
     if category == "NO_DEADLINE_EVIDENCE":
+        if obvious_out_of_scope_supply_service_reason(row):
+            return None
         return {
             "review_priority": "HIGH" if tender_signal else "MEDIUM",
             "review_reason": "Υπάρχει ενδιαφέρον έργου/περιοχής αλλά δεν τεκμηριώθηκε ενεργή προθεσμία.",
@@ -5002,6 +5017,8 @@ def admin_false_negative_review_metadata(row: dict[str, Any]) -> dict[str, str] 
                 "review_reason": "AI απόρριψη με μη υψηλή βεβαιότητα.",
             }
         if public_signal and ai_decision in {"DROP_OUT_OF_SCOPE_SUPPLY_SERVICE", "DROP_NOT_PUBLIC_WORKS"}:
+            if obvious_out_of_scope_supply_service_reason(row):
+                return None
             return {
                 "review_priority": "HIGH",
                 "review_reason": "AI απόρριψη αλλά υπάρχουν λέξεις δημοσίων έργων που μπορεί να δείχνουν false negative.",
@@ -5016,6 +5033,48 @@ def admin_false_negative_review_metadata(row: dict[str, Any]) -> dict[str, str] 
             "review_reason": "AI απόρριψη χαμηλότερου κινδύνου, κρατιέται για περιοδικό audit.",
         }
     return None
+
+
+def obvious_out_of_scope_supply_service_reason(row: dict[str, Any]) -> str | None:
+    text = normalize_greek(
+        " ".join(
+            str(row.get(key) or "")
+            for key in (
+                "title",
+                "display_id",
+            )
+        )
+    )
+    if should_keep_obvious_road_maintenance_review(row, normalized_text=text):
+        return None
+    categories = (
+        (
+            "προμήθεια καυσίμων/λιπαντικών, όχι δημόσιο έργο κατασκευής",
+            ("καυσιμ", "λιπαντικ"),
+        ),
+        (
+            "μεταφορά μαθητών, δηλαδή υπηρεσία μεταφοράς εκτός δημοσίων έργων",
+            ("μεταφορα μαθητ", "μεταφορασ μαθητ"),
+        ),
+        (
+            "προμήθεια/εγκατάσταση συστήματος τηλεελέγχου ή τηλεχειρισμού, όχι κατασκευαστικό δημόσιο έργο",
+            ("τηλεελεγχ", "τηλεχειρισ", "συστημα τηλε", "συστηματος τηλε"),
+        ),
+    )
+    for label, terms in categories:
+        if any(term in text for term in terms):
+            return f"Κρύφτηκε επειδή ο τίτλος δείχνει καθαρά {label}."
+    return None
+
+
+def should_keep_obvious_road_maintenance_review(row: dict[str, Any], *, normalized_text: str | None = None) -> bool:
+    text = normalized_text or normalize_greek(str(row.get("title") or ""))
+    road_terms = ("οδικου δικτυου", "οδικο δικτυο", "επαρχιακου δικτυου", "επαρχιακο δικτυο", "οδοποι", "οδων")
+    maintenance_terms = ("συντηρη", "επισκευ", "αποκαταστα", "βελτιω", "αποχιον", "χιονο")
+    tender_terms = ("διαγωνισ", "διακηρυ", "προσφορ", "αναδοχ")
+    return any(term in text for term in road_terms) and any(term in text for term in maintenance_terms) and any(
+        term in text for term in tender_terms
+    )
 
 
 def admin_review_row_sort_key(row: dict[str, Any]) -> tuple[int, bool, str, str, str]:
@@ -8507,6 +8566,7 @@ function adminCategoryLabel(category) {
     DUPLICATE_CANDIDATE: 'Πιθανό διπλότυπο',
     EXPIRED: 'Ληγμένο',
     NO_DEADLINE_EVIDENCE: 'Χωρίς deadline',
+    OUT_OF_SCOPE_SUPPLY_SERVICE: 'Προμήθεια/υπηρεσία',
   }[category] || category || 'Άγνωστο';
 }
 
@@ -8521,6 +8581,7 @@ function adminCategoryClass(category) {
   if (category === 'DUPLICATE_CANDIDATE') return 'unchanged';
   if (category === 'EXPIRED') return 'changed';
   if (category === 'NO_DEADLINE_EVIDENCE') return 'waiting';
+  if (category === 'OUT_OF_SCOPE_SUPPLY_SERVICE') return 'waiting';
   return 'waiting';
 }
 

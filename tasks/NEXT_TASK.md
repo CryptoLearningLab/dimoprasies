@@ -78,6 +78,12 @@ whether to disable, replace or keep monitoring the source.
 Admin audit now includes a false-negative review queue with HIGH/MEDIUM/LOW
 priority. Use it to inspect AI drops, missing-deadline rows and possible
 ESHIDIS duplicates before adding new keep/drop rules.
+Obvious fuel/lubricants procurement, student transport services and
+telemetry/remote-control system supply/installation rows are no longer placed
+in that false-negative review queue; they remain visible in the full admin
+audit as out-of-scope supply/service with a specific reason. Keep any future
+automatic suppression narrow and evidence-backed, because generic procurement
+or installation wording can still describe contractor-relevant public works.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked
 ESHIDIS ids (`64.3%`). The 5 unresolved rows completed KIMDIS fetch and

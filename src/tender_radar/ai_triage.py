@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 
 
 DEFAULT_MODEL = "gpt-4.1-mini"
-AI_TRIAGE_PROMPT_VERSION = "2026-07-21-road-maintenance-works-v2"
+AI_TRIAGE_PROMPT_VERSION = "2026-07-21-obvious-supply-service-v3"
 RESPONSES_URL = "https://api.openai.com/v1/responses"
 
 KEEP_DECISIONS = {"KEEP_ACTIVE_TENDER", "REVIEW_TENDER_CANDIDATE", "EARLY_SIGNAL"}
@@ -50,6 +50,12 @@ ADMIN_DROP_TERMS = (
 )
 
 SUPPLY_SERVICE_DROP_TERMS = (
+    "καυσιμ",
+    "λιπαντικ",
+    "μεταφορα μαθητ",
+    "μεταφορας μαθητ",
+    "τηλεελεγχ",
+    "τηλεχειρισ",
     "εκπαιδευση",
     "εξομοιωτ",
     "flight simulator",
@@ -394,7 +400,8 @@ def _prompt_text(batch: list[dict[str, Any]]) -> str:
         "(ΕΝΤΥΠΟ ΟΙΚΟΝΟΜΙΚΗΣ ΠΡΟΣΦΟΡΑΣ) where Α/Α ΣΥΣΤΗΜΑΤΟΣ is likely the ESHIDIS number.\n"
         "Be strict about non-works rows: technical-consultant services, standalone studies, direct assignments "
         "(Απευθείας Ανάθεση / άρθρο 118), supplies even with installation or commissioning, vehicle/machinery "
-        "repairs, transport services, Μη.Μ.Ε.Δ. drawings, signed contracts, awards and administrative approvals "
+        "repairs, fuel/lubricants, student transport services, telemetry/remote-control systems for equipment, "
+        "Μη.Μ.Ε.Δ. drawings, signed contracts, awards and administrative approvals "
         "must be DROP_OUT_OF_SCOPE_SUPPLY_SERVICE or DROP_ADMIN unless the row is an active open construction/"
         "public-works tender with a future submission deadline. Do not use REVIEW_TENDER_CANDIDATE as a parking "
         "state for clearly excluded services, supplies, studies or already-awarded/direct-assignment acts.\n"

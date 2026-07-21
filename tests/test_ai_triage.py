@@ -182,6 +182,9 @@ def test_ai_triage_prompt_excludes_observed_non_works_false_keeps() -> None:
     assert "technical-consultant services" in prompt
     assert "direct assignments" in prompt
     assert "supplies even with installation" in prompt
+    assert "fuel/lubricants" in prompt
+    assert "student transport services" in prompt
+    assert "telemetry/remote-control systems" in prompt
     assert "Do not use REVIEW_TENDER_CANDIDATE" in prompt
 
 

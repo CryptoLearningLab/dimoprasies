@@ -1,5 +1,20 @@
 # Decision Log
 
+## D-105 — Obvious supply/service exclusions do not need false-negative review
+**Status:** Accepted
+
+The false-negative review queue is for plausible missed public-works tenders,
+not for rows that clearly describe unrelated supplies or services. Rows whose
+title clearly indicates fuel/lubricants procurement, student transport
+services or telemetry/remote-control system procurement/installation may be
+excluded from the review queue and shown in the full audit with a specific
+out-of-scope reason.
+
+This rule is intentionally narrow. Generic "προμήθεια", "υπηρεσία" or
+"εγκατάσταση" wording is not enough by itself because some contractor-relevant
+public works contain mixed procurement/installation language. Road-network
+maintenance remains reviewable under D-102.
+
 ## D-104 — False-negative review is audit-first
 **Status:** Accepted
 

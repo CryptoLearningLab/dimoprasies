@@ -2445,6 +2445,7 @@ def test_admin_audit_ui_exposes_missing_deadline_and_mobile_labels() -> None:
     assert "adminMissingDeadlineCount" in INDEX_HTML
     assert "adminDuplicateCandidateCount" in INDEX_HTML
     assert "NO_DEADLINE_EVIDENCE: 'Χωρίς deadline'" in APP_JS
+    assert "OUT_OF_SCOPE_SUPPLY_SERVICE: 'Προμήθεια/υπηρεσία'" in APP_JS
     assert 'data-label="Αιτιολογία"' in APP_JS
     assert ".adminTableWrap .adminTable td::before" in STYLES_CSS
 
@@ -3406,6 +3407,53 @@ def test_admin_false_negative_review_queue_prioritizes_ai_drops_with_public_work
     assert queue[0]["review_priority"] == "HIGH"
     assert "λέξεις δημοσίων έργων" in queue[0]["review_reason"]
     assert queue[1]["review_priority"] == "LOW"
+
+
+def test_admin_false_negative_review_queue_skips_obvious_supply_service_rows() -> None:
+    hidden_rows = [
+        {
+            "row_key": "AUTHORITY:AUTH-fuel",
+            "category": "NO_DEADLINE_EVIDENCE",
+            "display_id": "AUTH-fuel",
+            "source_label": "Φορέας",
+            "title": "Διακήρυξη για την Προμήθεια Καυσίμων και Λιπαντικών του Δήμου",
+            "reason": "Δεν τεκμηριώθηκε ενεργή προθεσμία.",
+            "audit_at": "2026-07-19T09:00:00+00:00",
+        },
+        {
+            "row_key": "AUTHORITY:AUTH-telemetry",
+            "category": "NO_DEADLINE_EVIDENCE",
+            "display_id": "AUTH-telemetry",
+            "source_label": "Φορέας",
+            "title": "Προμήθεια, εγκατάσταση και θέση σε λειτουργία συστήματος τηλεελέγχου / τηλεχειρισμού",
+            "reason": "Δεν τεκμηριώθηκε ενεργή προθεσμία.",
+            "audit_at": "2026-07-19T10:00:00+00:00",
+        },
+        {
+            "row_key": "AUTHORITY:AUTH-students",
+            "category": "NO_DEADLINE_EVIDENCE",
+            "display_id": "AUTH-students",
+            "source_label": "Φορέας",
+            "title": "Πρόσκληση διαγωνισμού για την παροχή υπηρεσιών Μεταφοράς μαθητών",
+            "reason": "Δεν τεκμηριώθηκε ενεργή προθεσμία.",
+            "audit_at": "2026-07-19T11:00:00+00:00",
+        },
+    ]
+
+    assert ui_server.admin_false_negative_review_queue(hidden_rows) == []
+    assert "καθαρά προμήθεια καυσίμων" in ui_server.obvious_out_of_scope_supply_service_reason(hidden_rows[0])
+
+
+def test_obvious_supply_service_filter_keeps_road_maintenance_for_review() -> None:
+    row = {
+        "title": (
+            "Ηλεκτρονικός Ανοικτός Διαγωνισμός για Χειμερινή Συντήρηση Οδικού Δικτύου "
+            "αρμοδιότητας Π.Ε. Φωκίδας"
+        ),
+        "reason": "Δεν τεκμηριώθηκε ενεργή προθεσμία.",
+    }
+
+    assert ui_server.obvious_out_of_scope_supply_service_reason(row) is None
 
 
 def test_admin_audit_hidden_rows_are_recent_first(tmp_path, monkeypatch) -> None:
