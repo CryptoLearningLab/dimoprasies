@@ -14,6 +14,7 @@ from tender_radar.db import (
     AttachmentStatus,
     create_search_run,
     finish_search_run,
+    get_existing_document_analysis,
     import_attachment_download,
     import_eshidis_resource,
     initialize,
@@ -127,6 +128,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--text-dir",
         default="work/extracted_text",
         help="Directory for full extracted text artifacts.",
+    )
+    documents_analyze.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-analyze documents even when an existing usable analysis is present.",
     )
 
     search_parser = subparsers.add_parser("search", help="Search analyzed documents.")
@@ -982,7 +988,30 @@ def _documents_analyze(args: argparse.Namespace) -> int:
     text_dir = Path(args.text_dir)
     text_dir.mkdir(parents=True, exist_ok=True)
     results = []
+    skipped_results = []
     for attachment in attachments:
+        existing = get_existing_document_analysis(db_path, attachment.attachment_id)
+        if existing and _should_skip_document_analysis(existing, force=bool(args.force)):
+            skipped_results.append(
+                {
+                    "document_id": existing.document_id,
+                    "attachment_id": attachment.attachment_id,
+                    "eshidis_id": attachment.eshidis_id,
+                    "original_name": attachment.original_name,
+                    "local_path": attachment.local_path,
+                    "size_bytes": attachment.size_bytes,
+                    "sha256": attachment.sha256,
+                    "document_type": existing.document_type,
+                    "extraction_status": existing.extraction_status,
+                    "text_sample": existing.text_sample,
+                    "text_path": existing.text_path,
+                    "extraction_error": existing.extraction_error,
+                    "analyzed_at": existing.analyzed_at,
+                    "status": "skipped",
+                    "reason": "already_analyzed",
+                }
+            )
+            continue
         analysis = analyze_document(Path(attachment.local_path), attachment.original_name)
         text_path = _write_text_artifact(text_dir, attachment.eshidis_id, attachment.attachment_id, analysis.full_text)
         summary = upsert_document_analysis(
@@ -1019,7 +1048,10 @@ def _documents_analyze(args: argparse.Namespace) -> int:
         "markdown_report_path": args.markdown_report,
         "eshidis_id": args.eshidis_id,
         "documents_analyzed": len(results),
+        "documents_skipped": len(skipped_results),
+        "documents_seen": len(attachments),
         "documents": results,
+        "skipped_documents": skipped_results,
     }
     report_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
     if args.markdown_report:
@@ -1037,6 +1069,16 @@ def _write_text_artifact(text_dir: Path, eshidis_id: str, attachment_id: int, fu
     path = text_dir / f"{safe_eshidis_id}_{attachment_id}.txt"
     path.write_text(full_text, encoding="utf-8")
     return path
+
+
+def _should_skip_document_analysis(existing: object, *, force: bool) -> bool:
+    if force:
+        return False
+    text_path = getattr(existing, "text_path", None)
+    if text_path and Path(str(text_path)).exists():
+        return True
+    status = str(getattr(existing, "extraction_status", "") or "").upper()
+    return status in {"NO_TEXT_FOUND", "UNSUPPORTED_TYPE", "UNSUPPORTED_FILE_TYPE", "TEXT_EXTRACTION_UNSUPPORTED"}
 
 
 def _search_run(args: argparse.Namespace) -> int:

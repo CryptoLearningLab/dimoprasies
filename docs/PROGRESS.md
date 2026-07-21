@@ -1,5 +1,88 @@
 # Project Progress
 
+## 2026-07-21 - Entalmata scan reuse guard and cron readiness smoke
+
+The Diavgeia entalmata scanner now reuses already processed ADA rows:
+
+- when the same ADA has the same document URL, an existing local PDF and
+  stored status/text evidence, the scanner skips re-download and PDF text
+  extraction;
+- reports now expose `skipped_existing` in the entalmata summary;
+- repeated scans still re-check Diavgeia listing pages, but no longer repeat
+  expensive document work for unchanged decisions.
+
+Current local entalmata state:
+
+- `111` Diavgeia entalma records;
+- `5` `VISIBLE`;
+- `106` `REJECTED`;
+- `111` with local file paths.
+
+Verification:
+
+```bash
+.venv/bin/python -m tender_radar entalmata scan --db data/tender_radar.sqlite \
+  --config config/diavgeia_entalmata.yml \
+  --download-dir work/download_audit/diavgeia_entalmata \
+  --report work/reports/diavgeia_entalmata_smoke_20260721.json \
+  --max-pages 1
+# elapsed about 3.3s; decisions_seen=80, skipped_existing=80, errors=0
+
+.venv/bin/python -m tender_radar entalmata scan --db data/tender_radar.sqlite \
+  --config config/diavgeia_entalmata.yml \
+  --download-dir work/download_audit/diavgeia_entalmata \
+  --report work/reports/diavgeia_entalmata_full_check_20260721.json
+# elapsed about 7.5s; decisions_seen=240, skipped_existing=111, errors=0
+
+.venv/bin/python -m tender_radar runtime scheduled-run --dry-run \
+  --recipient smoke@example.test --limit 1 --ai-batch-size 5 \
+  --enrichment-limit 1 \
+  --report work/reports/scheduled_cron_readiness_with_recipient_20260721.json \
+  --markdown-report work/reports/scheduled_cron_readiness_with_recipient_20260721.md
+# elapsed about 132s; ok=true; errors=[]; warnings=[]
+
+.venv/bin/python -m pytest
+# 298 passed
+```
+
+## 2026-07-21 - Public-works document analysis backfill and skip guard
+
+The public-works `documents analyze` command is now incremental:
+
+- existing usable document analysis rows are skipped unless `--force` is used;
+- existing `text_path` artifacts are checked on disk before skipping;
+- terminal no-text states such as `UNSUPPORTED_TYPE` are skipped on later runs;
+- reports now include `documents_seen`, `documents_analyzed`,
+  `documents_skipped` and `skipped_documents`.
+
+The current local public-works SQLite state was backfilled for all downloaded
+latest ESHIDIS attachments:
+
+- latest attachments with local files: `137`;
+- document analysis rows: `137`;
+- documents with text artifacts: `121`;
+- unsupported non-text attachments: `16`;
+- OCR text-extracted documents: `16`.
+
+Verification:
+
+```bash
+.venv/bin/python -m tender_radar documents analyze --db data/tender_radar.sqlite \
+  --report work/reports/document_analysis_backfill_20260721.json \
+  --markdown-report work/reports/document_analysis_backfill_20260721.md \
+  --text-dir work/extracted_text
+# completed with documents_seen=137, documents_analyzed=75, documents_skipped=62
+
+.venv/bin/python -m tender_radar documents analyze --db data/tender_radar.sqlite \
+  --report work/reports/document_analysis_skip_check_20260721.json \
+  --markdown-report work/reports/document_analysis_skip_check_20260721.md \
+  --text-dir work/extracted_text
+# completed in about 1.0s with documents_seen=137, documents_analyzed=0, documents_skipped=137
+
+.venv/bin/python -m pytest
+# 297 passed
+```
+
 ## 2026-07-21 - Reverse-pricing document routing guard v0.1.52
 
 Reverse-pricing now has a stricter document-routing gate before OCR/budget
@@ -33,7 +116,7 @@ Verification:
 `PHASE_2_SQLITE_VERTICAL_SLICE_PARTIAL`
 
 ## Last Updated
-`2026-07-20`
+`2026-07-21`
 
 ## Current Task
 `tasks/NEXT_TASK.md`

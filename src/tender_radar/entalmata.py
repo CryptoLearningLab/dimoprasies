@@ -86,6 +86,7 @@ def scan_entalmata(
         "decisions_seen": 0,
         "outside_window": 0,
         "without_document": 0,
+        "skipped_existing": 0,
         "matched": 0,
         "rejected": 0,
         "errors": 0,
@@ -131,14 +132,19 @@ def scan_entalmata(
                     summary["without_document"] += 1
                     continue
                 try:
-                    record = process_decision(
-                        decision,
-                        org_id=org_id,
-                        org_name=org_name,
-                        download_dir=download_dir,
-                        keywords=keywords,
-                        bytes_fetcher=bytes_fetch,
-                    )
+                    cached = reusable_entalma_record(db_path, decision=decision, document_url=document_url)
+                    if cached:
+                        summary["skipped_existing"] += 1
+                        record = cached
+                    else:
+                        record = process_decision(
+                            decision,
+                            org_id=org_id,
+                            org_name=org_name,
+                            download_dir=download_dir,
+                            keywords=keywords,
+                            bytes_fetcher=bytes_fetch,
+                        )
                 except Exception as exc:  # pragma: no cover - network/filesystem fallback
                     summary["errors"] += 1
                     errors.append({"org_id": org_id, "stage": "decision", "page": str(page), "error": str(exc)})
@@ -187,6 +193,45 @@ def search_url(api: dict[str, Any], org_id: str, *, page: int | None = None) -> 
     return f"{base}?{urlencode(params)}"
 
 
+def reusable_entalma_record(db_path: Path, *, decision: dict[str, Any], document_url: str | None) -> EntalmaRecord | None:
+    ada = decision_ada(decision)
+    if not ada or not document_url:
+        return None
+    initialize(db_path)
+    connection = sqlite3.connect(db_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        row = connection.execute(
+            """
+            SELECT ada, org_id, org_name, subject, protocol_number, issue_date,
+                   published_at, document_url, local_path, archive_path, status,
+                   matched_keywords_json, text_sample, metadata_json
+            FROM diavgeia_entalmata
+            WHERE ada = ?
+            """,
+            (ada,),
+        ).fetchone()
+    finally:
+        connection.close()
+    if row is None:
+        return None
+    if str(row["document_url"] or "") != document_url:
+        return None
+    if row["status"] not in {"VISIBLE", "REJECTED"}:
+        return None
+    if not row["text_sample"] and not row["matched_keywords_json"]:
+        return None
+    local_path = Path(str(row["local_path"])) if row["local_path"] else None
+    if not local_path or not local_path.exists():
+        return None
+    return _record_from_row(row)
+
+
+def decision_ada(decision: dict[str, Any]) -> str:
+    ada = str(decision.get("ada") or decision.get("adaCode") or "").strip()
+    return ada or stable_decision_key(decision)
+
+
 def process_decision(
     decision: dict[str, Any],
     *,
@@ -196,9 +241,7 @@ def process_decision(
     keywords: list[str],
     bytes_fetcher: BytesFetcher,
 ) -> EntalmaRecord:
-    ada = str(decision.get("ada") or decision.get("adaCode") or "").strip()
-    if not ada:
-        ada = stable_decision_key(decision)
+    ada = decision_ada(decision)
     subject = str(decision.get("subject") or "").strip() or ada
     protocol_number = _none_or_str(decision.get("protocolNumber"))
     document_url = str(decision.get("documentUrl") or "").strip() or None

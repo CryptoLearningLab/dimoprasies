@@ -60,6 +60,18 @@ class DocumentUpsertSummary:
 
 
 @dataclass(frozen=True)
+class ExistingDocumentAnalysis:
+    document_id: int
+    attachment_id: int
+    document_type: str
+    extraction_status: str
+    text_sample: str | None
+    text_path: str | None
+    extraction_error: str | None
+    analyzed_at: str | None
+
+
+@dataclass(frozen=True)
 class SearchableDocument:
     tender_id: int
     eshidis_id: str | None
@@ -464,6 +476,37 @@ def upsert_document_analysis(
         attachment_id=attachment_id,
         document_type=document_type,
         extraction_status=extraction_status,
+    )
+
+
+def get_existing_document_analysis(db_path: Path, attachment_id: int) -> ExistingDocumentAnalysis | None:
+    initialize(db_path)
+    connection = connect(db_path)
+    try:
+        row = connection.execute(
+            """
+            SELECT id, attachment_id, document_type, extraction_status,
+                   text_sample, text_path, extraction_error, analyzed_at
+            FROM documents
+            WHERE attachment_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (attachment_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    if row is None:
+        return None
+    return ExistingDocumentAnalysis(
+        document_id=int(row[0]),
+        attachment_id=int(row[1]),
+        document_type=str(row[2]),
+        extraction_status=str(row[3]),
+        text_sample=str(row[4]) if row[4] is not None else None,
+        text_path=str(row[5]) if row[5] is not None else None,
+        extraction_error=str(row[6]) if row[6] is not None else None,
+        analyzed_at=str(row[7]) if row[7] is not None else None,
     )
 
 

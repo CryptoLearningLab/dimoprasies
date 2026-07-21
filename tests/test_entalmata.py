@@ -186,6 +186,59 @@ def test_scan_entalmata_matches_keyword_inside_pdf_text(tmp_path, monkeypatch) -
     assert records[0].project_title == "ΣΥΝΤΗΡΗΣΗ ΟΔΙΚΟΥ ΔΙΚΤΥΟΥ Ι.Π. ΜΕΣΟΛΟΓΓΙΟΥ"
 
 
+def test_scan_entalmata_reuses_existing_processed_ada(tmp_path, monkeypatch) -> None:
+    config_path = tmp_path / "diavgeia_entalmata.yml"
+    write_config(config_path)
+    db_path = tmp_path / "state.sqlite"
+    download_dir = tmp_path / "downloads"
+    payload = {
+        "decisions": [
+            {
+                "ada": "CACHED1",
+                "subject": "ΕΝΤΟΛΗ ΠΛΗΡΩΜΗΣ 1739-08/07/2026",
+                "protocolNumber": "1739",
+                "issueDate": "2026-07-08",
+                "documentUrl": "https://example.test/1739.pdf",
+            }
+        ]
+    }
+    extracted = {"count": 0}
+
+    def extract_text(_path):
+        extracted["count"] += 1
+        return "ΤΙΤΛΟΣ ΕΡΓΟΥ: ΣΥΝΤΗΡΗΣΗ ΟΔΙΚΟΥ ΔΙΚΤΥΟΥ Επωνυμία δικαιούχου ΛΑΤΩ ΑΤΕ"
+
+    monkeypatch.setattr(entalmata, "extract_pdf_text", extract_text)
+
+    first = scan_entalmata(
+        db_path=db_path,
+        config_path=config_path,
+        download_dir=download_dir,
+        today=date(2026, 7, 19),
+        json_fetcher=lambda url: payload,
+        bytes_fetcher=lambda url: b"%PDF-1.4 fake",
+    )
+    assert first["summary"]["matched"] == 1
+    assert first["summary"]["skipped_existing"] == 0
+    assert extracted["count"] == 1
+
+    def fail_download(_url):
+        raise AssertionError("existing entalma PDF should not be downloaded again")
+
+    second = scan_entalmata(
+        db_path=db_path,
+        config_path=config_path,
+        download_dir=download_dir,
+        today=date(2026, 7, 19),
+        json_fetcher=lambda url: payload,
+        bytes_fetcher=fail_download,
+    )
+
+    assert second["summary"]["matched"] == 1
+    assert second["summary"]["skipped_existing"] == 1
+    assert extracted["count"] == 1
+
+
 def test_scan_entalmata_paginates_until_configured_depth(tmp_path, monkeypatch) -> None:
     config_path = tmp_path / "diavgeia_entalmata.yml"
     config_path.write_text(

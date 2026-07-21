@@ -1,5 +1,29 @@
 # Decision Log
 
+## D-094 — Entalmata scans reuse processed ADA documents
+**Status:** Accepted
+
+Diavgeia entalmata decisions are keyed by ADA. When a repeated scan sees the
+same ADA with the same document URL and an existing local PDF plus stored
+classification/text evidence, the scanner reuses the persisted row instead of
+downloading and extracting the PDF again.
+
+The scan still reads current Diavgeia listing pages so new decisions can be
+found and old visible rows can be archived out of the configured window, but
+unchanged decisions do not repeat document work.
+
+## D-093 — Public-works document analysis is incremental by default
+**Status:** Accepted
+
+The public-works `documents analyze` command must not reprocess attachments
+that already have usable analysis state. If a document row has an existing
+text artifact on disk, or a terminal no-text state such as `UNSUPPORTED_TYPE`,
+the command skips it by default and records the skip in the report. Explicit
+re-analysis remains available with `--force`.
+
+This keeps manual and scheduled public-works workflows from spending repeated
+OCR/extraction time on files that have already been collected and analyzed.
+
 ## D-092 — Economic offer is validation-first, not the primary budget source
 **Status:** Accepted
 

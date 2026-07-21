@@ -3,6 +3,33 @@
 Execute:
 `Validate v0.1.52 routing guard against live reverse-pricing review projects`
 
+## Public-Works Cron Prerequisite Completed
+
+Before enabling the scheduled public-works timer, the local public-works
+document pipeline was backfilled and made skip-aware:
+
+- `documents analyze` now skips existing usable analysis by default;
+- `--force` is required for intentional re-analysis;
+- current local state has `137/137` downloaded latest ESHIDIS attachments with
+  document analysis rows;
+- skip-only verification completed in about `1.0s` with
+  `documents_seen=137`, `documents_analyzed=0`, `documents_skipped=137`;
+- full test suite passed with `297` tests.
+
+The entalmata stage was also made skip-aware for repeated ADA rows:
+
+- local entalmata state has `111` rows, `5` visible and `106` rejected;
+- full entalmata scan completed in about `7.5s` with
+  `decisions_seen=240`, `skipped_existing=111`, `errors=0`;
+- combined scheduled dry-run with `--recipient smoke@example.test` completed
+  in about `132s` with `ok=true`, `errors=[]` and `warnings=[]`.
+
+Remaining cron prerequisite: configure/verify real SMTP recipient environment
+for this host before enabling the timer without `--dry-run`. The local
+`.env.local` visible in this checkout only exposes `OPENAI_API_KEY`; real
+email send requires `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`,
+`SMTP_PASSWORD`, `EMAIL_FROM` and `ALERT_EMAIL_TO` or equivalent runtime env.
+
 ## Current Input
 
 The independent reverse-pricing workflow remains disconnected from cron.
