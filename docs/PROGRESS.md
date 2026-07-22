@@ -37,6 +37,9 @@ Verification:
   tests/test_ui_server.py::test_scheduled_poll_skips_auto_document_fetch_when_discovery_skipped \
   tests/test_ui_server.py::test_scheduled_poll_treats_auto_document_fetch_failure_as_warning -q
 # 4 passed
+
+.venv/bin/python -m pytest -q
+# 326 passed
 ```
 
 ## 2026-07-22 - Public-works email digest v2
