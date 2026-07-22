@@ -4568,6 +4568,7 @@ def row_with_operational_explanation(row: dict[str, Any], *, notifications: list
         **row,
         "profile_fit": profile_fit_for_row(row),
         "ai_confidence_band": ai_confidence_band_for_row(row),
+        "category_audit": category_audit_for_row(row),
         "project_identity": project_identity(row),
         "source_merge": source_merge_summary(row),
         "why_visible": why_visible_reasons(row),
@@ -4693,6 +4694,118 @@ def ai_confidence_band_for_row(row: dict[str, Any]) -> dict[str, str]:
         "label": label,
         "reason": f"{decision} με confidence {confidence:.2f}".strip(),
     }
+
+
+def public_works_taxonomy_config() -> dict[str, Any]:
+    path = REPO_ROOT / "config" / "public_works_taxonomy.yml"
+    if not path.exists():
+        return {"version": 0, "categories": []}
+    data = cached_data(("public_works_taxonomy", str(path), path_mtime_ns(path)), lambda: load_config(path))
+    return data if isinstance(data, dict) else {"version": 0, "categories": []}
+
+
+def category_audit_for_row(row: dict[str, Any]) -> dict[str, Any]:
+    config = public_works_taxonomy_config()
+    thresholds = config.get("confidence") if isinstance(config.get("confidence"), dict) else {}
+    strong_threshold = float(thresholds.get("strong") or 0.85)
+    likely_threshold = float(thresholds.get("likely") or 0.6)
+    labels: list[dict[str, Any]] = []
+    for category in config.get("categories") or []:
+        if not isinstance(category, dict):
+            continue
+        label = category_match_for_row(row, category)
+        if label:
+            labels.append(label)
+    labels.sort(key=lambda item: (0 if item.get("polarity") == "positive" else 1, -float(item.get("confidence") or 0), str(item.get("label") or "")))
+    positive = [item for item in labels if item.get("polarity") == "positive"]
+    negative = [item for item in labels if item.get("polarity") == "negative"]
+    top_confidence = max((float(item.get("confidence") or 0) for item in labels), default=0.0)
+    needs_review = bool(not positive or top_confidence < strong_threshold or (positive and negative))
+    if not labels:
+        summary = "Δεν βρέθηκε αρκετό taxonomy evidence. Θέλει ανθρώπινο έλεγχο."
+        band = "UNKNOWN_REVIEW"
+    elif needs_review:
+        summary = "Βρέθηκαν ενδείξεις κατηγορίας, αλλά χρειάζεται έλεγχος πριν χρησιμοποιηθεί ως φίλτρο."
+        band = "NEEDS_REVIEW"
+    elif top_confidence >= strong_threshold:
+        summary = "Η κατηγοριοποίηση έχει ισχυρά τεκμήρια."
+        band = "STRONG"
+    elif top_confidence >= likely_threshold:
+        summary = "Η κατηγοριοποίηση έχει πιθανές ενδείξεις."
+        band = "LIKELY"
+    else:
+        summary = "Η κατηγοριοποίηση είναι αδύναμη και χρειάζεται έλεγχο."
+        band = "NEEDS_REVIEW"
+    return {
+        "version": config.get("version") or 0,
+        "labels": labels,
+        "primary": positive[0] if positive else (labels[0] if labels else None),
+        "negative_labels": negative,
+        "needs_review": needs_review,
+        "band": band,
+        "summary": summary,
+    }
+
+
+def category_match_for_row(row: dict[str, Any], category: dict[str, Any]) -> dict[str, Any] | None:
+    signals = category.get("signals") if isinstance(category.get("signals"), dict) else {}
+    evidence: list[dict[str, str]] = []
+    score = 0.0
+    haystack = taxonomy_haystack(row)
+    cpv_text = taxonomy_cpv_text(row)
+    for prefix in signals.get("cpv_prefixes") or []:
+        prefix_text = str(prefix or "").strip()
+        if prefix_text and prefix_text in cpv_text:
+            score += 2.0
+            evidence.append({"kind": "CPV", "text": prefix_text})
+    for term in signals.get("strong_terms") or []:
+        term_text = str(term or "").strip()
+        if term_text and taxonomy_term_match(term_text, haystack):
+            score += 2.0
+            evidence.append({"kind": "ισχυρό σήμα", "text": term_text})
+    for term in signals.get("medium_terms") or []:
+        term_text = str(term or "").strip()
+        if term_text and taxonomy_term_match(term_text, haystack):
+            score += 1.0
+            evidence.append({"kind": "μέτριο σήμα", "text": term_text})
+    if score <= 0:
+        return None
+    weight = float(category.get("positive_weight") or category.get("negative_weight") or 2.0)
+    confidence = min(0.99, score / max(3.0, weight * 2.0))
+    polarity = "negative" if category.get("negative_weight") else "positive"
+    return {
+        "id": str(category.get("id") or ""),
+        "label": str(category.get("label") or category.get("id") or ""),
+        "polarity": polarity,
+        "confidence": round(confidence, 2),
+        "evidence": evidence[:8],
+    }
+
+
+def taxonomy_haystack(row: dict[str, Any]) -> str:
+    return normalize_greek(
+        " ".join(
+            str(row.get(key) or "")
+            for key in (
+                "title",
+                "authority_name",
+                "region",
+                "row_text",
+                "text_sample",
+                "interest_reason",
+                "official_status_label",
+            )
+        )
+    ).replace("ς", "σ")
+
+
+def taxonomy_cpv_text(row: dict[str, Any]) -> str:
+    return " ".join(str(row.get(key) or "") for key in ("cpv", "cpv_code", "cpv_codes", "row_text"))
+
+
+def taxonomy_term_match(term: str, haystack: str) -> bool:
+    normalized = normalize_greek(term).replace("ς", "σ")
+    return bool(normalized and normalized in haystack)
 
 
 def project_identity(row: dict[str, Any]) -> dict[str, Any]:
@@ -10236,6 +10349,7 @@ function renderDashboard(payload) {
       tender.interest_reason || '',
       tender.official_status_label || '',
       (tender.linked_eshidis_ids || []).length ? `ΕΣΗΔΗΣ ${(tender.linked_eshidis_ids || []).join(', ')}` : '',
+      tender.category_audit?.primary?.label || '',
       tender.profile_fit?.label || '',
       tender.ai_confidence_band?.label || tender.ai_triage?.decision || '',
     ]);
@@ -10378,7 +10492,8 @@ function renderTenderExplanation(tender) {
   const sourceMerge = tender.source_merge || {};
   const profileFit = tender.profile_fit || null;
   const confidenceBand = tender.ai_confidence_band || null;
-  if (!reasons.length && !sources.length && !operations.length && !timeline.length && !identity.canonical_label && !sourceMerge.label && !profileFit && !confidenceBand) return '';
+  const categoryAudit = tender.category_audit || {};
+  if (!reasons.length && !sources.length && !operations.length && !timeline.length && !identity.canonical_label && !sourceMerge.label && !profileFit && !confidenceBand && !(categoryAudit.labels || []).length) return '';
   const identityItems = [
     identity.canonical_label ? `<li><strong>Κύρια ταυτότητα</strong>: ${escapeHtml(identity.canonical_label)}</li>` : '',
     identity.primary_source ? `<li><strong>Κύρια πηγή</strong>: ${escapeHtml(identity.primary_source)}</li>` : '',
@@ -10388,6 +10503,11 @@ function renderTenderExplanation(tender) {
     profileFit ? `<li><strong>Προφίλ</strong>: ${escapeHtml(profileFit.label || '')}${profileFit.reason ? ` · ${escapeHtml(profileFit.reason)}` : ''}</li>` : '',
     confidenceBand ? `<li><strong>AI band</strong>: ${escapeHtml(confidenceBand.label || '')}${confidenceBand.reason ? ` · ${escapeHtml(confidenceBand.reason)}` : ''}</li>` : '',
   ].filter(Boolean).join('');
+  const categoryItems = (categoryAudit.labels || []).map((item) => {
+    const evidence = (item.evidence || []).map((ev) => `${ev.kind || 'σήμα'}: ${ev.text || ''}`).join(' · ');
+    const polarity = item.polarity === 'negative' ? 'αρνητικό' : 'θετικό';
+    return `<li><strong>${escapeHtml(item.label || '')}</strong> · ${polarity} · confidence ${escapeHtml(item.confidence ?? '')}${evidence ? `<br><span class="noteText">${escapeHtml(evidence)}</span>` : ''}</li>`;
+  }).join('');
   const reasonItems = reasons.map((item) => `
     <li><strong>${escapeHtml(item.label || '')}</strong>${item.label ? ': ' : ''}${escapeHtml(item.text || '')}</li>
   `).join('');
@@ -10405,6 +10525,7 @@ function renderTenderExplanation(tender) {
       <h4>Γιατί εμφανίζεται</h4>
       ${identityItems ? `<h4>Ταυτότητα έργου</h4><ul>${identityItems}</ul>` : ''}
       ${profileItems ? `<ul>${profileItems}</ul>` : ''}
+      ${categoryItems ? `<h4>Κατηγοριοποίηση</h4><p class="noteText">${escapeHtml(categoryAudit.summary || '')}</p><ul>${categoryItems}</ul>` : ''}
       ${reasonItems ? `<ul>${reasonItems}</ul>` : ''}
       ${sourceItems ? `<h4>Πηγές</h4><ul>${sourceItems}</ul>` : ''}
       ${operationItems ? `<h4>Κατάσταση</h4><ul>${operationItems}</ul>` : ''}

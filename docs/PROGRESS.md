@@ -1,5 +1,38 @@
 # Project Progress
 
+## 2026-07-22 - Greek public-works taxonomy audit
+
+The runtime/UI version was bumped from `0.1.74` to `0.1.75`.
+
+Public-works dashboard rows now expose a config-driven `category_audit` read
+model with Greek-facing category labels and evidence. The first taxonomy lives
+in `config/public_works_taxonomy.yml` and covers positive construction
+families such as road works, buildings, sports facilities, energy upgrades,
+hydraulic/flood works, port works and public-space works, plus negative audit
+signals for studies, supply/service procurements, administrative/non-tender
+acts and direct assignments.
+
+The dashboard preview now renders a `Κατηγοριοποίηση` section with confidence
+and evidence, and row pills can show the primary Greek category. This is
+intentionally audit-only: it does not change discovery, visibility, scheduled
+runs, email delivery or user-specific interest rules. Negative labels are shown
+as review evidence, not as automatic deletion/filter decisions.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_preview_renders_greek_category_audit \
+  tests/test_ui_server.py::test_category_audit_matches_road_works_with_cpv_and_greek_terms \
+  tests/test_ui_server.py::test_category_audit_flags_supply_service_as_negative_without_auto_drop -q
+# 3 passed
+
+.venv/bin/python -m pytest -q
+# 334 passed
+```
+
 ## 2026-07-22 - Deduplication identity view
 
 The runtime/UI version was bumped from `0.1.73` to `0.1.74`.

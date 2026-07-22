@@ -1419,6 +1419,26 @@ database rows reconcile with an official monetary subtotal from the source
 documents. A lower `OK` count is preferable to a false completed audit that
 would later pollute the deep-analysis database.
 
+## D-118 - Public-works taxonomy starts as Greek-facing audit evidence
+**Status:** Accepted
+
+Public-works category classification must start as an auditable read model,
+not as a hidden keep/drop rule.
+
+The taxonomy is defined in `config/public_works_taxonomy.yml` with Greek labels
+and evidence terms so operator-facing UI can explain categories using language
+Greek users understand. It may use CPV prefixes and normalized Greek evidence,
+but it must not hardcode user-specific preferences in the core.
+
+A positive category such as road works or buildings may help explain why a row
+looks relevant. A negative category such as supply/service procurement,
+administrative act or direct assignment may explain why a row needs review. In
+this phase, neither positive nor negative taxonomy labels change discovery,
+dashboard visibility, email delivery or scheduled processing by themselves.
+
+This keeps false negatives visible while the taxonomy is calibrated from real
+project rows.
+
 ## D-083 - AI budget routing is advisory and validation-guarded
 **Status:** Accepted
 

@@ -118,7 +118,11 @@ dry-runs render alerts without requiring a recipient.
 Dashboard/admin rows now expose derived `profile_fit` and
 `ai_confidence_band` fields. The UI shows these as row/preview/admin labels so
 operators see `Σίγουρο έργο`, `Μάλλον έργο`, `Θέλει έλεγχο`, `Μάλλον άσχετο`
-or `Σίγουρα άσχετο` instead of only raw AI confidence.
+and `Σίγουρα άσχετο` instead of a raw AI keep/drop state.
+Public-works rows now also expose a Greek-facing, config-driven
+`category_audit` taxonomy. It is audit-only: use it to review real corpus
+coverage and discuss category refinements before promoting any category into a
+user-specific filter or automated rule.
 Editable per-user public-works interest profiles are now implemented for the
 dashboard: include keywords, exclude keywords and optional budget bounds are
 stored per login email and only affect that user's visible list. They do not

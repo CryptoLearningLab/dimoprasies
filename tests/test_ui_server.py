@@ -115,6 +115,39 @@ def test_ui_preview_renders_project_identity_and_source_merge() -> None:
     assert "Dedup" in APP_JS
 
 
+def test_ui_preview_renders_greek_category_audit() -> None:
+    assert "category_audit" in APP_JS
+    assert "Κατηγοριοποίηση" in APP_JS
+    assert "confidence" in APP_JS
+
+
+def test_category_audit_matches_road_works_with_cpv_and_greek_terms() -> None:
+    audit = ui_server.category_audit_for_row(
+        {
+            "title": "ΔΗΜΟΤΙΚΗ ΟΔΟΠΟΙΙΑ Δ.Ε ΕΥΠΑΛΙΟΥ",
+            "cpv_code": "45233141-9",
+            "text_sample": (
+                "CPV : 45233141-9 Εργασίες συντήρησης οδών με ασφαλτόστρωση, "
+                "τσιμεντόστρωση και βελτίωση βατότητας."
+            ),
+        }
+    )
+
+    assert audit["primary"]["id"] == "road_works"
+    assert audit["primary"]["label"] == "Οδοποιία / οδικά έργα"
+    assert audit["primary"]["confidence"] >= 0.85
+    assert audit["needs_review"] is False
+    assert any(evidence["kind"] == "CPV" for evidence in audit["primary"]["evidence"])
+
+
+def test_category_audit_flags_supply_service_as_negative_without_auto_drop() -> None:
+    audit = ui_server.category_audit_for_row({"title": "Προμήθεια Καυσίμων & Λιπαντικών για δύο έτη"})
+
+    assert audit["negative_labels"][0]["id"] == "supply_service_out"
+    assert audit["needs_review"] is True
+    assert audit["band"] == "NEEDS_REVIEW"
+
+
 def test_ui_exposes_client_side_deadline_watch() -> None:
     assert 'id="deadlineWatchBuckets"' in INDEX_HTML
     assert 'id="deadlineWatchSummary"' in INDEX_HTML
