@@ -111,6 +111,7 @@ def test_ui_exposes_user_interest_profile_controls() -> None:
     assert "selectedProfileCategoryIds" in APP_JS
     assert ".profileCategoryOption:has(input:checked)" in STYLES_CSS
     assert ".profileCategoryOption input" in STYLES_CSS
+    assert "grid-template-columns: 12px minmax(0, 1fr)" in STYLES_CSS
     assert "max-width: 1720px" in STYLES_CSS
 
 

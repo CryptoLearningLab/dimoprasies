@@ -8786,32 +8786,35 @@ main { padding: 22px; min-width: 0; }
 }
 .profileCategoryOptions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  column-gap: 18px;
-  row-gap: 6px;
+  grid-template-columns: repeat(3, minmax(190px, 220px));
+  justify-content: start;
+  column-gap: 22px;
+  row-gap: 4px;
+  max-width: 760px;
 }
 .profileCategoryOption {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
   gap: 6px;
-  align-items: center;
-  min-height: 24px;
+  align-items: start;
+  min-height: 20px;
   padding: 0;
   border: 0;
   background: transparent;
   box-shadow: none;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
   line-height: 1.25;
-  white-space: normal;
 }
 .profileCategoryOption input {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   flex: 0 0 auto;
-  margin: 0;
+  margin: 1px 0 0;
 }
 .profileCategoryOption span {
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 .profileCategoryOption:has(input:checked) {
   color: #0f766e;
@@ -9532,6 +9535,7 @@ h3 {
   }
   .profileCategoryOptions {
     grid-template-columns: 1fr;
+    max-width: none;
   }
   .metrics,
   .adminMetrics { grid-template-columns: 1fr; }

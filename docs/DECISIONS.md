@@ -1,5 +1,17 @@
 # Decision Log
 
+## D-122 — Desktop category filters should be a compact checklist
+**Status:** Accepted
+
+On wide desktop screens, public-works profile category filters should not
+expand to fill the whole page. They are secondary filter controls and should
+render as a compact aligned checklist with small native checkboxes, constrained
+width and predictable label alignment.
+
+This remains presentation-only and must not change profile persistence,
+filtering semantics, source discovery, scheduled runs, AI triage, downloads,
+email behavior or another user's dashboard.
+
 ## D-121 — Category filters should look like filters, not cards
 **Status:** Accepted
 

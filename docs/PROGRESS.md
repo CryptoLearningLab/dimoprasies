@@ -1,5 +1,31 @@
 # Project Progress
 
+## 2026-07-22 - Compact aligned category checklist
+
+The runtime/UI version was bumped from `0.1.78` to `0.1.79`.
+
+The public-works personal profile category selector was tightened again for
+Windows desktop. Category filters now render as a compact three-column
+checklist with 12px checkboxes, aligned label text and a constrained width, so
+the labels no longer spread across the full page with large empty gaps.
+
+This is presentation-only and does not change profile persistence, filtering
+semantics, source discovery, scheduled runs, AI triage, downloads or email
+behavior. Mobile remains single-column.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_exposes_user_interest_profile_controls -q
+# 1 passed
+
+.venv/bin/python -m pytest -q
+# 335 passed
+```
+
 ## 2026-07-22 - Minimal desktop category filters
 
 The runtime/UI version was bumped from `0.1.77` to `0.1.78`.

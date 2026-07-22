@@ -137,6 +137,9 @@ presentation-only.
 The profile category selector was then simplified further into a minimal
 checkbox grid, because large pill/card controls looked oversized on Windows
 desktop.
+After Windows review, the category selector was tightened into a constrained
+three-column checklist with smaller checkboxes and aligned labels to remove
+large empty gaps.
 The public-works dashboard preview now exposes a dedup/source identity read
 model: `project_identity`, `source_merge` and enriched `project_sources` show
 which ESHIDIS row is canonical and which KIMDIS/authority sources point to it.
