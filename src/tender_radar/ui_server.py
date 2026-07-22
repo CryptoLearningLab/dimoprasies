@@ -215,7 +215,9 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             if not session or session.get("role") != "admin":
                 self._send_json({"ok": False, "authenticated": False, **admin_status_payload()}, status=401)
                 return
-            self._send_json(cached_admin_audit_payload(user_email=session.get("email")))
+            query = parse_qs(parsed.query)
+            include = query.get("include", ["summary"])[0]
+            self._send_json(cached_admin_audit_payload(user_email=session.get("email"), include=include))
             return
         if parsed.path == "/api/admin/users":
             session = self._admin_session()
@@ -927,8 +929,16 @@ def cached_dashboard_payload(*, scope: str, sort: str, user_email: str | None = 
     )
 
 
-def cached_admin_audit_payload(*, user_email: str | None = None) -> dict[str, Any]:
-    return cached_payload(("admin_audit", (user_email or "").strip().lower()), lambda: admin_audit_payload(user_email=user_email))
+def cached_admin_audit_payload(*, user_email: str | None = None, include: str = "summary") -> dict[str, Any]:
+    safe_include = include if include in {"summary", "review", "hidden", "all"} else "summary"
+    return cached_payload(
+        ("admin_audit", (user_email or "").strip().lower(), safe_include),
+        lambda: admin_audit_payload(
+            user_email=user_email,
+            include_hidden_rows=safe_include in {"hidden", "all"},
+            include_review_queue=safe_include in {"review", "all"},
+        ),
+    )
 
 
 def run_selected_fetch(identifier: str) -> dict[str, Any]:
@@ -6268,7 +6278,12 @@ def admin_users_payload() -> dict[str, Any]:
     return {"ok": True, "users": users}
 
 
-def admin_audit_payload(*, user_email: str | None = None) -> dict[str, Any]:
+def admin_audit_payload(
+    *,
+    user_email: str | None = None,
+    include_hidden_rows: bool = True,
+    include_review_queue: bool = True,
+) -> dict[str, Any]:
     overrides = triage_overrides_by_key(user_email=user_email)
     force_keep_keys = {key for key, item in overrides.items() if item.get("action") == "FORCE_KEEP"}
     ignored_keys = ignored_tender_keys() - force_keep_keys
@@ -6406,7 +6421,7 @@ def admin_audit_payload(*, user_email: str | None = None) -> dict[str, Any]:
     hidden_rows = stamp_admin_hidden_events(hidden_rows)
     hidden_rows = sorted(hidden_rows, key=admin_hidden_row_sort_key, reverse=True)
     review_queue = admin_false_negative_review_queue(hidden_rows)
-    return {
+    payload = {
         "ok": True,
         "authenticated": True,
         "summary": {
@@ -6425,10 +6440,13 @@ def admin_audit_payload(*, user_email: str | None = None) -> dict[str, Any]:
             "review_queue_medium": sum(1 for row in review_queue if row.get("review_priority") == "MEDIUM"),
             "review_queue_low": sum(1 for row in review_queue if row.get("review_priority") == "LOW"),
         },
-        "hidden_rows": hidden_rows,
-        "review_queue": review_queue,
         "source_errors": errors,
     }
+    if include_hidden_rows:
+        payload["hidden_rows"] = hidden_rows
+    if include_review_queue:
+        payload["review_queue"] = review_queue
+    return payload
 
 
 def admin_false_negative_review_queue(hidden_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -8529,7 +8547,11 @@ INDEX_HTML = f"""<!doctype html>
         </div>
         <details class="adminReviewQueueBox" open>
           <summary>False negative review queue</summary>
-          <div class="tableWrap adminTableWrap">
+          <div class="toolbar compact adminLazyToolbar">
+            <button id="loadAdminReviewQueueBtn" class="secondary">Φόρτωση false-negative queue</button>
+            <span id="adminReviewQueueStatus" class="noteText">Δεν έχει φορτωθεί η λίστα.</span>
+          </div>
+          <div class="tableWrap adminTableWrap adminLazyTableWrap">
             <table class="adminTable">
               <thead>
                 <tr>
@@ -8545,21 +8567,28 @@ INDEX_HTML = f"""<!doctype html>
             </table>
           </div>
         </details>
-        <div class="tableWrap adminTableWrap">
-          <table class="adminTable">
-            <thead>
-              <tr>
-                <th>Κατηγορία</th>
-                <th>Α/Α</th>
-                <th>Έργο</th>
-                <th>Φορέας</th>
-                <th>Αιτιολογία</th>
-                <th>Ενέργεια</th>
-              </tr>
-            </thead>
-            <tbody id="adminHiddenRows"></tbody>
-          </table>
-        </div>
+        <details class="adminHiddenRowsBox">
+          <summary>Κρυμμένα / audit rows</summary>
+          <div class="toolbar compact adminLazyToolbar">
+            <button id="loadAdminHiddenRowsBtn" class="secondary">Φόρτωση κρυμμένων έργων</button>
+            <span id="adminHiddenRowsStatus" class="noteText">Δεν έχει φορτωθεί η λίστα.</span>
+          </div>
+          <div class="tableWrap adminTableWrap adminLazyTableWrap">
+            <table class="adminTable">
+              <thead>
+                <tr>
+                  <th>Κατηγορία</th>
+                  <th>Α/Α</th>
+                  <th>Έργο</th>
+                  <th>Φορέας</th>
+                  <th>Αιτιολογία</th>
+                  <th>Ενέργεια</th>
+                </tr>
+              </thead>
+              <tbody id="adminHiddenRows"></tbody>
+            </table>
+          </div>
+        </details>
       </div>
     </section>
 
@@ -9119,6 +9148,13 @@ textarea {
 }
 .adminTableWrap {
   margin-top: 14px;
+}
+.adminLazyToolbar {
+  margin-top: 10px;
+}
+.adminLazyTableWrap {
+  max-height: 560px;
+  overflow: auto;
 }
 .adminTable {
   min-width: 1120px;
@@ -10237,20 +10273,22 @@ async function adminLogout() {
   $('loginStatus').textContent = 'Αποσυνδέθηκε.';
 }
 
-async function loadAdminAudit() {
+async function loadAdminAudit(include = 'summary') {
   if (!state.session || state.session.role !== 'admin') {
     $('adminContent').hidden = true;
     $('adminLockedBox').hidden = false;
     return;
   }
   try {
-    const payload = await adminApi('/api/admin/audit');
-    state.adminAudit = payload;
+    const payload = await adminApi(`/api/admin/audit?include=${encodeURIComponent(include)}`);
+    state.adminAudit = { ...(state.adminAudit || {}), ...payload };
     $('adminLockedBox').hidden = true;
     $('adminContent').hidden = false;
-    renderAdminAudit(payload);
-    await loadAdminSecrets();
-    await loadAdminUsers();
+    renderAdminAudit(state.adminAudit, include);
+    if (include === 'summary') {
+      await loadAdminSecrets();
+      await loadAdminUsers();
+    }
   } catch (error) {
     $('adminContent').hidden = true;
     $('adminLockedBox').hidden = false;
@@ -10314,7 +10352,7 @@ function applySession(session) {
   }
 }
 
-function renderAdminAudit(payload) {
+function renderAdminAudit(payload, include = 'summary') {
   const summary = payload.summary || {};
   $('adminHiddenCount').textContent = summary.hidden_total || 0;
   $('adminAiHiddenCount').textContent = summary.ai_hidden || 0;
@@ -10326,10 +10364,30 @@ function renderAdminAudit(payload) {
   $('adminSourceErrorCount').textContent = summary.source_errors || 0;
   $('adminReviewQueueCount').textContent = summary.review_queue_total || 0;
   $('adminReviewHighCount').textContent = summary.review_queue_high || 0;
-  renderAdminReviewQueue(payload.review_queue || []);
+  if (include === 'summary') {
+    renderAdminReviewQueue(null);
+    renderAdminHiddenRows(null);
+    $('adminReviewQueueStatus').textContent = `${summary.review_queue_total || 0} rows διαθέσιμα. Πάτα φόρτωση όταν τα χρειάζεσαι.`;
+    $('adminHiddenRowsStatus').textContent = `${summary.hidden_total || 0} rows διαθέσιμα. Πάτα φόρτωση όταν τα χρειάζεσαι.`;
+    return;
+  }
+  if (include === 'review' || include === 'all') {
+    renderAdminReviewQueue(payload.review_queue || []);
+    $('adminReviewQueueStatus').textContent = `${(payload.review_queue || []).length} rows φορτώθηκαν.`;
+  }
+  if (include === 'hidden' || include === 'all') {
+    renderAdminHiddenRows(payload.hidden_rows || []);
+    $('adminHiddenRowsStatus').textContent = `${(payload.hidden_rows || []).length} rows φορτώθηκαν.`;
+  }
+}
+
+function renderAdminHiddenRows(rows) {
   const tbody = $('adminHiddenRows');
-  const rows = payload.hidden_rows || [];
   tbody.innerHTML = '';
+  if (rows === null) {
+    tbody.innerHTML = '<tr><td colspan="6" class="emptyState">Η λίστα δεν φορτώνεται αυτόματα για να μένει γρήγορο το admin panel.</td></tr>';
+    return;
+  }
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="6" class="emptyState">Δεν υπάρχουν κρυμμένα έργα στο τρέχον audit.</td></tr>';
     return;
@@ -10359,14 +10417,18 @@ function renderAdminAudit(payload) {
     `;
     tbody.appendChild(tr);
   }
-  document.querySelectorAll('.restoreHiddenRow').forEach((button) => {
-    button.addEventListener('click', () => restoreHiddenRow(button.dataset.key));
+  document.querySelectorAll('#adminHiddenRows .restoreHiddenRow').forEach((button) => {
+    button.addEventListener('click', () => restoreHiddenRow(button.dataset.key, 'hidden'));
   });
 }
 
 function renderAdminReviewQueue(rows) {
   const tbody = $('adminReviewRows');
   tbody.innerHTML = '';
+  if (rows === null) {
+    tbody.innerHTML = '<tr><td colspan="6" class="emptyState">Η λίστα δεν φορτώνεται αυτόματα. Πάτα φόρτωση για έλεγχο false negatives.</td></tr>';
+    return;
+  }
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="6" class="emptyState">Δεν υπάρχουν rows για false-negative review.</td></tr>';
     return;
@@ -10403,6 +10465,9 @@ function renderAdminReviewQueue(rows) {
   });
   document.querySelectorAll('.keepReviewRow').forEach((button) => {
     button.addEventListener('click', () => adminReviewFeedback(button.dataset.key, 'FORCE_KEEP'));
+  });
+  document.querySelectorAll('#adminReviewRows .restoreHiddenRow').forEach((button) => {
+    button.addEventListener('click', () => restoreHiddenRow(button.dataset.key, 'review'));
   });
 }
 
@@ -10444,13 +10509,13 @@ function adminCategoryClass(category) {
   return 'waiting';
 }
 
-async function restoreHiddenRow(rowKey) {
+async function restoreHiddenRow(rowKey, include = 'summary') {
   if (!rowKey) return;
   const reason = window.prompt('Γιατί επαναφέρεις αυτό το έργο; Αυτό θα χρησιμοποιηθεί ως feedback για τους επόμενους κανόνες.', '');
   if (reason === null) return;
   await adminApi('/api/admin/restore', { method: 'POST', body: JSON.stringify({ row_key: rowKey, reason }) });
   await refreshRuntimeViews();
-  await loadAdminAudit();
+  await loadAdminAudit(include);
 }
 
 async function adminReviewFeedback(rowKey, action) {
@@ -10463,7 +10528,7 @@ async function adminReviewFeedback(rowKey, action) {
   }
   await adminApi('/api/admin/review-feedback', { method: 'POST', body: JSON.stringify({ row_key: rowKey, action, reason }) });
   await refreshRuntimeViews();
-  await loadAdminAudit();
+  await loadAdminAudit('review');
 }
 
 function renderSourcePolling(payload) {
@@ -11206,6 +11271,14 @@ $('inviteUserBtn').addEventListener('click', () => inviteUser().catch((error) =>
 $('updateUserRoleBtn').addEventListener('click', () => updateUserRole().catch((error) => { $('roleUpdateStatus').textContent = String(error); }));
 $('saveTeeSecretsBtn').addEventListener('click', () => saveTeeSecrets().catch((error) => { $('teeSecretsStatus').textContent = String(error); }));
 $('adminRefreshBtn').addEventListener('click', () => loadAdminAudit().catch(() => {}));
+$('loadAdminReviewQueueBtn').addEventListener('click', () => {
+  $('adminReviewQueueStatus').textContent = 'Φόρτωση false-negative queue...';
+  loadAdminAudit('review').catch((error) => { $('adminReviewQueueStatus').textContent = String(error); });
+});
+$('loadAdminHiddenRowsBtn').addEventListener('click', () => {
+  $('adminHiddenRowsStatus').textContent = 'Φόρτωση κρυμμένων έργων...';
+  loadAdminAudit('hidden').catch((error) => { $('adminHiddenRowsStatus').textContent = String(error); });
+});
 $('entalmataRefreshBtn').addEventListener('click', () => loadEntalmata().catch((error) => { $('statusText').textContent = String(error); }));
 $('entalmataScanBtn').addEventListener('click', () => runAction('/api/entalmata/scan', {}, 'Σάρωση Διαύγειας για εντάλματα...'));
 $('appLogoutBtn').addEventListener('click', () => adminLogout().catch((error) => { $('loginStatus').textContent = String(error); }));

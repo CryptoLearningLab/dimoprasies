@@ -337,8 +337,12 @@ def test_ui_exposes_admin_panel() -> None:
     assert 'id="adminHiddenRows"' in INDEX_HTML
     assert 'id="adminReviewRows"' in INDEX_HTML
     assert 'id="adminReviewQueueCount"' in INDEX_HTML
+    assert 'id="loadAdminReviewQueueBtn"' in INDEX_HTML
+    assert 'id="loadAdminHiddenRowsBtn"' in INDEX_HTML
+    assert "adminLazyTableWrap" in STYLES_CSS
     assert "False negative review queue" in INDEX_HTML
     assert "renderAdminReviewQueue" in APP_JS
+    assert "/api/admin/audit?include=" in APP_JS
     assert 'id="passwordSetupBox"' in INDEX_HTML
     assert 'id="inviteUserBtn"' in INDEX_HTML
     assert "/api/auth/login" in APP_JS
@@ -4188,6 +4192,7 @@ def test_admin_audit_hidden_rows_are_recent_first(tmp_path, monkeypatch) -> None
     )
 
     audit = ui_server.admin_audit_payload()
+    summary_only = ui_server.admin_audit_payload(include_hidden_rows=False, include_review_queue=False)
 
     assert [row["category"] for row in audit["hidden_rows"][:2]] == ["DISMISSED", "AI_DROP_ADMIN"]
     assert [row["display_id"] for row in audit["hidden_rows"][:2]] == ["AUTH-manual-new", "AUTH-ai-old"]
@@ -4195,6 +4200,9 @@ def test_admin_audit_hidden_rows_are_recent_first(tmp_path, monkeypatch) -> None
         "2026-07-19T12:00:00+00:00",
         "2026-07-19T09:00:00+00:00",
     ]
+    assert "hidden_rows" not in summary_only
+    assert "review_queue" not in summary_only
+    assert summary_only["summary"]["hidden_total"] == audit["summary"]["hidden_total"]
 
 
 def test_admin_audit_timestamp_normalizes_epoch_ms_and_ignores_placeholders() -> None:

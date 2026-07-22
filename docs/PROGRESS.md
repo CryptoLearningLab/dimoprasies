@@ -1,5 +1,36 @@
 # Project Progress
 
+## 2026-07-22 - Lazy admin audit row loading
+
+The runtime/UI version was bumped from `0.1.81` to `0.1.82`.
+
+The admin audit endpoint now supports explicit row loading modes. The default
+admin refresh asks for `include=summary`, returning only metrics and source
+error details; the false-negative review queue and full hidden/audit rows are
+loaded only when the admin presses their dedicated load buttons.
+
+The false-negative queue and hidden/audit tables also render inside bounded
+internal scroll containers, so inspecting long audit lists no longer creates an
+endless page scroll or slows the initial admin panel load.
+
+This is a performance/presentation slice. It does not change AI triage,
+admin/user feedback persistence, hidden-row reasons, source polling, discovery,
+email delivery or per-user dashboard visibility.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_exposes_admin_panel \
+  tests/test_ui_server.py::test_admin_audit_hidden_rows_are_recent_first -q
+# 2 passed
+
+.venv/bin/python -m pytest -q
+# 335 passed
+```
+
 ## 2026-07-22 - Monitoring problem source details
 
 The runtime/UI version was bumped from `0.1.80` to `0.1.81`.

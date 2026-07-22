@@ -1,5 +1,18 @@
 # Decision Log
 
+## D-125 — Admin audit rows load on demand
+**Status:** Accepted
+
+The admin panel should remain fast even when hidden/audit rows or the
+false-negative review queue grow large. `/api/admin/audit` therefore defaults
+to a summary-only payload and only includes `review_queue` or `hidden_rows`
+when the client explicitly asks for that row set.
+
+The admin UI should expose dedicated load buttons and bounded table scrolling
+for these heavier lists. This must remain a presentation/runtime optimization:
+it must not change row classification, AI triage, review feedback semantics,
+per-user overrides, source polling or dashboard visibility.
+
 ## D-124 — Monitoring warnings include failing source details
 **Status:** Accepted
 
