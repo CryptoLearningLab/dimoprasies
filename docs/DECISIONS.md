@@ -1,5 +1,21 @@
 # Decision Log
 
+## D-115 — Confidence bands are derived presentation state
+**Status:** Accepted
+
+The dashboard and admin audit should not expose only raw AI decisions and
+numeric confidence. Operators need stable human-facing bands: `Σίγουρο έργο`,
+`Μάλλον έργο`, `Θέλει έλεγχο`, `Μάλλον άσχετο` and `Σίγουρα άσχετο`.
+
+These bands are derived from the existing AI decision, confidence and
+keep/drop state. They do not change keep/drop behavior, triage overrides,
+notification logic or source discovery. This keeps the first slice cheap and
+auditable while giving the UI/email/admin surfaces a shared vocabulary.
+
+The current `profile_fit` is also derived from the active focus profile
+evidence (`interest_reason`). Editable per-user profiles should build on this
+field later instead of replacing dashboard filtering in one large step.
+
 ## D-114 — Scheduled coverage and alerts are report-first
 **Status:** Accepted
 

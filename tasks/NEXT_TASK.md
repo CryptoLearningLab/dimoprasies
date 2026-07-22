@@ -115,6 +115,11 @@ Scheduled public-works runs now include `coverage_metrics`,
 reports. Real runs can send de-duplicated admin monitoring emails through the
 `monitoring_email` notification channel when warnings/errors exist, while
 dry-runs render alerts without requiring a recipient.
+Dashboard/admin rows now expose derived `profile_fit` and
+`ai_confidence_band` fields. The UI shows these as row/preview/admin labels so
+operators see `Σίγουρο έργο`, `Μάλλον έργο`, `Θέλει έλεγχο`, `Μάλλον άσχετο`
+or `Σίγουρα άσχετο` instead of only raw AI confidence. This does not yet add
+editable per-user profiles; that should be the next product slice.
 Keep measuring live endpoint timings after each UI-heavy change.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked

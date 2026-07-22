@@ -92,6 +92,9 @@ def test_ui_preview_renders_operational_explanation() -> None:
     assert "project_sources" in APP_JS
     assert "project_operations" in APP_JS
     assert "project_timeline" in APP_JS
+    assert "profile_fit" in APP_JS
+    assert "ai_confidence_band" in APP_JS
+    assert "AI band" in APP_JS
     assert "Γιατί εμφανίζεται" in APP_JS
 
 
@@ -1849,9 +1852,15 @@ regions: []
 
     assert payload["summary"]["visible"] == 1
     visible = payload["tenders"][0]["why_visible"]
+    profile_fit = payload["tenders"][0]["profile_fit"]
+    confidence_band = payload["tenders"][0]["ai_confidence_band"]
     sources = payload["tenders"][0]["project_sources"]
     operations = payload["tenders"][0]["project_operations"]
     timeline = payload["tenders"][0]["project_timeline"]
+    assert profile_fit["band"] == "MATCH"
+    assert profile_fit["label"] == "Ταιριάζει στο προφίλ"
+    assert confidence_band["band"] == "SURE_MATCH"
+    assert confidence_band["label"] == "Σίγουρο έργο"
     assert any(item["label"] == "Πηγή" and "ΕΣΗΔΗΣ 221744" in item["text"] for item in visible)
     assert any(item["label"] == "Περιοχή" and "Δήμος Πατρέων" in item["text"] for item in visible)
     assert any(item["label"] == "AI" and "KEEP_ACTIVE_TENDER" in item["text"] for item in visible)
@@ -3599,6 +3608,7 @@ regions: []
     assert payload["summary"]["triage_kept"] == 1
     assert payload["tenders"][0]["row_key"] == "AUTHORITY:AUTH-keep"
     assert payload["tenders"][0]["ai_triage"]["decision"] == "KEEP_ACTIVE_TENDER"
+    assert payload["tenders"][0]["ai_confidence_band"]["band"] == "SURE_MATCH"
 
     unfiltered = dashboard_payload(scope="focus", apply_triage=False)
     assert unfiltered["summary"]["visible"] == 2
@@ -3649,6 +3659,9 @@ def test_admin_restore_ai_hidden_row_forces_keep(tmp_path, monkeypatch) -> None:
     audit = ui_server.admin_audit_payload()
     assert audit["summary"]["ai_hidden"] == 1
     assert audit["hidden_rows"][0]["category"] == "AI_DROP_ADMIN"
+    assert audit["hidden_rows"][0]["ai_confidence_band"]["band"] == "SURE_DROP"
+    assert audit["hidden_rows"][0]["ai_confidence_band"]["label"] == "Σίγουρα άσχετο"
+    assert audit["hidden_rows"][0]["profile_fit"]["label"] == "Ταιριάζει στο προφίλ"
     assert audit["hidden_rows"][0]["restorable"] is True
     assert "διοικητική" in audit["hidden_rows"][0]["reason"]
     assert "διοικητικό" in audit["hidden_rows"][0]["reason"]

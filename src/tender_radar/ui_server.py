@@ -4460,10 +4460,63 @@ def row_with_operational_explanation(row: dict[str, Any], *, notifications: list
     notifications = notifications or []
     return {
         **row,
+        "profile_fit": profile_fit_for_row(row),
+        "ai_confidence_band": ai_confidence_band_for_row(row),
         "why_visible": why_visible_reasons(row),
         "project_sources": project_sources(row),
         "project_operations": project_operations(row, notifications=notifications),
         "project_timeline": project_timeline_events(row, notifications=notifications),
+    }
+
+
+def profile_fit_for_row(row: dict[str, Any]) -> dict[str, str]:
+    reason = str(row.get("interest_reason") or "").strip()
+    if reason:
+        return {
+            "band": "MATCH",
+            "label": "Ταιριάζει στο προφίλ",
+            "reason": reason,
+        }
+    return {
+        "band": "UNKNOWN",
+        "label": "Χωρίς σαφές ταίριασμα προφίλ",
+        "reason": "Δεν υπάρχει καταγεγραμμένη αιτιολόγηση περιοχής/προφίλ.",
+    }
+
+
+def ai_confidence_band_for_row(row: dict[str, Any]) -> dict[str, str]:
+    ai = row.get("ai_triage") if isinstance(row.get("ai_triage"), dict) else {}
+    decision = str(ai.get("decision") or "").strip()
+    confidence = _float_or_none(ai.get("confidence"))
+    keep = not bool(row.get("ai_triage_hidden"))
+    if not ai or confidence is None:
+        return {
+            "band": "UNREVIEWED",
+            "label": "Χωρίς AI band",
+            "reason": "Δεν υπάρχει διαθέσιμη AI αξιολόγηση για αυτό το έργο.",
+        }
+    if keep and confidence >= 0.9:
+        band = "SURE_MATCH"
+        label = "Σίγουρο έργο"
+    elif keep and confidence >= 0.75:
+        band = "LIKELY_MATCH"
+        label = "Μάλλον έργο"
+    elif keep:
+        band = "NEEDS_REVIEW"
+        label = "Θέλει έλεγχο"
+    elif confidence >= 0.9:
+        band = "SURE_DROP"
+        label = "Σίγουρα άσχετο"
+    elif confidence >= 0.75:
+        band = "LIKELY_DROP"
+        label = "Μάλλον άσχετο"
+    else:
+        band = "NEEDS_REVIEW"
+        label = "Θέλει έλεγχο"
+    return {
+        "band": band,
+        "label": label,
+        "reason": f"{decision} με confidence {confidence:.2f}".strip(),
     }
 
 
@@ -6098,6 +6151,8 @@ def admin_hidden_row(
         "reason": reason,
         "ai_decision": ai.get("decision"),
         "ai_confidence": ai.get("confidence"),
+        "ai_confidence_band": ai_confidence_band_for_row({**row, "ai_triage": ai, "ai_triage_hidden": True}),
+        "profile_fit": profile_fit_for_row(row),
         "triage_override": override,
         "feedback_action": override.get("action"),
         "feedback_reason": override.get("reason"),
@@ -9556,6 +9611,8 @@ function renderAdminAudit(payload) {
       : '<span class="noteText">Audit only</span>';
     const titlePills = [
       row.ai_decision ? escapeHtml(row.ai_decision) : '',
+      row.ai_confidence_band?.label ? escapeHtml(row.ai_confidence_band.label) : '',
+      row.profile_fit?.label ? escapeHtml(row.profile_fit.label) : '',
       row.audit_match ? `match ${escapeHtml(row.audit_match.eshidis_id || '')} · ${escapeHtml(row.audit_match.score || '')}` : '',
       row.feedback_action ? `feedback ${escapeHtml(row.feedback_action)}` : '',
     ].filter(Boolean).map((label) => `<span class="pill">${label}</span>`).join('');
@@ -9564,7 +9621,7 @@ function renderAdminAudit(payload) {
       <td data-label="Α/Α"><strong>${escapeHtml(row.display_id || '')}</strong><br><span class="noteText">${escapeHtml(row.source_label || '')}</span>${row.audit_at ? `<br><span class="noteText">${escapeHtml(formatDateTime(row.audit_at))}</span>` : ''}</td>
       <td data-label="Έργο" class="tenderTitle">${escapeHtml(row.title || '')}${titlePills ? `<span class="pillStack">${titlePills}</span>` : ''}</td>
       <td data-label="Φορέας" class="authorityCell">${escapeHtml(row.authority_name || '')}</td>
-      <td data-label="Αιτιολογία">${escapeHtml(row.reason || '')}${row.ai_confidence ? `<br><span class="noteText">confidence ${escapeHtml(row.ai_confidence)}</span>` : ''}</td>
+      <td data-label="Αιτιολογία">${escapeHtml(row.reason || '')}${row.ai_confidence_band?.reason ? `<br><span class="noteText">${escapeHtml(row.ai_confidence_band.reason)}</span>` : ''}${row.ai_confidence ? `<br><span class="noteText">confidence ${escapeHtml(row.ai_confidence)}</span>` : ''}</td>
       <td data-label="Ενέργεια"><div class="actionStack">${sourceLink}${restoreButton}</div></td>
     `;
     tbody.appendChild(tr);
@@ -9597,7 +9654,7 @@ function renderAdminReviewQueue(rows) {
       <td data-label="Κατηγορία"><span class="statusChip ${adminCategoryClass(row.category)}">${escapeHtml(adminCategoryLabel(row.category))}</span></td>
       <td data-label="Α/Α"><strong>${escapeHtml(row.display_id || '')}</strong><br><span class="noteText">${escapeHtml(row.source_label || '')}</span>${row.audit_at ? `<br><span class="noteText">${escapeHtml(formatDateTime(row.audit_at))}</span>` : ''}</td>
       <td data-label="Έργο" class="tenderTitle">${escapeHtml(row.title || '')}</td>
-      <td data-label="Γιατί θέλει έλεγχο">${escapeHtml(row.review_reason || '')}<br><span class="noteText">${escapeHtml(row.reason || '')}</span>${row.ai_confidence ? `<br><span class="noteText">confidence ${escapeHtml(row.ai_confidence)}</span>` : ''}</td>
+      <td data-label="Γιατί θέλει έλεγχο">${escapeHtml(row.review_reason || '')}<br><span class="noteText">${escapeHtml(row.reason || '')}</span>${row.ai_confidence_band?.label ? `<br><span class="noteText">${escapeHtml(row.ai_confidence_band.label)} · ${escapeHtml(row.ai_confidence_band.reason || '')}</span>` : ''}${row.ai_confidence ? `<br><span class="noteText">confidence ${escapeHtml(row.ai_confidence)}</span>` : ''}</td>
       <td data-label="Ενέργεια"><div class="actionStack">
         ${sourceLink}
         <button class="tinyButton confirmDropReview" data-key="${escapeHtml(row.row_key)}">Σωστά κόπηκε</button>
@@ -9788,7 +9845,8 @@ function renderDashboard(payload) {
       tender.interest_reason || '',
       tender.official_status_label || '',
       (tender.linked_eshidis_ids || []).length ? `ΕΣΗΔΗΣ ${(tender.linked_eshidis_ids || []).join(', ')}` : '',
-      tender.ai_triage?.decision || '',
+      tender.profile_fit?.label || '',
+      tender.ai_confidence_band?.label || tender.ai_triage?.decision || '',
     ]);
     const zipUrl = `/api/document-zip?identifier=${encodeURIComponent(fetchIdentifier)}`;
     const tr = document.createElement('tr');
@@ -9925,7 +9983,13 @@ function renderTenderExplanation(tender) {
   const sources = tender.project_sources || [];
   const operations = tender.project_operations || [];
   const timeline = tender.project_timeline || [];
-  if (!reasons.length && !sources.length && !operations.length && !timeline.length) return '';
+  const profileFit = tender.profile_fit || null;
+  const confidenceBand = tender.ai_confidence_band || null;
+  if (!reasons.length && !sources.length && !operations.length && !timeline.length && !profileFit && !confidenceBand) return '';
+  const profileItems = [
+    profileFit ? `<li><strong>Προφίλ</strong>: ${escapeHtml(profileFit.label || '')}${profileFit.reason ? ` · ${escapeHtml(profileFit.reason)}` : ''}</li>` : '',
+    confidenceBand ? `<li><strong>AI band</strong>: ${escapeHtml(confidenceBand.label || '')}${confidenceBand.reason ? ` · ${escapeHtml(confidenceBand.reason)}` : ''}</li>` : '',
+  ].filter(Boolean).join('');
   const reasonItems = reasons.map((item) => `
     <li><strong>${escapeHtml(item.label || '')}</strong>${item.label ? ': ' : ''}${escapeHtml(item.text || '')}</li>
   `).join('');
@@ -9941,6 +10005,7 @@ function renderTenderExplanation(tender) {
   return `
     <section class="docItem auditBox">
       <h4>Γιατί εμφανίζεται</h4>
+      ${profileItems ? `<ul>${profileItems}</ul>` : ''}
       ${reasonItems ? `<ul>${reasonItems}</ul>` : ''}
       ${sourceItems ? `<h4>Πηγές</h4><ul>${sourceItems}</ul>` : ''}
       ${operationItems ? `<h4>Κατάσταση</h4><ul>${operationItems}</ul>` : ''}

@@ -1,3 +1,3 @@
 """Public Works Tender Radar."""
 
-__version__ = "0.1.71"
+__version__ = "0.1.72"

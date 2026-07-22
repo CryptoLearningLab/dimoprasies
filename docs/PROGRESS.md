@@ -1,5 +1,44 @@
 # Project Progress
 
+## 2026-07-22 - Public-works profile fit and AI confidence bands
+
+The runtime/UI version was bumped from `0.1.71` to `0.1.72`.
+
+Visible public-works dashboard rows now carry two derived operator-facing
+fields:
+
+- `profile_fit`: whether the row matches the active focus profile, with the
+  existing `interest_reason` as its explanation;
+- `ai_confidence_band`: a stable band derived from the AI decision,
+  confidence and keep/drop state, using labels such as `Σίγουρο έργο`,
+  `Μάλλον έργο`, `Θέλει έλεγχο`, `Μάλλον άσχετο` and `Σίγουρα άσχετο`.
+
+The frontend renders these labels as small row pills and includes them in the
+preview's `Γιατί εμφανίζεται` explanation. Admin hidden/audit rows also carry
+the same fields, so an AI rejection can be read as a business-level judgment
+instead of only a raw confidence number.
+
+This is a presentation/audit slice only. It does not change dashboard
+filtering, AI keep/drop decisions, user-scoped overrides, email skips or
+source discovery. Editable per-user interest profiles remain the next product
+step on top of this shared vocabulary.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_preview_renders_operational_explanation \
+  tests/test_ui_server.py::test_dashboard_rows_include_why_visible_and_timeline \
+  tests/test_ui_server.py::test_dashboard_uses_cached_ai_triage_to_hide_drops \
+  tests/test_ui_server.py::test_admin_restore_ai_hidden_row_forces_keep -q
+# 4 passed
+
+.venv/bin/python -m pytest -q
+# 326 passed
+```
+
 ## 2026-07-22 - Scheduled coverage metrics and monitoring alerts
 
 The runtime/UI version was bumped from `0.1.70` to `0.1.71`.
