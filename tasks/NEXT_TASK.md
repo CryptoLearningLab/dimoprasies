@@ -110,6 +110,11 @@ dashboard row payload: summary counts, why-visible reason text and attention
 buckets for expiring soon, missing documents, missing ESHIDIS and highest
 budgets in the current digest. This preserves the existing per-recipient
 notification skip behavior and does not add UI load work.
+Scheduled public-works runs now include `coverage_metrics`,
+`monitoring_alerts` and `monitoring_status` in the existing JSON/Markdown
+reports. Real runs can send de-duplicated admin monitoring emails through the
+`monitoring_email` notification channel when warnings/errors exist, while
+dry-runs render alerts without requiring a recipient.
 Keep measuring live endpoint timings after each UI-heavy change.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked

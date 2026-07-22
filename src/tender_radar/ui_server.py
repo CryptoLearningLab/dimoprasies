@@ -2887,6 +2887,7 @@ def run_scheduled_poll_and_alert(
     completed_at = utc_now_iso()
     changed_source_ids = (discovery.get("source_preflight") or {}).get("changed_source_ids") or []
     changed_source_id_set = {str(source_id) for source_id in changed_source_ids}
+    source_rows = source_polling.get("rows") or []
     payload: dict[str, Any] = {
         "ok": not errors,
         "dry_run": dry_run,
@@ -2899,12 +2900,12 @@ def run_scheduled_poll_and_alert(
         "changed_source_ids": changed_source_ids,
         "skipped_sources": [
             row["source_id"]
-            for row in source_polling.get("rows") or []
+            for row in source_rows
             if row.get("last_status") == "SKIPPED_UNCHANGED" and str(row.get("source_id") or "") not in changed_source_id_set
         ],
         "source_errors": [
             {"source_id": row.get("source_id"), "error": row.get("last_error")}
-            for row in source_polling.get("rows") or []
+            for row in source_rows
             if row.get("last_error")
         ],
         "discovery": summarize_scheduled_stage(discovery),
@@ -2916,8 +2917,212 @@ def run_scheduled_poll_and_alert(
         "errors": errors,
         "warnings": warnings,
     }
+    payload["coverage_metrics"] = scheduled_coverage_metrics(payload, source_rows=source_rows)
+    payload["monitoring_alerts"] = scheduled_monitoring_alerts(payload)
+    payload["monitoring_status"] = scheduled_monitoring_status(payload["monitoring_alerts"])
+    try:
+        payload["monitoring_email"] = send_scheduled_monitoring_alerts(payload, recipient=recipient, dry_run=dry_run)
+    except Exception as exc:  # pragma: no cover - SMTP/runtime boundary
+        payload["monitoring_email"] = {"ok": False, "error": str(exc), "sent": 0, "sent_emails": 0}
+    if payload["monitoring_email"].get("ok") is False:
+        warnings.append({"stage": "monitoring_email", "message": str(payload["monitoring_email"].get("error") or "monitoring alert email failed")})
+        payload["warnings"] = warnings
     write_scheduled_run_reports(payload, report_path=report_path, markdown_report_path=markdown_report_path)
     return payload
+
+
+def scheduled_coverage_metrics(payload: dict[str, Any], *, source_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    source_summary = payload.get("source_polling_summary") or {}
+    source_checked = [
+        row
+        for row in source_rows
+        if str(row.get("last_status") or "").strip() and str(row.get("last_status") or "").strip() != "NEVER_CHECKED"
+    ]
+    email = payload.get("email") or {}
+    entalmata = payload.get("entalmata") or {}
+    entalmata_summary = entalmata.get("summary") or {}
+    discovery = payload.get("discovery") or {}
+    ai_triage = payload.get("ai_triage") or {}
+    auto_document_fetch = payload.get("auto_document_fetch") or {}
+    return {
+        "sources_configured": int(source_summary.get("configured_total") or len(source_rows) or 0),
+        "sources_checked": len(source_checked),
+        "sources_changed": int(source_summary.get("changed_total") or 0),
+        "sources_skipped_unchanged": int(source_summary.get("unchanged_total") or 0),
+        "source_errors": int(source_summary.get("error_total") or len(payload.get("source_errors") or []) or 0),
+        "source_health_warnings": int(source_summary.get("health_warning_total") or 0),
+        "discovery_ok": discovery.get("ok"),
+        "discovery_skipped": discovery.get("skipped"),
+        "ai_triage_ok": ai_triage.get("ok"),
+        "ai_triage_skipped": ai_triage.get("skipped"),
+        "auto_document_fetch_ok": auto_document_fetch.get("ok"),
+        "auto_document_fetch_skipped": auto_document_fetch.get("skipped"),
+        "public_works_candidate_rows": int(email.get("candidate_rows") or 0),
+        "public_works_new_email_rows": int(email.get("new_count") or 0),
+        "public_works_already_emailed": int(email.get("skipped_already_sent") or 0),
+        "entalmata_candidate_rows": int(email.get("entalmata_candidate_rows") or 0),
+        "entalmata_new_email_rows": int(email.get("new_entalmata_count") or 0),
+        "entalmata_already_emailed": int(email.get("entalmata_skipped_already_sent") or 0),
+        "entalmata_matched": int(entalmata_summary.get("matched") or entalmata_summary.get("visible") or 0),
+        "email_ok": email.get("ok"),
+        "sent_items": int(email.get("sent") or 0),
+        "sent_emails": int(email.get("sent_emails") or 0),
+        "errors": len(payload.get("errors") or []),
+        "warnings": len(payload.get("warnings") or []),
+    }
+
+
+def scheduled_monitoring_alerts(payload: dict[str, Any]) -> list[dict[str, str]]:
+    metrics = payload.get("coverage_metrics") or {}
+    alerts: list[dict[str, str]] = []
+
+    def add(severity: str, code: str, message: str) -> None:
+        alerts.append({"severity": severity, "code": code, "message": message})
+
+    for item in payload.get("errors") or []:
+        add("ERROR", f"STAGE_{str(item.get('stage') or 'unknown').upper()}", str(item.get("message") or "Scheduled stage failed."))
+    if metrics.get("sources_configured") and not metrics.get("sources_checked"):
+        add("ERROR", "NO_SOURCES_CHECKED", "No configured public-works source has a completed recent polling state.")
+    if metrics.get("source_errors"):
+        add("WARNING", "SOURCE_ERRORS", f"{metrics.get('source_errors')} source(s) reported errors in the latest polling state.")
+    if metrics.get("source_health_warnings"):
+        add("WARNING", "SOURCE_HEALTH_WARNINGS", f"{metrics.get('source_health_warnings')} source(s) are degraded or need attention.")
+    if (payload.get("entalmata") or {}).get("ok") is False:
+        add("WARNING", "ENTALMATA_SCAN_FAILED", str((payload.get("entalmata") or {}).get("error") or "Entalmata scan failed."))
+    if (payload.get("auto_document_fetch") or {}).get("ok") is False:
+        add("WARNING", "AUTO_DOCUMENT_FETCH_FAILED", "Automatic document fetch did not complete cleanly.")
+    if metrics.get("public_works_new_email_rows") and not payload.get("dry_run") and not metrics.get("sent_emails"):
+        add("ERROR", "EMAIL_NOT_SENT", "New public-works rows existed but no email was sent.")
+    if (
+        metrics.get("sources_changed")
+        and not metrics.get("public_works_candidate_rows")
+        and (payload.get("discovery") or {}).get("skipped") is not True
+    ):
+        add("WARNING", "ZERO_PUBLIC_WORKS_CANDIDATES", "Changed sources produced zero public-works dashboard candidates.")
+    return alerts
+
+
+def scheduled_monitoring_status(alerts: list[dict[str, str]]) -> str:
+    if any(alert.get("severity") == "ERROR" for alert in alerts):
+        return "ERROR"
+    if alerts:
+        return "WARNING"
+    return "OK"
+
+
+def send_scheduled_monitoring_alerts(
+    payload: dict[str, Any],
+    *,
+    recipient: str | None,
+    dry_run: bool,
+) -> dict[str, Any]:
+    alerts = payload.get("monitoring_alerts") or []
+    if not alerts:
+        return {"ok": True, "skipped": True, "skip_reason": "NO_MONITORING_ALERTS", "sent": 0, "sent_emails": 0}
+    targets = email_alert_recipients(recipient)
+    if not targets:
+        if dry_run:
+            return {
+                "ok": True,
+                "dry_run": True,
+                "skipped": True,
+                "skip_reason": "DRY_RUN_RECIPIENT_NOT_CONFIGURED",
+                "alerts": len(alerts),
+                "sent": 0,
+                "sent_emails": 0,
+            }
+        return {"ok": False, "error": "Monitoring alert recipient is not configured.", "sent": 0, "sent_emails": 0}
+    signature_payload = {
+        "date": str(payload.get("started_at") or "")[:10],
+        "alerts": [(item.get("severity"), item.get("code"), item.get("message")) for item in alerts],
+    }
+    digest = hashlib.sha256(json.dumps(signature_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+    row_key = f"SYSTEM_MONITOR:{signature_payload['date']}:{digest}"
+    subject = f"Tender Radar monitoring: {payload.get('monitoring_status')}"
+    text_body = render_scheduled_monitoring_alert_text(payload)
+    html_body = render_scheduled_monitoring_alert_html(payload)
+    sent = 0
+    sent_emails = 0
+    skipped = 0
+    for target in targets:
+        if notification_already_sent(runtime_db_path(), row_key=row_key, channel="monitoring_email", recipient=target):
+            skipped += 1
+            continue
+        if not dry_run:
+            send_email_alert(target, subject, text_body, html_body)
+            record_notification_sent(
+                runtime_db_path(),
+                row_key=row_key,
+                channel="monitoring_email",
+                recipient=target,
+                subject=subject,
+                sent_at=utc_now_iso(),
+                metadata={"monitoring_status": payload.get("monitoring_status"), "alerts": alerts},
+            )
+            sent += len(alerts)
+            sent_emails += 1
+    return {
+        "ok": True,
+        "dry_run": dry_run,
+        "row_key": row_key,
+        "recipient": targets[0],
+        "recipients": targets,
+        "alerts": len(alerts),
+        "sent": sent,
+        "sent_emails": sent_emails,
+        "skipped_already_sent": skipped,
+    }
+
+
+def render_scheduled_monitoring_alert_text(payload: dict[str, Any]) -> str:
+    lines = [
+        f"Tender Radar monitoring: {payload.get('monitoring_status')}",
+        "",
+        f"Started: {payload.get('started_at')}",
+        f"Completed: {payload.get('completed_at')}",
+        "",
+        "Alerts:",
+    ]
+    for alert in payload.get("monitoring_alerts") or []:
+        lines.append(f"- {alert.get('severity')} {alert.get('code')}: {alert.get('message')}")
+    metrics = payload.get("coverage_metrics") or {}
+    lines.extend(
+        [
+            "",
+            "Coverage:",
+            f"- Sources checked: {metrics.get('sources_checked')}/{metrics.get('sources_configured')}",
+            f"- Source errors: {metrics.get('source_errors')}",
+            f"- Public works candidates: {metrics.get('public_works_candidate_rows')}",
+            f"- New public works email rows: {metrics.get('public_works_new_email_rows')}",
+            f"- Entalmata candidates: {metrics.get('entalmata_candidate_rows')}",
+            f"- Sent emails: {metrics.get('sent_emails')}",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def render_scheduled_monitoring_alert_html(payload: dict[str, Any]) -> str:
+    alerts = "".join(
+        f"<li><strong>{escape_html(alert.get('severity') or '')} {escape_html(alert.get('code') or '')}</strong>: {escape_html(alert.get('message') or '')}</li>"
+        for alert in payload.get("monitoring_alerts") or []
+    )
+    metrics = payload.get("coverage_metrics") or {}
+    coverage = (
+        "<ul>"
+        f"<li>Sources checked: {escape_html(metrics.get('sources_checked'))}/{escape_html(metrics.get('sources_configured'))}</li>"
+        f"<li>Source errors: {escape_html(metrics.get('source_errors'))}</li>"
+        f"<li>Public works candidates: {escape_html(metrics.get('public_works_candidate_rows'))}</li>"
+        f"<li>New public works email rows: {escape_html(metrics.get('public_works_new_email_rows'))}</li>"
+        f"<li>Entalmata candidates: {escape_html(metrics.get('entalmata_candidate_rows'))}</li>"
+        f"<li>Sent emails: {escape_html(metrics.get('sent_emails'))}</li>"
+        "</ul>"
+    )
+    return (
+        f"<h1>Tender Radar monitoring: {escape_html(payload.get('monitoring_status'))}</h1>"
+        f"<p>Started: {escape_html(payload.get('started_at'))}<br>Completed: {escape_html(payload.get('completed_at'))}</p>"
+        f"<h2>Alerts</h2><ul>{alerts}</ul>"
+        f"<h2>Coverage</h2>{coverage}"
+    )
 
 
 def summarize_scheduled_stage(result: dict[str, Any]) -> dict[str, Any]:
@@ -2996,6 +3201,8 @@ def write_scheduled_run_reports(
 def render_scheduled_run_markdown(payload: dict[str, Any]) -> str:
     source_summary = payload.get("source_polling_summary") or {}
     email = payload.get("email") or {}
+    coverage = payload.get("coverage_metrics") or {}
+    monitoring_alerts = payload.get("monitoring_alerts") or []
     lines = [
         "# Scheduled Poll and Alert",
         "",
@@ -3003,37 +3210,67 @@ def render_scheduled_run_markdown(payload: dict[str, Any]) -> str:
         f"- Completed: {payload.get('completed_at')}",
         f"- Dry run: {payload.get('dry_run')}",
         f"- OK: {payload.get('ok')}",
+        f"- Monitoring status: {payload.get('monitoring_status')}",
         "",
-        "## Sources",
+        "## Coverage",
         "",
-        f"- Configured: {source_summary.get('configured_total')}",
-        f"- Selective capable: {source_summary.get('selective_capable_total')}",
-        f"- Changed: {source_summary.get('changed_total')}",
-        f"- Selective changed: {source_summary.get('selective_changed_total')}",
-        f"- Skipped unchanged: {source_summary.get('unchanged_total')}",
-        f"- Errors: {source_summary.get('error_total')}",
+        f"- Sources checked: {coverage.get('sources_checked')}/{coverage.get('sources_configured')}",
+        f"- Source errors: {coverage.get('source_errors')}",
+        f"- Source health warnings: {coverage.get('source_health_warnings')}",
+        f"- Public works candidates: {coverage.get('public_works_candidate_rows')}",
+        f"- New public works email rows: {coverage.get('public_works_new_email_rows')}",
+        f"- Public works already emailed: {coverage.get('public_works_already_emailed')}",
+        f"- Entalmata candidates: {coverage.get('entalmata_candidate_rows')}",
+        f"- New entalmata email rows: {coverage.get('entalmata_new_email_rows')}",
+        f"- Sent emails: {coverage.get('sent_emails')}",
         "",
-        "## Entalmata",
-        "",
-        f"- OK: {(payload.get('entalmata') or {}).get('ok')}",
-        f"- Skipped: {(payload.get('entalmata') or {}).get('skipped')}",
-        f"- Summary: {json.dumps((payload.get('entalmata') or {}).get('summary') or {}, ensure_ascii=False)}",
-        "",
-        "## Email",
-        "",
-        f"- Candidate rows: {email.get('candidate_rows')}",
-        f"- New rows: {email.get('new_count')}",
-        f"- Already sent: {email.get('skipped_already_sent')}",
-        f"- Entalmata candidate rows: {email.get('entalmata_candidate_rows')}",
-        f"- New entalmata: {email.get('new_entalmata_count')}",
-        f"- Entalmata already sent: {email.get('entalmata_skipped_already_sent')}",
-        f"- Sent: {email.get('sent')}",
-        f"- Sent emails: {email.get('sent_emails')}",
-        f"- Recipients: {', '.join(email.get('recipients') or ([email.get('recipient')] if email.get('recipient') else []))}",
-        "",
-        "## Changed Sources",
+        "## Monitoring Alerts",
         "",
     ]
+    lines.extend(f"- {item.get('severity')} {item.get('code')}: {item.get('message')}" for item in monitoring_alerts)
+    if not monitoring_alerts:
+        lines.append("- none")
+    lines.extend(
+        [
+            "",
+            "## Sources",
+            "",
+            f"- Configured: {source_summary.get('configured_total')}",
+            f"- Selective capable: {source_summary.get('selective_capable_total')}",
+            f"- Changed: {source_summary.get('changed_total')}",
+            f"- Selective changed: {source_summary.get('selective_changed_total')}",
+            f"- Skipped unchanged: {source_summary.get('unchanged_total')}",
+            f"- Errors: {source_summary.get('error_total')}",
+            "",
+            "## Entalmata",
+            "",
+            f"- OK: {(payload.get('entalmata') or {}).get('ok')}",
+            f"- Skipped: {(payload.get('entalmata') or {}).get('skipped')}",
+            f"- Summary: {json.dumps((payload.get('entalmata') or {}).get('summary') or {}, ensure_ascii=False)}",
+            "",
+            "## Email",
+            "",
+            f"- Candidate rows: {email.get('candidate_rows')}",
+            f"- New rows: {email.get('new_count')}",
+            f"- Already sent: {email.get('skipped_already_sent')}",
+            f"- Entalmata candidate rows: {email.get('entalmata_candidate_rows')}",
+            f"- New entalmata: {email.get('new_entalmata_count')}",
+            f"- Entalmata already sent: {email.get('entalmata_skipped_already_sent')}",
+            f"- Sent: {email.get('sent')}",
+            f"- Sent emails: {email.get('sent_emails')}",
+            f"- Recipients: {', '.join(email.get('recipients') or ([email.get('recipient')] if email.get('recipient') else []))}",
+            "",
+            "## Monitoring Email",
+            "",
+            f"- OK: {(payload.get('monitoring_email') or {}).get('ok')}",
+            f"- Skipped: {(payload.get('monitoring_email') or {}).get('skipped')}",
+            f"- Alerts: {(payload.get('monitoring_email') or {}).get('alerts')}",
+            f"- Sent emails: {(payload.get('monitoring_email') or {}).get('sent_emails')}",
+            "",
+            "## Changed Sources",
+            "",
+        ]
+    )
     changed = payload.get("changed_source_ids") or []
     lines.extend(f"- {source_id}" for source_id in changed)
     if not changed:

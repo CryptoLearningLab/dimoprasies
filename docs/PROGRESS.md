@@ -1,5 +1,44 @@
 # Project Progress
 
+## 2026-07-22 - Scheduled coverage metrics and monitoring alerts
+
+The runtime/UI version was bumped from `0.1.70` to `0.1.71`.
+
+The scheduled public-works run now writes daily operational coverage and
+monitoring signals into the existing scheduled JSON/Markdown reports:
+
+- `coverage_metrics`: configured/checked sources, source errors, health
+  warnings, public-works candidate rows, new/already-sent email rows,
+  entalmata candidate rows and sent email counts;
+- `monitoring_alerts`: explicit warning/error records for failed stages,
+  source errors, degraded sources, failed entalmata/document-fetch stages,
+  unsent emails when new rows exist and changed sources producing zero
+  dashboard candidates;
+- `monitoring_status`: `OK`, `WARNING` or `ERROR`.
+
+When monitoring alerts exist on a real scheduled run, the system can send an
+admin monitoring email. Those alert emails are de-duplicated per
+date/signature/recipient through `notification_log` channel `monitoring_email`
+so the same daily problem is not repeatedly mailed. Dry-runs still render
+alerts in the report without requiring SMTP/recipient configuration.
+
+The implementation is report-first and reuses existing scheduled stage
+results plus source-polling state. It does not add an extra source scan,
+dashboard request or blocking UI endpoint.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_scheduled_poll_and_alert_writes_audit_reports \
+  tests/test_ui_server.py::test_scheduled_poll_reports_source_monitoring_alerts \
+  tests/test_ui_server.py::test_scheduled_poll_skips_auto_document_fetch_when_discovery_skipped \
+  tests/test_ui_server.py::test_scheduled_poll_treats_auto_document_fetch_failure_as_warning -q
+# 4 passed
+```
+
 ## 2026-07-22 - Public-works email digest v2
 
 The runtime/UI version was bumped from `0.1.69` to `0.1.70`.

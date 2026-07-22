@@ -1,5 +1,22 @@
 # Decision Log
 
+## D-114 — Scheduled coverage and alerts are report-first
+**Status:** Accepted
+
+The scheduled public-works run is the right place to compute daily coverage and
+system-health signals because it already executes discovery, AI triage,
+document fetch, entalmata scan and email alerts.
+
+Each scheduled report should therefore expose `coverage_metrics`,
+`monitoring_alerts` and `monitoring_status` in both JSON and Markdown. These
+metrics are derived from existing stage results and source-polling state; they
+must not trigger an extra source scan or dashboard load.
+
+Monitoring alert email is allowed when alerts exist, but it is de-duplicated
+per alert signature/date/recipient through `notification_log` under the
+`monitoring_email` channel. Dry-runs must render alerts without requiring a
+configured alert recipient.
+
 ## D-113 — Email digest uses existing dashboard evidence only
 **Status:** Accepted
 

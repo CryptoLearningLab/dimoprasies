@@ -1224,10 +1224,86 @@ def test_scheduled_poll_and_alert_writes_audit_reports(tmp_path, monkeypatch) ->
     assert payload["skipped_sources"] == ["thermo_wp"]
     assert payload["email"]["new_count"] == 1
     assert payload["entalmata"]["summary"] == {"matched": 2, "archived": 1}
+    assert payload["coverage_metrics"]["sources_checked"] == 2
+    assert payload["coverage_metrics"]["public_works_new_email_rows"] == 1
+    assert payload["monitoring_status"] == "OK"
+    assert payload["monitoring_alerts"] == []
+    assert payload["monitoring_email"]["skipped"] is True
     assert report.exists()
     assert markdown.exists()
-    assert "Scheduled Poll and Alert" in markdown.read_text(encoding="utf-8")
-    assert "## Entalmata" in markdown.read_text(encoding="utf-8")
+    markdown_text = markdown.read_text(encoding="utf-8")
+    assert "Scheduled Poll and Alert" in markdown_text
+    assert "## Coverage" in markdown_text
+    assert "## Monitoring Alerts" in markdown_text
+    assert "## Entalmata" in markdown_text
+
+
+def test_scheduled_poll_reports_source_monitoring_alerts(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    monkeypatch.setattr(
+        ui_server,
+        "run_discovery_search",
+        lambda limit, backfill=False: {
+            "ok": True,
+            "skipped": False,
+            "source_preflight": {"changed_source_ids": ["diavgeia"]},
+            "steps": [],
+            "dashboard": {"summary": {"visible": 0}},
+        },
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "run_incremental_ai_triage",
+        lambda scope="focus", sort="deadline_asc", batch_size=20: {"ok": True, "summary": {"rows": 0}},
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "run_auto_document_fetch",
+        lambda scope="focus", limit=50: {"ok": True, "summary": {"attempted": 0}},
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "run_email_alerts",
+        lambda scope="focus", sort="deadline_asc", recipient=None, dry_run=False: {
+            "ok": True,
+            "dry_run": dry_run,
+            "recipient": recipient,
+            "recipients": ["owner@example.test"],
+            "candidate_rows": 0,
+            "new_count": 0,
+            "skipped_already_sent": 0,
+            "sent": 0,
+            "sent_emails": 0,
+        },
+    )
+    monkeypatch.setattr(
+        ui_server,
+        "source_polling_payload",
+        lambda: {
+            "summary": {
+                "configured_total": 2,
+                "changed_total": 1,
+                "unchanged_total": 0,
+                "error_total": 1,
+                "health_warning_total": 1,
+            },
+            "rows": [
+                {"source_id": "diavgeia", "last_status": "ERROR", "last_error": "HTTP 503"},
+                {"source_id": "eshidis_active_search", "last_status": "CHANGED"},
+            ],
+        },
+    )
+    monkeypatch.setattr(ui_server, "run_scheduled_entalmata_scan", lambda: {"ok": True, "summary": {}})
+
+    payload = run_scheduled_poll_and_alert(recipient="owner@example.test", dry_run=True)
+
+    assert payload["ok"] is True
+    assert payload["monitoring_status"] == "WARNING"
+    codes = {alert["code"] for alert in payload["monitoring_alerts"]}
+    assert {"SOURCE_ERRORS", "SOURCE_HEALTH_WARNINGS", "ZERO_PUBLIC_WORKS_CANDIDATES"} <= codes
+    assert payload["monitoring_email"]["ok"] is True
+    assert payload["monitoring_email"]["alerts"] == len(payload["monitoring_alerts"])
 
 
 def test_scheduled_poll_skips_ai_when_all_rows_already_triaged(tmp_path, monkeypatch) -> None:
