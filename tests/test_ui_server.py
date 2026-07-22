@@ -86,6 +86,13 @@ def test_ui_exposes_source_polling_audit() -> None:
     assert "$('workflow').classList.contains('active')" in APP_JS
 
 
+def test_ui_preview_renders_operational_explanation() -> None:
+    assert "renderTenderExplanation" in APP_JS
+    assert "why_visible" in APP_JS
+    assert "project_timeline" in APP_JS
+    assert "Γιατί εμφανίζεται" in APP_JS
+
+
 def test_cached_payload_reuses_builder_and_marks_cache_hit() -> None:
     ui_server.invalidate_ui_payload_cache()
     calls = {"count": 0}
@@ -1647,6 +1654,70 @@ regions: []
     assert payload["tenders"][0]["download_url"] == "https://example.test/attachment/26PROC000000001"
     assert payload["tenders"][0]["supports_eshidis_actions"] is False
     assert payload["tenders"][0]["deadline_display"] == "24-07-2026 13:00"
+
+
+def test_dashboard_rows_include_why_visible_and_timeline(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    ui_server.invalidate_ui_payload_cache()
+    (tmp_path / "config").mkdir()
+    (tmp_path / "work/reports").mkdir(parents=True)
+    (tmp_path / "config/locations.yml").write_text(
+        """
+timezone: Europe/Athens
+municipalities:
+  - id: patras
+    name: "Δήμος Πατρέων"
+    aliases: ["Πάτρα", "Πατρών"]
+    nuts: ["EL632"]
+regions: []
+""",
+        encoding="utf-8",
+    )
+    row = ui_server.decorate_tender_row(
+        {
+            "source": "sqlite",
+            "source_label": "ΕΣΗΔΗΣ",
+            "row_key": "221744",
+            "display_id": "221744",
+            "eshidis_id": "221744",
+            "title": "Κατασκευή έργου στον Δήμο Πατρέων",
+            "authority_name": "Δήμος Πατρέων",
+            "budget_with_vat": 1000000,
+            "current_deadline_at": "2026-08-20T10:00:00",
+            "document_evidence_count": 2,
+        }
+    )
+    monkeypatch.setattr(ui_server, "merged_tender_rows", lambda: [row])
+    monkeypatch.setattr(
+        ui_server,
+        "ai_triage_by_row_key",
+        lambda: {
+            "221744": {
+                "decision": "KEEP_ACTIVE_TENDER",
+                "confidence": 0.91,
+                "reason": "Ενεργό δημόσιο έργο στην περιοχή ενδιαφέροντος.",
+                "keep_for_daily_review": True,
+            }
+        },
+    )
+
+    payload = dashboard_payload(scope="focus", as_of=date(2026, 7, 21), perform_expired_cleanup=False)
+
+    assert payload["summary"]["visible"] == 1
+    visible = payload["tenders"][0]["why_visible"]
+    timeline = payload["tenders"][0]["project_timeline"]
+    assert any(item["label"] == "Πηγή" and "ΕΣΗΔΗΣ 221744" in item["text"] for item in visible)
+    assert any(item["label"] == "Περιοχή" and "Δήμος Πατρέων" in item["text"] for item in visible)
+    assert any(item["label"] == "AI" and "KEEP_ACTIVE_TENDER" in item["text"] for item in visible)
+    assert any(item["label"] == "Έγγραφα" and "2" in item["text"] for item in visible)
+    assert [item["label"] for item in timeline] == [
+        "Εντοπισμός",
+        "Φίλτρο ενδιαφέροντος",
+        "ΕΣΗΔΗΣ",
+        "Προθεσμία",
+        "Έγγραφα",
+        "AI έλεγχος",
+    ]
 
 
 def test_dashboard_hides_kimdis_duplicate_when_linked_eshidis_row_exists(tmp_path, monkeypatch) -> None:

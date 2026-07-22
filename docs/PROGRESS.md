@@ -1,5 +1,36 @@
 # Project Progress
 
+## 2026-07-21 - Public-works dashboard explains why each row is visible
+
+The runtime/UI version was bumped from `0.1.64` to `0.1.65`.
+
+Each visible public-works dashboard row now carries a lightweight operational
+explanation:
+
+- `why_visible`: source, region/interest match, ESHIDIS linkage status,
+  active deadline evidence, AI keep decision when available and document
+  evidence count;
+- `project_timeline`: discovery, interest filtering, ESHIDIS linkage,
+  deadline verification, document availability and AI review events.
+
+The preview pane renders this explanation above the downloaded/known
+documents, including rows that do not yet have local attachments. This gives
+the operator an immediate answer to "why am I seeing this?" without adding a
+new endpoint or extra page-load work.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_preview_renders_operational_explanation \
+  tests/test_ui_server.py::test_dashboard_rows_include_why_visible_and_timeline \
+  tests/test_ui_server.py::test_dashboard_includes_kimdis_expanded_open_proc_candidates \
+  tests/test_ui_server.py::test_ui_shows_current_version_badge -q
+# 4 passed
+
+.venv/bin/python -m pytest -q
+# 319 passed
+```
+
 ## 2026-07-21 - UI payload performance cache and lazy tab loading
 
 The runtime/UI version was bumped from `0.1.62` to `0.1.64`.

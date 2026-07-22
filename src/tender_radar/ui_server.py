@@ -4014,6 +4014,7 @@ def dashboard_payload(
     triage_visible_rows = [row for row in active_rows if not row.get("ai_triage_hidden")]
     visible_rows = [row for row in triage_visible_rows if row["interest_match"]]
     visible_rows = sort_dashboard_rows(visible_rows, sort=sort)
+    visible_rows = [row_with_operational_explanation(row) for row in visible_rows]
     return {
         "scope": safe_scope,
         "sort": sort if sort in {"deadline_asc", "budget_desc"} else "deadline_asc",
@@ -4037,6 +4038,96 @@ def dashboard_payload(
             "Discovery rows remain candidates until official detail/status verification."
         ),
     }
+
+
+def row_with_operational_explanation(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **row,
+        "why_visible": why_visible_reasons(row),
+        "project_timeline": project_timeline_events(row),
+    }
+
+
+def why_visible_reasons(row: dict[str, Any]) -> list[dict[str, str]]:
+    reasons: list[dict[str, str]] = []
+    source_label = str(row.get("source_label") or row.get("source") or "πηγή").strip()
+    display_id = str(row.get("display_id") or row.get("eshidis_id") or row.get("official_id") or "").strip()
+    source_text = f"{source_label} {display_id}".strip()
+    if source_text:
+        reasons.append({"label": "Πηγή", "text": f"Εντοπίστηκε από {source_text}."})
+
+    interest = str(row.get("interest_reason") or "").strip()
+    if interest:
+        reasons.append({"label": "Περιοχή", "text": f"Ταιριάζει με {interest}."})
+
+    status_label = str(row.get("official_status_label") or "").strip()
+    if status_label:
+        reasons.append({"label": "Σύνδεση", "text": status_label})
+
+    deadline = str(row.get("deadline_display") or "").strip()
+    if deadline:
+        if row.get("deadline_verification_status") == "DOCUMENT_DEADLINE_EVIDENCE":
+            reasons.append({"label": "Προθεσμία", "text": f"Ενεργή προθεσμία από κατεβασμένα έγγραφα: {deadline}."})
+        else:
+            reasons.append({"label": "Προθεσμία", "text": f"Ενεργή προθεσμία: {deadline}."})
+
+    ai = row.get("ai_triage") if isinstance(row.get("ai_triage"), dict) else {}
+    if ai:
+        decision = str(ai.get("decision") or "").strip()
+        confidence = ai.get("confidence")
+        suffix = f" με confidence {confidence}" if confidence not in (None, "") else ""
+        if decision:
+            reasons.append({"label": "AI", "text": f"Κρατήθηκε από AI ως {decision}{suffix}."})
+        elif ai.get("reason"):
+            reasons.append({"label": "AI", "text": str(ai.get("reason"))})
+
+    document_count = int(row.get("document_evidence_count") or 0)
+    if document_count:
+        reasons.append({"label": "Έγγραφα", "text": f"Υπάρχουν {document_count} κατεβασμένα/ελεγμένα έγγραφα πηγής."})
+    elif row.get("has_local_documents"):
+        reasons.append({"label": "Έγγραφα", "text": "Υπάρχουν τοπικά αρχεία για αυτό το έργο."})
+
+    return reasons
+
+
+def project_timeline_events(row: dict[str, Any]) -> list[dict[str, str]]:
+    events: list[dict[str, str]] = []
+    source_label = str(row.get("source_label") or row.get("source") or "πηγή").strip()
+    display_id = str(row.get("display_id") or row.get("eshidis_id") or row.get("official_id") or "").strip()
+    discovered_at = str(row.get("discovered_at") or row.get("published_at") or row.get("retrieved_at") or "").strip()
+    events.append(
+        {
+            "label": "Εντοπισμός",
+            "text": f"{source_label} {display_id}".strip() or "Εντοπίστηκε από διαθέσιμη πηγή.",
+            "at": discovered_at,
+        }
+    )
+
+    interest = str(row.get("interest_reason") or "").strip()
+    if interest:
+        events.append({"label": "Φίλτρο ενδιαφέροντος", "text": interest, "at": ""})
+
+    linked_ids = linked_eshidis_ids_for_row(row)
+    eshidis_id = str(row.get("eshidis_id") or "").strip()
+    if eshidis_id or linked_ids:
+        ids = ", ".join([eshidis_id, *[value for value in linked_ids if value != eshidis_id]]).strip(", ")
+        events.append({"label": "ΕΣΗΔΗΣ", "text": f"Σύνδεση με Α/Α {ids}.", "at": ""})
+
+    deadline = str(row.get("deadline_display") or "").strip()
+    if deadline:
+        source = "από έγγραφα" if row.get("deadline_verification_status") == "DOCUMENT_DEADLINE_EVIDENCE" else "από επίσημη εγγραφή"
+        events.append({"label": "Προθεσμία", "text": f"{deadline} ({source}).", "at": ""})
+
+    document_count = int(row.get("document_evidence_count") or 0)
+    if document_count:
+        events.append({"label": "Έγγραφα", "text": f"{document_count} έγγραφα διαθέσιμα στο σύστημα.", "at": ""})
+
+    ai = row.get("ai_triage") if isinstance(row.get("ai_triage"), dict) else {}
+    if ai:
+        reason = str(ai.get("reason") or ai.get("decision") or "").strip()
+        events.append({"label": "AI έλεγχος", "text": reason, "at": str(ai.get("triage_generated_at") or "")})
+
+    return events
 
 
 def reverse_search_payload(payload: dict[str, Any], *, user_email: str | None = None) -> dict[str, Any]:
@@ -7947,6 +8038,24 @@ td:nth-child(2) { white-space: nowrap; color: var(--muted); font-weight: 700; }
   gap: 8px;
   margin-top: 10px;
 }
+.auditBox {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+.auditBox ul {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+.auditBox li {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.auditBox strong {
+  color: #0f172a;
+}
 .entalmataGrid {
   display: grid;
   gap: 12px;
@@ -9086,6 +9195,25 @@ function resetPreview() {
   $('previewBody').innerHTML = '<p class="mutedLine">Εδώ θα εμφανιστούν η διακήρυξη, η τεχνική περιγραφή και ο προϋπολογισμός όταν υπάρχουν κατεβασμένα ή γνωστά συνημμένα.</p>';
 }
 
+function renderTenderExplanation(tender) {
+  const reasons = tender.why_visible || [];
+  const timeline = tender.project_timeline || [];
+  if (!reasons.length && !timeline.length) return '';
+  const reasonItems = reasons.map((item) => `
+    <li><strong>${escapeHtml(item.label || '')}</strong>${item.label ? ': ' : ''}${escapeHtml(item.text || '')}</li>
+  `).join('');
+  const timelineItems = timeline.map((item) => `
+    <li><strong>${escapeHtml(item.label || '')}</strong>${item.label ? ': ' : ''}${escapeHtml(item.text || '')}${item.at ? ` · ${escapeHtml(formatDateTime(item.at))}` : ''}</li>
+  `).join('');
+  return `
+    <section class="docItem auditBox">
+      <h4>Γιατί εμφανίζεται</h4>
+      ${reasonItems ? `<ul>${reasonItems}</ul>` : ''}
+      ${timelineItems ? `<h4>Timeline</h4><ul>${timelineItems}</ul>` : ''}
+    </section>
+  `;
+}
+
 async function selectTender(eshidisId, downloadFirst) {
   if (!eshidisId) return;
   state.selected = eshidisId;
@@ -9104,15 +9232,15 @@ async function selectTender(eshidisId, downloadFirst) {
     ? `https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/${encodeURIComponent(preferredEshidis)}`
     : (tender.official_url || tender.attachment_url || tender.download_url || '#');
   if (supportsAuthority) {
-    await renderAuthorityPreview(tender.row_key || eshidisId);
+    await renderAuthorityPreview(tender.row_key || eshidisId, tender);
     return;
   }
   if (supportsKimdis) {
-    await renderKimdisPreview(tender.official_id || tender.display_id || eshidisId);
+    await renderKimdisPreview(tender.official_id || tender.display_id || eshidisId, tender);
     return;
   }
   if (!supportsEshidis) {
-    $('previewBody').innerHTML = `
+    $('previewBody').innerHTML = renderTenderExplanation(tender) + `
       <div class="emptyState">
         Η γραμμή είναι ${escapeHtml(tender.status || 'candidate')} από το expanded report.
         Δεν υπάρχει ακόμα τοπικό fetched αρχείο για preview. Άνοιξε το link σε νέα καρτέλα για τα επίσημα στοιχεία της πηγής.
@@ -9124,7 +9252,7 @@ async function selectTender(eshidisId, downloadFirst) {
     await runAction('/api/download-all', { eshidis_id: actualEshidisId }, `Downloading files for ${actualEshidisId}...`);
     await refreshRuntimeViews();
   }
-  await renderPreview(actualEshidisId);
+  await renderPreview(actualEshidisId, tender);
 }
 
 function highlightSelectedRow() {
@@ -9144,11 +9272,11 @@ async function fetchTenderDocuments(rowKey, identifier) {
   await refreshRuntimeViews();
   const tender = (state.dashboard?.tenders || []).find((item) => (item.row_key || item.eshidis_id) === rowKey) || {};
   if (isKimdisCode(identifier)) {
-    await renderKimdisPreview(identifier);
+    await renderKimdisPreview(identifier, tender);
   } else if (String(identifier || '').startsWith('AUTHORITY:')) {
-    await renderAuthorityPreview(identifier);
+    await renderAuthorityPreview(identifier, tender);
   } else {
-    await renderPreview(identifier);
+    await renderPreview(identifier, tender);
   }
   if (tender.title) {
     $('previewTitle').textContent = `${tender.display_id || identifier} · ${tender.title}`;
@@ -9169,14 +9297,15 @@ async function dismissTender(rowKey) {
   await refreshRuntimeViews();
 }
 
-async function renderAuthorityPreview(rowKey) {
+async function renderAuthorityPreview(rowKey, tender = {}) {
   const payload = await api(`/api/authority-document-preview?row_key=${encodeURIComponent(rowKey)}`);
   const docs = payload.documents || [];
   const linkedIds = payload.linked_eshidis_ids || [];
   const linkedDocs = payload.linked_eshidis_documents || [];
   const linkedFileCount = Number(payload.linked_eshidis_file_count || 0);
+  const explanation = renderTenderExplanation(tender);
   if (!docs.length) {
-    $('previewBody').innerHTML = '<div class="emptyState">Υπάρχουν links εγγράφων στη σελίδα του φορέα. Πάτα Fetch για να κατέβουν τοπικά και μετά ZIP.</div>';
+    $('previewBody').innerHTML = explanation + '<div class="emptyState">Υπάρχουν links εγγράφων στη σελίδα του φορέα. Πάτα Fetch για να κατέβουν τοπικά και μετά ZIP.</div>';
     return;
   }
   const linkedBlock = linkedIds.length
@@ -9191,7 +9320,7 @@ async function renderAuthorityPreview(rowKey) {
       </div>
     </article>
   `).join('');
-  $('previewBody').innerHTML = linkedBlock + linkedDocuments + docs.map((doc) => `
+  $('previewBody').innerHTML = explanation + linkedBlock + linkedDocuments + docs.map((doc) => `
     <article class="docItem">
       <h4>${escapeHtml(doc.label)}${doc.available ? '' : ' · δεν έχει κατέβει'}</h4>
       <p>${escapeHtml(doc.name || '')}</p>
@@ -9203,14 +9332,15 @@ async function renderAuthorityPreview(rowKey) {
   `).join('');
 }
 
-async function renderKimdisPreview(officialId) {
+async function renderKimdisPreview(officialId, tender = {}) {
   const payload = await api(`/api/kimdis-document-preview?official_id=${encodeURIComponent(officialId)}`);
   const docs = payload.documents || [];
   const linkedIds = payload.linked_eshidis_ids || [];
   const linkedDocs = payload.linked_eshidis_documents || [];
   const linkedFileCount = Number(payload.linked_eshidis_file_count || 0);
+  const explanation = renderTenderExplanation(tender);
   if (!docs.length) {
-    $('previewBody').innerHTML = '<div class="emptyState">Δεν υπάρχει ακόμα structured ΚΗΜΔΗΣ preview για αυτό το ΑΔΑΜ.</div>';
+    $('previewBody').innerHTML = explanation + '<div class="emptyState">Δεν υπάρχει ακόμα structured ΚΗΜΔΗΣ preview για αυτό το ΑΔΑΜ.</div>';
     return;
   }
   const linkedBlock = linkedIds.length
@@ -9225,7 +9355,7 @@ async function renderKimdisPreview(officialId) {
       </div>
     </article>
   `).join('');
-  $('previewBody').innerHTML = linkedBlock + linkedDocuments + docs.map((doc) => `
+  $('previewBody').innerHTML = explanation + linkedBlock + linkedDocuments + docs.map((doc) => `
     <article class="docItem">
       <h4>${escapeHtml(doc.label)}${doc.available ? '' : ' · δεν έχει κατέβει'}</h4>
       <p>${escapeHtml(doc.name || '')}</p>
@@ -9238,14 +9368,15 @@ async function renderKimdisPreview(officialId) {
   `).join('');
 }
 
-async function renderPreview(eshidisId) {
+async function renderPreview(eshidisId, tender = {}) {
   const payload = await api(`/api/document-preview?eshidis_id=${encodeURIComponent(eshidisId)}`);
   const docs = payload.documents || [];
+  const explanation = renderTenderExplanation(tender);
   if (!docs.length) {
-    $('previewBody').innerHTML = '<div class="emptyState">Δεν υπάρχουν ακόμα συνημμένα στη βάση για αυτό το έργο. Πάτα Fetch official detail και μετά Download files.</div>';
+    $('previewBody').innerHTML = explanation + '<div class="emptyState">Δεν υπάρχουν ακόμα συνημμένα στη βάση για αυτό το έργο. Πάτα Fetch official detail και μετά Download files.</div>';
     return;
   }
-  $('previewBody').innerHTML = docs.map((doc) => `
+  $('previewBody').innerHTML = explanation + docs.map((doc) => `
     <article class="docItem">
       <h4>${escapeHtml(doc.label)}${doc.available ? '' : ' · δεν έχει κατέβει'}</h4>
       <p>${escapeHtml(doc.name || '')}</p>

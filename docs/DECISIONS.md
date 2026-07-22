@@ -1,5 +1,19 @@
 # Decision Log
 
+## D-108 — Visible dashboard rows carry their own explanation
+**Status:** Accepted
+
+The public-works dashboard should not require an operator to infer why a row
+appears from scattered fields. Every visible row should include a lightweight
+`why_visible` explanation and `project_timeline` events derived from already
+loaded row data: source, interest match, ESHIDIS linkage, deadline evidence,
+document evidence and AI keep reasoning when available.
+
+This explanation belongs in the existing dashboard payload so the preview pane
+can render it without a second blocking request. More detailed provenance can
+be added later, but the initial operator-facing answer must be cheap and
+available for every visible row.
+
 ## D-107 — UI rendering is read-only and cache-backed
 **Status:** Accepted
 
