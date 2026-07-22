@@ -1,5 +1,44 @@
 # Project Progress
 
+## 2026-07-22 - Public-works email digest v2
+
+The runtime/UI version was bumped from `0.1.69` to `0.1.70`.
+
+Public-works email alerts now render as a structured digest instead of a flat
+list. The digest still uses the existing per-recipient notification log and
+only sends rows that have not already been emailed to that recipient.
+
+For the new rows being emailed, the message now includes:
+
+- summary counts for total new projects, projects expiring within seven days,
+  rows without recorded documents and rows without ESHIDIS linkage;
+- per-project reason text from the existing `why_visible` payload;
+- per-project signal labels such as expiring soon, missing documents and
+  missing ESHIDIS;
+- a `Σήματα προσοχής` section grouping the same new rows into action buckets,
+  including expiring soon, missing documents, missing ESHIDIS and highest
+  budgets in the current digest.
+
+The digest is generated from the already built dashboard payload. It does not
+add a new endpoint, dashboard request or source/document scan, so it should not
+slow the initial public-works screen.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_email_alerts_payload_skips_rows_already_sent \
+  tests/test_ui_server.py::test_email_alerts_payload_supports_multiple_recipients \
+  tests/test_ui_server.py::test_email_digest_groups_operational_signals \
+  tests/test_ui_server.py::test_email_alerts_payload_includes_clickable_entalmata_once_per_recipient -q
+# 4 passed
+
+.venv/bin/python -m pytest -q
+# 325 passed
+```
+
 ## 2026-07-22 - Client-side expiring-soon public-works view
 
 The runtime/UI version was bumped from `0.1.68` to `0.1.69`.

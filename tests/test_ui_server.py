@@ -1060,6 +1060,50 @@ def test_email_alerts_payload_supports_multiple_recipients(tmp_path, monkeypatch
     assert by_recipient["two@example.test"]["skipped_already_sent"] == 0
 
 
+def test_email_digest_groups_operational_signals(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    monkeypatch.setattr(ui_server, "email_alert_recipients", lambda recipient=None: ["owner@example.test"])
+    monkeypatch.setattr(
+        ui_server,
+        "dashboard_payload",
+        lambda scope="focus", sort="deadline_asc": {
+            "summary": {"visible": 1},
+            "tenders": [
+                {
+                    "row_key": "KIMDIS:26PROC000000001",
+                    "display_id": "26PROC000000001",
+                    "source_label": "ΚΗΜΔΗΣ",
+                    "official_url": "https://example.test/notice",
+                    "title": "Αναπλάσεις πλατείας",
+                    "authority_name": "Δήμος Ναυπακτίας",
+                    "budget_display": "750.000",
+                    "budget_sort": 750000,
+                    "deadline_display": "2026-07-24 10:00",
+                    "deadline_sort": "2026-07-24 10:00",
+                    "why_visible": [
+                        {"label": "Περιοχή", "text": "Ταιριάζει με Ναυπακτία."},
+                        {"label": "Προθεσμία", "text": "Ενεργή προθεσμία: 2026-07-24 10:00."},
+                    ],
+                    "project_operations": [
+                        {"label": "Έγγραφα", "status": "pending", "text": "Δεν έχουν καταγραφεί ακόμα τοπικά έγγραφα."},
+                        {"label": "Email", "status": "pending", "text": "Δεν έχει καταγραφεί αποστολή email για αυτό το έργο."},
+                    ],
+                }
+            ],
+        },
+    )
+
+    payload = email_alerts_payload(dry_run=True)
+
+    assert "Σήματα προσοχής" in payload["text_body"]
+    assert "Χωρίς έγγραφα" in payload["text_body"]
+    assert "Χωρίς ΕΣΗΔΗΣ" in payload["text_body"]
+    assert "Γιατί σε ενδιαφέρει: Ταιριάζει με Ναυπακτία." in payload["text_body"]
+    assert "Σήματα: λήγει σύντομα, χωρίς έγγραφα, χωρίς ΕΣΗΔΗΣ" in payload["text_body"]
+    assert "<h2>Σήματα προσοχής</h2>" in payload["html_body"]
+
+
 def test_email_alerts_payload_includes_clickable_entalmata_once_per_recipient(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "data").mkdir()

@@ -105,6 +105,11 @@ Project detail timeline v2 now exposes sources, operational status, email
 notification status and feedback in the existing dashboard preview payload.
 The `Λήγουν σύντομα` overview is client-side only from `dashboard.tenders`, so
 it should not add backend work to initial load.
+Public-works email alerts now render a structured digest from the same
+dashboard row payload: summary counts, why-visible reason text and attention
+buckets for expiring soon, missing documents, missing ESHIDIS and highest
+budgets in the current digest. This preserves the existing per-recipient
+notification skip behavior and does not add UI load work.
 Keep measuring live endpoint timings after each UI-heavy change.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked

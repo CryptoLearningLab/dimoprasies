@@ -1,5 +1,22 @@
 # Decision Log
 
+## D-113 — Email digest uses existing dashboard evidence only
+**Status:** Accepted
+
+Public-works email alerts should become a practical daily digest, but they
+must not add work to the initial dashboard load or change notification
+semantics. The digest therefore reuses the already assembled dashboard row
+payload and the existing per-recipient `notification_log` checks.
+
+Rows already emailed to a recipient remain skipped for that recipient. The new
+digest format adds summary counts, reason text and attention buckets only for
+the rows that would already be sent.
+
+Budget highlighting is relative to the current digest (`Υψηλότεροι
+προϋπολογισμοί`) instead of a hardcoded business threshold. User- or
+profile-specific budget thresholds should be introduced later through
+configuration/profile settings, not in the email renderer.
+
 ## D-112 — Expiring-soon view is derived client-side
 **Status:** Accepted
 

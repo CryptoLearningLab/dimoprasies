@@ -3141,6 +3141,7 @@ def email_alerts_payload(
 def email_alert_row(row: dict[str, Any]) -> dict[str, Any]:
     row_key = str(row.get("row_key") or row.get("eshidis_id") or row.get("official_id") or row.get("display_id") or "")
     official_url = official_url_for_row(row)
+    linked_ids = linked_eshidis_ids_for_row(row)
     return {
         "row_key": row_key,
         "display_id": row.get("display_id") or row.get("eshidis_id") or row.get("official_id"),
@@ -3148,9 +3149,91 @@ def email_alert_row(row: dict[str, Any]) -> dict[str, Any]:
         "title": row.get("title"),
         "authority_name": row.get("authority_name"),
         "budget_display": row.get("budget_display"),
+        "budget_sort": row.get("budget_sort"),
         "deadline_display": row.get("deadline_display"),
+        "deadline_sort": row.get("deadline_sort"),
+        "eshidis_id": row.get("eshidis_id"),
+        "linked_eshidis_ids": linked_ids,
+        "interest_reason": row.get("interest_reason"),
+        "why_visible": row.get("why_visible") or [],
+        "project_operations": row.get("project_operations") or [],
         "official_url": official_url,
     }
+
+
+def email_row_reason(row: dict[str, Any]) -> str:
+    for reason in row.get("why_visible") or []:
+        if not isinstance(reason, dict):
+            continue
+        label = str(reason.get("label") or "").strip()
+        text = str(reason.get("text") or "").strip()
+        if text and label not in {"Πηγή", "Έγγραφα"}:
+            return text
+    return str(row.get("interest_reason") or "").strip()
+
+
+def email_operation(row: dict[str, Any], label: str) -> dict[str, str] | None:
+    for operation in row.get("project_operations") or []:
+        if isinstance(operation, dict) and operation.get("label") == label:
+            return {str(key): str(value) for key, value in operation.items()}
+    return None
+
+
+def email_row_has_documents(row: dict[str, Any]) -> bool:
+    operation = email_operation(row, "Έγγραφα")
+    if operation:
+        return operation.get("status") == "ok"
+    return False
+
+
+def email_row_has_eshidis(row: dict[str, Any]) -> bool:
+    return bool(str(row.get("eshidis_id") or "").strip() or row.get("linked_eshidis_ids"))
+
+
+def email_deadline_days(row: dict[str, Any]) -> int | None:
+    value = str(row.get("deadline_sort") or row.get("deadline_display") or "").strip()
+    parsed = deadline_datetime(value)
+    if not parsed:
+        return None
+    today = datetime.now(dashboard_timezone()).date()
+    return (parsed.date() - today).days
+
+
+def email_budget_value(row: dict[str, Any]) -> float | None:
+    value = row.get("budget_sort")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def email_attention_buckets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    expiring = [row for row in rows if (days := email_deadline_days(row)) is not None and 0 <= days <= 7]
+    missing_documents = [row for row in rows if not email_row_has_documents(row)]
+    missing_eshidis = [row for row in rows if not email_row_has_eshidis(row)]
+    with_budget = [row for row in rows if email_budget_value(row) is not None]
+    highest_budget = sorted(with_budget, key=lambda item: email_budget_value(item) or 0, reverse=True)[:3]
+    buckets = [
+        {"title": "Λήγουν σύντομα", "rows": expiring},
+        {"title": "Χωρίς έγγραφα", "rows": missing_documents},
+        {"title": "Χωρίς ΕΣΗΔΗΣ", "rows": missing_eshidis},
+        {"title": "Υψηλότεροι προϋπολογισμοί", "rows": highest_budget},
+    ]
+    return [bucket for bucket in buckets if bucket["rows"]]
+
+
+def email_signal_labels(row: dict[str, Any]) -> list[str]:
+    labels: list[str] = []
+    days = email_deadline_days(row)
+    if days is not None and 0 <= days <= 7:
+        labels.append("λήγει σύντομα")
+    if not email_row_has_documents(row):
+        labels.append("χωρίς έγγραφα")
+    if not email_row_has_eshidis(row):
+        labels.append("χωρίς ΕΣΗΔΗΣ")
+    return labels
 
 
 def entalmata_email_rows() -> list[dict[str, Any]]:
@@ -3208,8 +3291,22 @@ def render_email_text(rows: list[dict[str, Any]], *, entalmata_rows: list[dict[s
         return "Δεν υπάρχουν νέες ειδοποιήσεις για αποστολή."
     lines: list[str] = []
     if rows:
-        lines.extend(["Νέα έργα Tender Radar:", ""])
+        lines.extend(
+            [
+                "Tender Radar - Νέα έργα",
+                "",
+                f"Σύνολο νέων έργων: {len(rows)}",
+                f"Λήγουν εντός 7 ημερών: {len([row for row in rows if (days := email_deadline_days(row)) is not None and 0 <= days <= 7])}",
+                f"Χωρίς καταγεγραμμένα έγγραφα: {len([row for row in rows if not email_row_has_documents(row)])}",
+                f"Χωρίς σύνδεση ΕΣΗΔΗΣ: {len([row for row in rows if not email_row_has_eshidis(row)])}",
+                "",
+                "Νέα έργα:",
+                "",
+            ]
+        )
     for index, row in enumerate(rows, start=1):
+        reason = email_row_reason(row)
+        signals = ", ".join(email_signal_labels(row))
         lines.extend(
             [
                 f"{index}. {row.get('title') or ''}",
@@ -3218,10 +3315,20 @@ def render_email_text(rows: list[dict[str, Any]], *, entalmata_rows: list[dict[s
                 f"Φορέας: {row.get('authority_name') or ''}",
                 f"Προϋπολογισμός: {row.get('budget_display') or ''}",
                 f"Λήξη: {row.get('deadline_display') or ''}",
+                f"Γιατί σε ενδιαφέρει: {reason or 'Δεν υπάρχει πρόσθετη αιτιολόγηση.'}",
+                f"Σήματα: {signals or 'κανένα'}",
                 f"Link: {row.get('official_url') or ''}",
                 "",
             ]
         )
+    buckets = email_attention_buckets(rows)
+    if buckets:
+        lines.extend(["Σήματα προσοχής:", ""])
+        for bucket in buckets:
+            lines.append(f"{bucket['title']}:")
+            for row in bucket["rows"]:
+                lines.append(f"- {row.get('display_id') or ''}: {row.get('title') or ''}")
+            lines.append("")
     if entalmata_rows:
         if lines:
             lines.append("")
@@ -3246,11 +3353,26 @@ def render_email_html(rows: list[dict[str, Any]], *, entalmata_rows: list[dict[s
     if not rows and not entalmata_rows:
         return "<p>Δεν υπάρχουν νέες ειδοποιήσεις για αποστολή.</p>"
     sections: list[str] = []
+    if rows:
+        expiring_count = len([row for row in rows if (days := email_deadline_days(row)) is not None and 0 <= days <= 7])
+        missing_documents_count = len([row for row in rows if not email_row_has_documents(row)])
+        missing_eshidis_count = len([row for row in rows if not email_row_has_eshidis(row)])
+        sections.append(
+            "<h1>Tender Radar - Νέα έργα</h1>"
+            "<ul>"
+            f"<li>Σύνολο νέων έργων: {len(rows)}</li>"
+            f"<li>Λήγουν εντός 7 ημερών: {expiring_count}</li>"
+            f"<li>Χωρίς καταγεγραμμένα έγγραφα: {missing_documents_count}</li>"
+            f"<li>Χωρίς σύνδεση ΕΣΗΔΗΣ: {missing_eshidis_count}</li>"
+            "</ul>"
+        )
     items = []
     for row in rows:
         link = row.get("official_url")
         title = escape_html(row.get("title") or "")
         title_html = f'<a href="{escape_html(link)}">{title}</a>' if link else title
+        reason = escape_html(email_row_reason(row) or "Δεν υπάρχει πρόσθετη αιτιολόγηση.")
+        signals = ", ".join(email_signal_labels(row)) or "κανένα"
         items.append(
             "<li>"
             f"<strong>{title_html}</strong><br>"
@@ -3258,11 +3380,22 @@ def render_email_html(rows: list[dict[str, Any]], *, entalmata_rows: list[dict[s
             f"Πηγή: {escape_html(row.get('source_label') or '')}<br>"
             f"Φορέας: {escape_html(row.get('authority_name') or '')}<br>"
             f"Προϋπολογισμός: {escape_html(row.get('budget_display') or '')}<br>"
-            f"Λήξη: {escape_html(row.get('deadline_display') or '')}"
+            f"Λήξη: {escape_html(row.get('deadline_display') or '')}<br>"
+            f"Γιατί σε ενδιαφέρει: {reason}<br>"
+            f"Σήματα: {escape_html(signals)}"
             "</li>"
         )
     if items:
-        sections.append("<h2>Νέα έργα Tender Radar</h2><ol>" + "".join(items) + "</ol>")
+        sections.append("<h2>Νέα έργα</h2><ol>" + "".join(items) + "</ol>")
+    bucket_items = []
+    for bucket in email_attention_buckets(rows):
+        links = "".join(
+            f"<li>{escape_html(row.get('display_id') or '')}: {escape_html(row.get('title') or '')}</li>"
+            for row in bucket["rows"]
+        )
+        bucket_items.append(f"<h3>{escape_html(bucket['title'])}</h3><ul>{links}</ul>")
+    if bucket_items:
+        sections.append("<h2>Σήματα προσοχής</h2>" + "".join(bucket_items))
     entalma_items = []
     for row in entalmata_rows:
         link = row.get("document_url")
