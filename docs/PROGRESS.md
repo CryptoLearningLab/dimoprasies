@@ -1,5 +1,35 @@
 # Project Progress
 
+## 2026-07-22 - Project detail timeline v2 adds sources and operations
+
+The runtime/UI version was bumped from `0.1.67` to `0.1.68`.
+
+The public-works dashboard row payload now includes richer project detail
+provenance for the preview pane:
+
+- `project_sources`: primary source plus linked/official ESHIDIS, KIMDIS and
+  verified source links when available;
+- `project_operations`: document availability, email notification status,
+  feedback/override status and post-deadline cleanup expectation;
+- expanded `project_timeline`: discovery, region filter, ESHIDIS linkage,
+  deadline, documents, email sent events, AI review and feedback.
+
+Email status is loaded in bulk from `notification_log` for visible rows, so
+the preview can show whether a row has been emailed without adding per-row
+queries or another blocking endpoint.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_db.py::test_notification_logs_group_by_row_key \
+  tests/test_ui_server.py::test_ui_preview_renders_operational_explanation \
+  tests/test_ui_server.py::test_dashboard_rows_include_why_visible_and_timeline -q
+# 3 passed
+
+.venv/bin/python -m pytest -q
+# 323 passed
+```
+
 ## 2026-07-22 - Admin review feedback is user-scoped
 
 The runtime/UI version was bumped from `0.1.66` to `0.1.67`.

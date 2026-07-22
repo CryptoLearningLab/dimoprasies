@@ -15,6 +15,7 @@ from tender_radar.db import (
     list_tender_dismissals,
     list_verified_tender_links,
     notification_already_sent,
+    notification_logs_by_row_key,
     record_notification_sent,
     record_source_run,
     remove_tender_dismissal,
@@ -386,6 +387,19 @@ def test_notification_log_prevents_duplicate_email_alerts(tmp_path) -> None:
         channel="email",
         recipient="user@example.test",
     ) is True
+
+
+def test_notification_logs_group_by_row_key(tmp_path) -> None:
+    db_path = tmp_path / "tenders.sqlite"
+
+    record_notification_sent(db_path, row_key="ESHIDIS:221744", channel="email", recipient="one@example.test")
+    record_notification_sent(db_path, row_key="ESHIDIS:221744", channel="email", recipient="two@example.test")
+    record_notification_sent(db_path, row_key="ENTALMA:ABC", channel="entalmata_email", recipient="one@example.test")
+
+    grouped = notification_logs_by_row_key(db_path, row_keys={"ESHIDIS:221744", "ENTALMA:ABC"}, channel="email")
+
+    assert sorted(grouped) == ["ESHIDIS:221744"]
+    assert {item["recipient"] for item in grouped["ESHIDIS:221744"]} == {"one@example.test", "two@example.test"}
 
 
 def test_source_documents_track_fetch_provenance(tmp_path) -> None:

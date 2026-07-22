@@ -1,5 +1,18 @@
 # Decision Log
 
+## D-111 — Project detail timeline is assembled from cached row evidence
+**Status:** Accepted
+
+The project detail preview should expose provenance and operational state from
+the existing dashboard payload instead of making the operator wait for another
+blocking request. Visible rows therefore carry `project_sources`,
+`project_operations` and an expanded `project_timeline` derived from already
+loaded row data plus one bulk notification-log lookup.
+
+The timeline is not a replacement for immutable raw provenance. It is the
+operator-facing summary: sources, ESHIDIS/KIMDIS links, document availability,
+email status, AI/admin feedback and cleanup expectations.
+
 ## D-110 — Review feedback buttons are user-scoped
 **Status:** Accepted
 

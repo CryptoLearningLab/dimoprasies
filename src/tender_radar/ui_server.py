@@ -58,6 +58,7 @@ from tender_radar.db import (
     list_verified_tender_links,
     mark_admin_invite_used,
     notification_already_sent,
+    notification_logs_by_row_key,
     record_admin_user_login,
     record_source_run,
     record_notification_sent,
@@ -4044,7 +4045,11 @@ def dashboard_payload(
     triage_visible_rows = [row for row in active_rows if not row.get("ai_triage_hidden")]
     visible_rows = [row for row in triage_visible_rows if row["interest_match"]]
     visible_rows = sort_dashboard_rows(visible_rows, sort=sort)
-    visible_rows = [row_with_operational_explanation(row) for row in visible_rows]
+    notifications = notification_logs_for_rows(visible_rows)
+    visible_rows = [
+        row_with_operational_explanation(row, notifications=notifications.get(row_key_for_tender(row), []))
+        for row in visible_rows
+    ]
     return {
         "scope": safe_scope,
         "sort": sort if sort in {"deadline_asc", "budget_desc"} else "deadline_asc",
@@ -4070,12 +4075,108 @@ def dashboard_payload(
     }
 
 
-def row_with_operational_explanation(row: dict[str, Any]) -> dict[str, Any]:
+def notification_logs_for_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, object]]]:
+    try:
+        return notification_logs_by_row_key(
+            runtime_db_path(),
+            row_keys={row_key_for_tender(row) for row in rows},
+            channel="email",
+        )
+    except (OSError, sqlite3.Error):
+        return {}
+
+
+def row_with_operational_explanation(row: dict[str, Any], *, notifications: list[dict[str, object]] | None = None) -> dict[str, Any]:
+    notifications = notifications or []
     return {
         **row,
         "why_visible": why_visible_reasons(row),
-        "project_timeline": project_timeline_events(row),
+        "project_sources": project_sources(row),
+        "project_operations": project_operations(row, notifications=notifications),
+        "project_timeline": project_timeline_events(row, notifications=notifications),
     }
+
+
+def project_sources(row: dict[str, Any]) -> list[dict[str, str]]:
+    sources: list[dict[str, str]] = []
+
+    def add(label: str, identifier: str = "", url: str = "", status: str = "", primary: bool = False) -> None:
+        item = {
+            "label": label,
+            "identifier": identifier,
+            "url": url,
+            "status": status,
+            "primary": "true" if primary else "false",
+        }
+        key = (item["label"], item["identifier"], item["url"])
+        if not item["label"] or any((src["label"], src["identifier"], src["url"]) == key for src in sources):
+            return
+        sources.append(item)
+
+    source_label = str(row.get("source_label") or row.get("source") or "Πηγή").strip()
+    display_id = str(row.get("display_id") or row.get("official_id") or row.get("eshidis_id") or "").strip()
+    add(source_label, display_id, str(row.get("official_url") or row.get("source_url") or row.get("attachment_url") or ""), "primary", True)
+
+    eshidis_id = str(row.get("eshidis_id") or "").strip()
+    for linked_id in [eshidis_id, *linked_eshidis_ids_for_row(row)]:
+        linked_id = str(linked_id or "").strip()
+        if linked_id.isdigit():
+            add("ΕΣΗΔΗΣ", linked_id, official_resource_url(linked_id), "official" if linked_id == eshidis_id else "linked")
+
+    official_id = str(row.get("official_id") or "").strip()
+    if is_kimdis_identifier(official_id):
+        add("ΚΗΜΔΗΣ", official_id, str(row.get("official_url") or row.get("attachment_url") or ""), "notice")
+
+    for link in row.get("verified_source_links") or []:
+        if not isinstance(link, dict):
+            continue
+        add(
+            str(link.get("source_label") or "Συνδεδεμένη πηγή"),
+            str(link.get("source_identifier") or ""),
+            str(link.get("source_url") or ""),
+            "verified link",
+        )
+    return sources
+
+
+def project_operations(row: dict[str, Any], *, notifications: list[dict[str, object]]) -> list[dict[str, str]]:
+    operations: list[dict[str, str]] = []
+    document_count = int(row.get("document_evidence_count") or row.get("local_document_count") or 0)
+    if document_count:
+        operations.append({"label": "Έγγραφα", "status": "ok", "text": f"{document_count} έγγραφα έχουν καταγραφεί/είναι διαθέσιμα."})
+    elif row.get("has_local_documents"):
+        operations.append({"label": "Έγγραφα", "status": "ok", "text": "Υπάρχουν τοπικά αρχεία για preview/zip."})
+    else:
+        operations.append({"label": "Έγγραφα", "status": "pending", "text": "Δεν έχουν καταγραφεί ακόμα τοπικά έγγραφα."})
+
+    if notifications:
+        recipients = sorted({str(item.get("recipient") or "") for item in notifications if item.get("recipient")})
+        latest = max((str(item.get("sent_at") or "") for item in notifications), default="")
+        operations.append(
+            {
+                "label": "Email",
+                "status": "sent",
+                "text": f"Στάλθηκε σε {len(recipients)} παραλήπτη/ες." + (f" Τελευταίο: {latest}." if latest else ""),
+            }
+        )
+    else:
+        operations.append({"label": "Email", "status": "pending", "text": "Δεν έχει καταγραφεί αποστολή email για αυτό το έργο."})
+
+    override = row.get("triage_override") if isinstance(row.get("triage_override"), dict) else {}
+    if override:
+        scope = "χρήστη" if override.get("scope") == "user" else "global"
+        operations.append(
+            {
+                "label": "Feedback",
+                "status": str(override.get("action") or ""),
+                "text": f"{override.get('action') or 'override'} ({scope})" + (f": {override.get('reason')}" if override.get("reason") else ""),
+            }
+        )
+
+    deadline = str(row.get("deadline_display") or "").strip()
+    if deadline:
+        operations.append({"label": "Cleanup", "status": "scheduled", "text": "Τα μεγάλα downloaded αρχεία καθαρίζονται αυτόματα μετά τη λήξη."})
+    return operations
 
 
 def why_visible_reasons(row: dict[str, Any]) -> list[dict[str, str]]:
@@ -4120,7 +4221,8 @@ def why_visible_reasons(row: dict[str, Any]) -> list[dict[str, str]]:
     return reasons
 
 
-def project_timeline_events(row: dict[str, Any]) -> list[dict[str, str]]:
+def project_timeline_events(row: dict[str, Any], *, notifications: list[dict[str, object]] | None = None) -> list[dict[str, str]]:
+    notifications = notifications or []
     events: list[dict[str, str]] = []
     source_label = str(row.get("source_label") or row.get("source") or "πηγή").strip()
     display_id = str(row.get("display_id") or row.get("eshidis_id") or row.get("official_id") or "").strip()
@@ -4152,10 +4254,23 @@ def project_timeline_events(row: dict[str, Any]) -> list[dict[str, str]]:
     if document_count:
         events.append({"label": "Έγγραφα", "text": f"{document_count} έγγραφα διαθέσιμα στο σύστημα.", "at": ""})
 
+    if notifications:
+        latest = max((str(item.get("sent_at") or "") for item in notifications), default="")
+        recipients = sorted({str(item.get("recipient") or "") for item in notifications if item.get("recipient")})
+        events.append({"label": "Email", "text": f"Στάλθηκε σε {len(recipients)} παραλήπτη/ες.", "at": latest})
+
     ai = row.get("ai_triage") if isinstance(row.get("ai_triage"), dict) else {}
     if ai:
         reason = str(ai.get("reason") or ai.get("decision") or "").strip()
         events.append({"label": "AI έλεγχος", "text": reason, "at": str(ai.get("triage_generated_at") or "")})
+
+    override = row.get("triage_override") if isinstance(row.get("triage_override"), dict) else {}
+    if override:
+        scope = "χρήστη" if override.get("scope") == "user" else "global"
+        text = f"{override.get('action') or 'override'} ({scope})"
+        if override.get("reason"):
+            text = f"{text}: {override.get('reason')}"
+        events.append({"label": "Feedback", "text": text, "at": str(override.get("created_at") or "")})
 
     return events
 
@@ -9302,10 +9417,18 @@ function resetPreview() {
 
 function renderTenderExplanation(tender) {
   const reasons = tender.why_visible || [];
+  const sources = tender.project_sources || [];
+  const operations = tender.project_operations || [];
   const timeline = tender.project_timeline || [];
-  if (!reasons.length && !timeline.length) return '';
+  if (!reasons.length && !sources.length && !operations.length && !timeline.length) return '';
   const reasonItems = reasons.map((item) => `
     <li><strong>${escapeHtml(item.label || '')}</strong>${item.label ? ': ' : ''}${escapeHtml(item.text || '')}</li>
+  `).join('');
+  const sourceItems = sources.map((item) => `
+    <li><strong>${escapeHtml(item.label || '')}</strong>${item.identifier ? ` ${escapeHtml(item.identifier)}` : ''}${item.primary === 'true' ? ' · primary' : ''}${item.status ? ` · ${escapeHtml(item.status)}` : ''}${item.url ? ` · <a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">Open</a>` : ''}</li>
+  `).join('');
+  const operationItems = operations.map((item) => `
+    <li><strong>${escapeHtml(item.label || '')}</strong>${item.status ? ` · ${escapeHtml(item.status)}` : ''}: ${escapeHtml(item.text || '')}</li>
   `).join('');
   const timelineItems = timeline.map((item) => `
     <li><strong>${escapeHtml(item.label || '')}</strong>${item.label ? ': ' : ''}${escapeHtml(item.text || '')}${item.at ? ` · ${escapeHtml(formatDateTime(item.at))}` : ''}</li>
@@ -9314,6 +9437,8 @@ function renderTenderExplanation(tender) {
     <section class="docItem auditBox">
       <h4>Γιατί εμφανίζεται</h4>
       ${reasonItems ? `<ul>${reasonItems}</ul>` : ''}
+      ${sourceItems ? `<h4>Πηγές</h4><ul>${sourceItems}</ul>` : ''}
+      ${operationItems ? `<h4>Κατάσταση</h4><ul>${operationItems}</ul>` : ''}
       ${timelineItems ? `<h4>Timeline</h4><ul>${timelineItems}</ul>` : ''}
     </section>
   `;

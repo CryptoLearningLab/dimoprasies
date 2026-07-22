@@ -89,6 +89,8 @@ def test_ui_exposes_source_polling_audit() -> None:
 def test_ui_preview_renders_operational_explanation() -> None:
     assert "renderTenderExplanation" in APP_JS
     assert "why_visible" in APP_JS
+    assert "project_sources" in APP_JS
+    assert "project_operations" in APP_JS
     assert "project_timeline" in APP_JS
     assert "Γιατί εμφανίζεται" in APP_JS
 
@@ -1663,6 +1665,7 @@ def test_dashboard_rows_include_why_visible_and_timeline(tmp_path, monkeypatch) 
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     ui_server.invalidate_ui_payload_cache()
     (tmp_path / "config").mkdir()
+    (tmp_path / "data").mkdir()
     (tmp_path / "work/reports").mkdir(parents=True)
     (tmp_path / "config/locations.yml").write_text(
         """
@@ -1703,22 +1706,36 @@ regions: []
             }
         },
     )
+    ui_server.record_notification_sent(
+        ui_server.runtime_db_path(),
+        row_key="221744",
+        channel="email",
+        recipient="owner@example.test",
+        sent_at="2026-07-22T08:00:00+00:00",
+        subject="Tender Radar",
+    )
 
     payload = dashboard_payload(scope="focus", as_of=date(2026, 7, 21), perform_expired_cleanup=False)
 
     assert payload["summary"]["visible"] == 1
     visible = payload["tenders"][0]["why_visible"]
+    sources = payload["tenders"][0]["project_sources"]
+    operations = payload["tenders"][0]["project_operations"]
     timeline = payload["tenders"][0]["project_timeline"]
     assert any(item["label"] == "Πηγή" and "ΕΣΗΔΗΣ 221744" in item["text"] for item in visible)
     assert any(item["label"] == "Περιοχή" and "Δήμος Πατρέων" in item["text"] for item in visible)
     assert any(item["label"] == "AI" and "KEEP_ACTIVE_TENDER" in item["text"] for item in visible)
     assert any(item["label"] == "Έγγραφα" and "2" in item["text"] for item in visible)
+    assert any(item["label"] == "ΕΣΗΔΗΣ" and item["identifier"] == "221744" for item in sources)
+    assert any(item["label"] == "Email" and item["status"] == "sent" for item in operations)
+    assert any(item["label"] == "Cleanup" and item["status"] == "scheduled" for item in operations)
     assert [item["label"] for item in timeline] == [
         "Εντοπισμός",
         "Φίλτρο ενδιαφέροντος",
         "ΕΣΗΔΗΣ",
         "Προθεσμία",
         "Έγγραφα",
+        "Email",
         "AI έλεγχος",
     ]
 

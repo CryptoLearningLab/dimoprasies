@@ -1532,6 +1532,54 @@ def notification_already_sent(db_path: Path, *, row_key: str, channel: str, reci
     return row is not None
 
 
+def notification_logs_by_row_key(
+    db_path: Path,
+    *,
+    row_keys: list[str] | set[str],
+    channel: str | None = None,
+) -> dict[str, list[dict[str, object]]]:
+    initialize(db_path)
+    keys = sorted({str(key).strip() for key in row_keys if str(key).strip()})
+    if not keys:
+        return {}
+    placeholders = ",".join("?" for _ in keys)
+    params: list[object] = [*keys]
+    channel_clause = ""
+    if channel:
+        channel_clause = " AND channel = ?"
+        params.append(channel)
+    connection = connect(db_path)
+    try:
+        rows = connection.execute(
+            f"""
+            SELECT row_key, channel, recipient, sent_at, subject, metadata_json
+            FROM notification_log
+            WHERE row_key IN ({placeholders}){channel_clause}
+            ORDER BY sent_at DESC
+            """,
+            params,
+        ).fetchall()
+    finally:
+        connection.close()
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for row in rows:
+        try:
+            metadata = json.loads(row[5] or "{}")
+        except json.JSONDecodeError:
+            metadata = {}
+        grouped.setdefault(str(row[0]), []).append(
+            {
+                "row_key": row[0],
+                "channel": row[1],
+                "recipient": row[2],
+                "sent_at": row[3],
+                "subject": row[4],
+                "metadata": metadata,
+            }
+        )
+    return grouped
+
+
 def upsert_source_document(
     db_path: Path,
     *,
