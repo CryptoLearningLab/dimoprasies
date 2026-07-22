@@ -275,6 +275,9 @@ def test_ui_exposes_admin_panel() -> None:
     assert "/api/admin/users" in APP_JS
     assert "/api/admin/audit" in APP_JS
     assert "/api/admin/restore" in APP_JS
+    assert "/api/admin/review-feedback" in APP_JS
+    assert "Σωστά κόπηκε" in APP_JS
+    assert "Λάθος, κράτα τέτοια" in APP_JS
 
 
 def test_front_page_uses_authenticated_app_shell() -> None:
@@ -3511,6 +3514,66 @@ def test_admin_restore_ai_hidden_row_forces_keep(tmp_path, monkeypatch) -> None:
     payload = dashboard_payload(scope="focus")
     assert payload["summary"]["visible"] == 1
     assert payload["tenders"][0]["triage_override"]["action"] == "FORCE_KEEP"
+
+
+def test_admin_review_feedback_confirms_drop_without_removing_audit_row(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    ui_server.invalidate_ui_payload_cache()
+    (tmp_path / "data").mkdir()
+    write_patras_authority_fixture(
+        tmp_path,
+        [
+            {
+                "source": "AUTHORITY",
+                "record_type": "AUTHORITY_WEB",
+                "official_id": "AUTH-drop",
+                "title": "Διακήρυξη έργου Πατρών για έλεγχο",
+                "authority": "Δήμος Πατρέων",
+                "source_url": "https://e-patras.gr/el/admin",
+                "matched_scopes": ["Δήμος Πατρέων"],
+                "match_notes": [],
+                "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+            }
+        ],
+    )
+    (tmp_path / "work/reports/ai_triage_report.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "row_key": "AUTHORITY:AUTH-drop",
+                        "ai": {
+                            "decision": "DROP_ADMIN",
+                            "confidence": 0.9,
+                            "reason": "διοικητικό",
+                            "eshidis_id_candidates": [],
+                            "keep_for_daily_review": False,
+                        },
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    before = ui_server.admin_audit_payload()
+    assert before["summary"]["review_queue_total"] == 1
+
+    result = ui_server.admin_review_feedback(
+        row_key="AUTHORITY:AUTH-drop",
+        action="CONFIRM_DROP",
+        reason="σωστά κόπηκε",
+        actor_email="owner@example.test",
+    )
+
+    assert result["ok"] is True
+    assert result["action"] == "CONFIRM_DROP"
+    assert result["admin"]["summary"]["review_queue_total"] == 0
+    assert result["admin"]["summary"]["ai_hidden"] == 1
+    hidden = result["admin"]["hidden_rows"][0]
+    assert hidden["feedback_action"] == "CONFIRM_DROP"
+    assert hidden["feedback_reason"] == "σωστά κόπηκε"
 
 
 def test_admin_false_negative_review_queue_prioritizes_ai_drops_with_public_work_terms() -> None:

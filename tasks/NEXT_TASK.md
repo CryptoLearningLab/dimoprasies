@@ -96,6 +96,9 @@ public-works product work can continue from admin feedback actions for the
 false-negative queue. The first project timeline / "why visible" slice is now
 implemented in the dashboard payload and preview pane: visible rows expose
 `why_visible` and `project_timeline` without adding a blocking endpoint.
+Admin review feedback is now persisted through `triage_overrides`: confirmed
+drops leave the review queue but remain in the hidden audit, and false
+negatives use the same force-keep path as manual restores.
 Keep measuring live endpoint timings after each UI-heavy change.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked

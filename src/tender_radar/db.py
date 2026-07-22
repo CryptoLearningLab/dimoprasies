@@ -1356,6 +1356,7 @@ def upsert_triage_override(
             ON CONFLICT(row_key) DO UPDATE SET
                 action = excluded.action,
                 reason = excluded.reason,
+                created_at = excluded.created_at,
                 metadata_json = excluded.metadata_json
             """,
             (row_key, action, reason, created_at, json.dumps(metadata or {}, ensure_ascii=False)),

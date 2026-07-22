@@ -1,5 +1,35 @@
 # Project Progress
 
+## 2026-07-22 - Admin review queue records keep/drop feedback
+
+The runtime/UI version was bumped from `0.1.65` to `0.1.66`.
+
+The public-works admin false-negative review queue now has explicit feedback
+actions:
+
+- `Σωστά κόπηκε` stores `CONFIRM_DROP` feedback for the row, removes it from
+  the review queue, and keeps it visible in the full hidden audit with the
+  feedback reason;
+- `Λάθος, κράτα τέτοια` stores `FORCE_KEEP` feedback with an operator reason
+  and reuses the existing force-keep behavior for restorable AI/manual rows.
+
+The legacy `Επαναφορά` path now delegates to the same feedback backend, so
+manual restores and review-queue corrections share one persisted mechanism in
+`triage_overrides`.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_exposes_admin_panel \
+  tests/test_ui_server.py::test_admin_restore_ai_hidden_row_forces_keep \
+  tests/test_ui_server.py::test_admin_review_feedback_confirms_drop_without_removing_audit_row \
+  tests/test_ui_server.py::test_ui_shows_current_version_badge -q
+# 4 passed
+
+.venv/bin/python -m pytest -q
+# 320 passed
+```
+
 ## 2026-07-21 - Public-works dashboard explains why each row is visible
 
 The runtime/UI version was bumped from `0.1.64` to `0.1.65`.

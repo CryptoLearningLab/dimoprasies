@@ -1,5 +1,19 @@
 # Decision Log
 
+## D-109 — Admin review feedback is persisted before rule changes
+**Status:** Accepted
+
+The false-negative review queue should collect explicit operator feedback
+before turning individual examples into broader keep/drop rules. A confirmed
+correct rejection is stored as `CONFIRM_DROP` and removed from the review
+queue, but remains visible in the full hidden audit. A false negative is
+stored as `FORCE_KEEP` with the operator reason and reuses the force-keep
+override path.
+
+This keeps review work auditable and avoids silently losing either kind of
+signal. Future rule or prompt changes should be based on these persisted
+feedback examples, not on untracked manual UI decisions.
+
 ## D-108 — Visible dashboard rows carry their own explanation
 **Status:** Accepted
 

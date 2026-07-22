@@ -460,6 +460,16 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 reason = str(payload.get("reason") or "").strip() or None
                 self._send_json(restore_admin_row(row_key=row_key, reason=reason))
                 return
+            if parsed.path == "/api/admin/review-feedback":
+                session = self._admin_session()
+                if not session or session.get("role") != "admin":
+                    self._send_json({"ok": False, "error": "Admin login required."}, status=401)
+                    return
+                row_key = require_row_key(payload)
+                action = require_admin_review_feedback_action(payload)
+                reason = str(payload.get("reason") or "").strip() or None
+                self._send_json(admin_review_feedback(row_key=row_key, action=action, reason=reason, actor_email=session.get("email")))
+                return
             if parsed.path == "/api/fetch-kimdis-open-proc":
                 official_id = str(payload.get("official_id") or "").strip() or None
                 self._send_json(start_job("fetch-kimdis-open-proc", run_kimdis_fetch, official_id=official_id), status=202)
@@ -3932,6 +3942,13 @@ def require_row_key(payload: dict[str, Any]) -> str:
     return value
 
 
+def require_admin_review_feedback_action(payload: dict[str, Any]) -> str:
+    value = str(payload.get("action") or "").strip().upper()
+    if value not in {"CONFIRM_DROP", "FORCE_KEEP"}:
+        raise ValueError("Invalid admin review feedback action.")
+    return value
+
+
 def is_kimdis_identifier(value: str) -> bool:
     return re.fullmatch(r"\d{2}PROC\d{9}", str(value or "").strip()) is not None
 
@@ -4830,18 +4847,37 @@ def remove_legacy_ignored_tender(row_key: str) -> None:
 
 
 def restore_admin_row(*, row_key: str, reason: str | None = None) -> dict[str, Any]:
-    remove_tender_dismissal(runtime_db_path(), row_key=row_key)
-    remove_user_tender_dismissal(runtime_db_path(), row_key=row_key)
-    remove_legacy_ignored_tender(row_key)
+    return admin_review_feedback(row_key=row_key, action="FORCE_KEEP", reason=reason, actor_email=None)
+
+
+def admin_review_feedback(
+    *,
+    row_key: str,
+    action: str,
+    reason: str | None = None,
+    actor_email: str | None = None,
+) -> dict[str, Any]:
+    if action not in {"CONFIRM_DROP", "FORCE_KEEP"}:
+        raise ValueError("Invalid admin review feedback action.")
+    if action == "FORCE_KEEP":
+        remove_tender_dismissal(runtime_db_path(), row_key=row_key)
+        remove_user_tender_dismissal(runtime_db_path(), row_key=row_key)
+        remove_legacy_ignored_tender(row_key)
     upsert_triage_override(
         runtime_db_path(),
         row_key=row_key,
-        action="FORCE_KEEP",
+        action=action,
         reason=reason,
-        metadata={"source": "admin_panel"},
+        metadata={"source": "admin_panel", "actor_email": actor_email or ""},
     )
     invalidate_ui_payload_cache()
-    return {"ok": True, "row_key": row_key, "dashboard": dashboard_payload(scope="focus"), "admin": admin_audit_payload()}
+    return {
+        "ok": True,
+        "row_key": row_key,
+        "action": action,
+        "dashboard": dashboard_payload(scope="focus"),
+        "admin": admin_audit_payload(),
+    }
 
 
 def admin_password() -> str | None:
@@ -5302,6 +5338,9 @@ def admin_false_negative_review_queue(hidden_rows: list[dict[str, Any]]) -> list
 
 
 def admin_false_negative_review_metadata(row: dict[str, Any]) -> dict[str, str] | None:
+    override = row.get("triage_override") if isinstance(row.get("triage_override"), dict) else {}
+    if override.get("action") == "CONFIRM_DROP":
+        return None
     category = str(row.get("category") or "")
     ai_decision = str(row.get("ai_decision") or "")
     confidence = _float_or_none(row.get("ai_confidence"))
@@ -5525,6 +5564,7 @@ def admin_hidden_row(
 ) -> dict[str, Any]:
     row_key = row_key_for_tender(row) or str(row.get("row_key") or "")
     ai = row.get("ai_triage") if isinstance(row.get("ai_triage"), dict) else {}
+    override = row.get("triage_override") if isinstance(row.get("triage_override"), dict) else {}
     audit_at = admin_hidden_event_at(row)
     return {
         "row_key": row_key,
@@ -5540,6 +5580,9 @@ def admin_hidden_row(
         "reason": reason,
         "ai_decision": ai.get("decision"),
         "ai_confidence": ai.get("confidence"),
+        "triage_override": override,
+        "feedback_action": override.get("action"),
+        "feedback_reason": override.get("reason"),
         "audit_match": audit_match,
     }
 
@@ -8926,6 +8969,7 @@ function renderAdminAudit(payload) {
     const titlePills = [
       row.ai_decision ? escapeHtml(row.ai_decision) : '',
       row.audit_match ? `match ${escapeHtml(row.audit_match.eshidis_id || '')} · ${escapeHtml(row.audit_match.score || '')}` : '',
+      row.feedback_action ? `feedback ${escapeHtml(row.feedback_action)}` : '',
     ].filter(Boolean).map((label) => `<span class="pill">${label}</span>`).join('');
     tr.innerHTML = `
       <td data-label="Κατηγορία"><span class="statusChip ${adminCategoryClass(row.category)}">${escapeHtml(adminCategoryLabel(row.category))}</span></td>
@@ -8957,16 +9001,31 @@ function renderAdminReviewQueue(rows) {
     const restoreButton = row.restorable
       ? `<button class="tinyButton restoreHiddenRow" data-key="${escapeHtml(row.row_key)}">Επαναφορά</button>`
       : '<span class="noteText">Audit only</span>';
+    const feedbackLabel = row.feedback_action
+      ? `<span class="noteText">feedback ${escapeHtml(row.feedback_action)}</span>`
+      : '';
     tr.innerHTML = `
       <td data-label="Priority"><span class="statusChip ${reviewPriorityClass(row.review_priority)}">${escapeHtml(row.review_priority || '')}</span></td>
       <td data-label="Κατηγορία"><span class="statusChip ${adminCategoryClass(row.category)}">${escapeHtml(adminCategoryLabel(row.category))}</span></td>
       <td data-label="Α/Α"><strong>${escapeHtml(row.display_id || '')}</strong><br><span class="noteText">${escapeHtml(row.source_label || '')}</span>${row.audit_at ? `<br><span class="noteText">${escapeHtml(formatDateTime(row.audit_at))}</span>` : ''}</td>
       <td data-label="Έργο" class="tenderTitle">${escapeHtml(row.title || '')}</td>
       <td data-label="Γιατί θέλει έλεγχο">${escapeHtml(row.review_reason || '')}<br><span class="noteText">${escapeHtml(row.reason || '')}</span>${row.ai_confidence ? `<br><span class="noteText">confidence ${escapeHtml(row.ai_confidence)}</span>` : ''}</td>
-      <td data-label="Ενέργεια"><div class="actionStack">${sourceLink}${restoreButton}</div></td>
+      <td data-label="Ενέργεια"><div class="actionStack">
+        ${sourceLink}
+        <button class="tinyButton confirmDropReview" data-key="${escapeHtml(row.row_key)}">Σωστά κόπηκε</button>
+        <button class="tinyButton keepReviewRow" data-key="${escapeHtml(row.row_key)}">Λάθος, κράτα τέτοια</button>
+        ${restoreButton}
+        ${feedbackLabel}
+      </div></td>
     `;
     tbody.appendChild(tr);
   }
+  document.querySelectorAll('.confirmDropReview').forEach((button) => {
+    button.addEventListener('click', () => adminReviewFeedback(button.dataset.key, 'CONFIRM_DROP'));
+  });
+  document.querySelectorAll('.keepReviewRow').forEach((button) => {
+    button.addEventListener('click', () => adminReviewFeedback(button.dataset.key, 'FORCE_KEEP'));
+  });
 }
 
 function reviewPriorityClass(priority) {
@@ -9012,6 +9071,19 @@ async function restoreHiddenRow(rowKey) {
   const reason = window.prompt('Γιατί επαναφέρεις αυτό το έργο; Αυτό θα χρησιμοποιηθεί ως feedback για τους επόμενους κανόνες.', '');
   if (reason === null) return;
   await adminApi('/api/admin/restore', { method: 'POST', body: JSON.stringify({ row_key: rowKey, reason }) });
+  await refreshRuntimeViews();
+  await loadAdminAudit();
+}
+
+async function adminReviewFeedback(rowKey, action) {
+  if (!rowKey) return;
+  let reason = '';
+  if (action === 'FORCE_KEEP') {
+    const answer = window.prompt('Γιατί πρέπει να κρατάμε τέτοια έργα;', '');
+    if (answer === null) return;
+    reason = answer;
+  }
+  await adminApi('/api/admin/review-feedback', { method: 'POST', body: JSON.stringify({ row_key: rowKey, action, reason }) });
   await refreshRuntimeViews();
   await loadAdminAudit();
 }
