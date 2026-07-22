@@ -1,5 +1,17 @@
 # Decision Log
 
+## D-124 — Monitoring warnings include failing source details
+**Status:** Accepted
+
+Monitoring alerts must not stop at aggregate counts such as "3 source errors".
+Scheduled payloads and monitoring emails should include the concrete source
+ids/names, latest status, health status, last check time and last error for
+problem sources.
+
+This diagnostic detail is report/email presentation data. It must not change
+source polling, discovery, retry behavior, scheduled cadence or source disable
+decisions.
+
 ## D-123 — Category checkboxes override global input sizing
 **Status:** Accepted
 

@@ -114,6 +114,7 @@ def test_ui_exposes_user_interest_profile_controls() -> None:
     assert "grid-template-columns: 12px minmax(0, 1fr)" in STYLES_CSS
     assert "min-width: 0" in STYLES_CSS
     assert "accent-color: #0f766e" in STYLES_CSS
+    assert ".profileCategoryBox + .toolbar.compact" in STYLES_CSS
     assert "max-width: 1720px" in STYLES_CSS
 
 
@@ -1351,8 +1352,20 @@ def test_scheduled_poll_reports_source_monitoring_alerts(tmp_path, monkeypatch) 
                 "health_warning_total": 1,
             },
             "rows": [
-                {"source_id": "diavgeia", "last_status": "ERROR", "last_error": "HTTP 503"},
-                {"source_id": "eshidis_active_search", "last_status": "CHANGED"},
+                {
+                    "source_id": "diavgeia",
+                    "name": "Διαύγεια",
+                    "family_or_adapter": "diavgeia_api",
+                    "last_status": "ERROR",
+                    "last_error": "HTTP 503",
+                    "last_checked_at": "2026-07-22T11:35:00+00:00",
+                    "health": {"status": "DEGRADED", "recent_failures": 3, "consecutive_failures": 2},
+                },
+                {
+                    "source_id": "eshidis_active_search",
+                    "last_status": "CHANGED",
+                    "health": {"status": "WATCH", "recent_failures": 1, "consecutive_failures": 0},
+                },
             ],
         },
     )
@@ -1364,6 +1377,13 @@ def test_scheduled_poll_reports_source_monitoring_alerts(tmp_path, monkeypatch) 
     assert payload["monitoring_status"] == "WARNING"
     codes = {alert["code"] for alert in payload["monitoring_alerts"]}
     assert {"SOURCE_ERRORS", "SOURCE_HEALTH_WARNINGS", "ZERO_PUBLIC_WORKS_CANDIDATES"} <= codes
+    assert payload["problem_sources"][0]["source_id"] == "diavgeia"
+    assert payload["problem_sources"][0]["last_error"] == "HTTP 503"
+    assert "Problem sources" in ui_server.render_scheduled_monitoring_alert_text(payload)
+    assert "HTTP 503" in ui_server.render_scheduled_monitoring_alert_text(payload)
+    assert "Problem sources" in ui_server.render_scheduled_monitoring_alert_html(payload)
+    assert "HTTP 503" in ui_server.render_scheduled_monitoring_alert_html(payload)
+    assert "## Problem Sources" in ui_server.render_scheduled_run_markdown(payload)
     assert payload["monitoring_email"]["ok"] is True
     assert payload["monitoring_email"]["alerts"] == len(payload["monitoring_alerts"])
 

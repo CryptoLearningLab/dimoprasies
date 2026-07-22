@@ -1,5 +1,33 @@
 # Project Progress
 
+## 2026-07-22 - Monitoring problem source details
+
+The runtime/UI version was bumped from `0.1.80` to `0.1.81`.
+
+The public-works profile category help text now has a small spacing buffer
+before the save toolbar, avoiding the visual collision between the helper line
+and `Αποθήκευση προφίλ`.
+
+Scheduled monitoring payloads now include `problem_sources`: a bounded list of
+source rows with errors or degraded health. Monitoring emails and scheduled
+Markdown reports render these source details with source id/name, status,
+health status, last check time and last error, so alerts such as `3 source(s)
+reported errors` show which sources failed and why.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_exposes_user_interest_profile_controls \
+  tests/test_ui_server.py::test_scheduled_poll_reports_source_monitoring_alerts -q
+# 2 passed
+
+.venv/bin/python -m pytest -q
+# 335 passed
+```
+
 ## 2026-07-22 - Profile checkbox sizing fix
 
 The runtime/UI version was bumped from `0.1.79` to `0.1.80`.

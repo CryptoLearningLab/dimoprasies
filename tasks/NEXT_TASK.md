@@ -142,6 +142,9 @@ three-column checklist with smaller checkboxes and aligned labels to remove
 large empty gaps.
 The category checkboxes also explicitly override the global input min-width so
 they remain true 12px checkbox controls on desktop.
+Monitoring emails now include a `Problem sources` section with source
+id/name, latest status, health status, last check time and last error, so
+aggregate warnings identify the failing adapters/sources.
 The public-works dashboard preview now exposes a dedup/source identity read
 model: `project_identity`, `source_merge` and enriched `project_sources` show
 which ESHIDIS row is canonical and which KIMDIS/authority sources point to it.

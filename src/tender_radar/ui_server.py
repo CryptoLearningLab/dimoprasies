@@ -2924,6 +2924,7 @@ def run_scheduled_poll_and_alert(
             for row in source_rows
             if row.get("last_error")
         ],
+        "problem_sources": scheduled_problem_sources(source_rows),
         "discovery": summarize_scheduled_stage(discovery),
         "ai_triage": summarize_scheduled_stage(ai_result),
         "auto_document_fetch": summarize_scheduled_stage(auto_document_fetch),
@@ -2985,7 +2986,44 @@ def scheduled_coverage_metrics(payload: dict[str, Any], *, source_rows: list[dic
         "sent_emails": int(email.get("sent_emails") or 0),
         "errors": len(payload.get("errors") or []),
         "warnings": len(payload.get("warnings") or []),
-    }
+}
+
+
+def scheduled_problem_sources(source_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    problems: list[dict[str, Any]] = []
+    for row in source_rows:
+        health = row.get("health") if isinstance(row.get("health"), dict) else {}
+        last_status = str(row.get("last_status") or "").strip()
+        last_error = str(row.get("last_error") or "").strip()
+        health_status = str(health.get("status") or "").strip()
+        is_problem = bool(
+            last_error
+            or last_status == "ERROR"
+            or health_status in {"WATCH", "DEGRADED", "DISABLE_CANDIDATE"}
+        )
+        if not is_problem:
+            continue
+        problems.append(
+            {
+                "source_id": row.get("source_id"),
+                "name": row.get("name") or row.get("source_name") or row.get("source_id"),
+                "family_or_adapter": row.get("family_or_adapter") or row.get("adapter"),
+                "last_status": last_status or None,
+                "last_error": last_error or None,
+                "last_checked_at": row.get("last_checked_at"),
+                "health_status": health_status or None,
+                "recent_failures": health.get("recent_failures"),
+                "consecutive_failures": health.get("consecutive_failures"),
+                "recommendation": health.get("recommendation"),
+            }
+        )
+    problems.sort(
+        key=lambda item: (
+            0 if item.get("last_error") or item.get("last_status") == "ERROR" else 1,
+            str(item.get("source_id") or ""),
+        )
+    )
+    return problems[:12]
 
 
 def scheduled_monitoring_alerts(payload: dict[str, Any]) -> list[dict[str, str]]:
@@ -3114,6 +3152,18 @@ def render_scheduled_monitoring_alert_text(payload: dict[str, Any]) -> str:
             f"- Sent emails: {metrics.get('sent_emails')}",
         ]
     )
+    problem_sources = payload.get("problem_sources") or []
+    if problem_sources:
+        lines.extend(["", "Problem sources:"])
+        for source in problem_sources:
+            status_bits = [
+                str(source.get("last_status") or "UNKNOWN"),
+                f"health={source.get('health_status')}" if source.get("health_status") else "",
+                f"checked={source.get('last_checked_at')}" if source.get("last_checked_at") else "",
+            ]
+            detail = " · ".join(bit for bit in status_bits if bit)
+            error = f" · error={source.get('last_error')}" if source.get("last_error") else ""
+            lines.append(f"- {source.get('name') or source.get('source_id')} ({source.get('source_id')}): {detail}{error}")
     return "\n".join(lines)
 
 
@@ -3133,11 +3183,23 @@ def render_scheduled_monitoring_alert_html(payload: dict[str, Any]) -> str:
         f"<li>Sent emails: {escape_html(metrics.get('sent_emails'))}</li>"
         "</ul>"
     )
+    problem_sources = "".join(
+        "<li>"
+        f"<strong>{escape_html(source.get('name') or source.get('source_id'))}</strong> "
+        f"({escape_html(source.get('source_id'))})"
+        f": {escape_html(source.get('last_status') or 'UNKNOWN')}"
+        f"{' · health=' + escape_html(source.get('health_status')) if source.get('health_status') else ''}"
+        f"{' · checked=' + escape_html(source.get('last_checked_at')) if source.get('last_checked_at') else ''}"
+        f"{' · error=' + escape_html(source.get('last_error')) if source.get('last_error') else ''}"
+        "</li>"
+        for source in payload.get("problem_sources") or []
+    )
     return (
         f"<h1>Tender Radar monitoring: {escape_html(payload.get('monitoring_status'))}</h1>"
         f"<p>Started: {escape_html(payload.get('started_at'))}<br>Completed: {escape_html(payload.get('completed_at'))}</p>"
         f"<h2>Alerts</h2><ul>{alerts}</ul>"
         f"<h2>Coverage</h2>{coverage}"
+        f"{'<h2>Problem sources</h2><ul>' + problem_sources + '</ul>' if problem_sources else ''}"
     )
 
 
@@ -3245,6 +3307,20 @@ def render_scheduled_run_markdown(payload: dict[str, Any]) -> str:
     ]
     lines.extend(f"- {item.get('severity')} {item.get('code')}: {item.get('message')}" for item in monitoring_alerts)
     if not monitoring_alerts:
+        lines.append("- none")
+    problem_sources = payload.get("problem_sources") or []
+    lines.extend(["", "## Problem Sources", ""])
+    if problem_sources:
+        for source in problem_sources:
+            status_bits = [
+                str(source.get("last_status") or "UNKNOWN"),
+                f"health={source.get('health_status')}" if source.get("health_status") else "",
+                f"checked={source.get('last_checked_at')}" if source.get("last_checked_at") else "",
+            ]
+            detail = " · ".join(bit for bit in status_bits if bit)
+            error = f" · error={source.get('last_error')}" if source.get("last_error") else ""
+            lines.append(f"- {source.get('name') or source.get('source_id')} ({source.get('source_id')}): {detail}{error}")
+    else:
         lines.append("- none")
     lines.extend(
         [
@@ -8822,6 +8898,14 @@ main { padding: 22px; min-width: 0; }
 }
 .profileCategoryOption:has(input:checked) {
   color: #0f766e;
+}
+.profileCategoryBox .noteText {
+  display: block;
+  margin-top: 8px;
+  margin-bottom: 10px;
+}
+.profileCategoryBox + .toolbar.compact {
+  margin-top: 8px;
 }
 .searchPanel {
   display: grid;
