@@ -1,5 +1,42 @@
 # Project Progress
 
+## 2026-07-22 - User-specific public-works email digest
+
+The runtime/UI version was bumped from `0.1.82` to `0.1.83`.
+
+Public-works email digest generation now builds the dashboard separately for
+each recipient using that recipient email as the user profile key. This means
+include/exclude keywords, selected Greek project categories, budget bounds,
+per-user dismissals and per-user review overrides affect the email rows for
+that recipient only.
+
+Manual `/api/email-alerts` calls also pass the logged-in session email into the
+job. When an admin explicitly sends to another recipient, the recipient's
+profile key is used instead of accidentally applying the admin's profile to
+someone else's digest.
+
+The existing per-recipient `notification_log` skip behavior is unchanged.
+Entalmata email rows remain shared/non-profiled for now. This change does not
+alter discovery, scheduled source polling, AI triage, downloaded files,
+dashboard visibility for other users or global admin rules.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_email_alerts_payload_skips_rows_already_sent \
+  tests/test_ui_server.py::test_email_alerts_payload_supports_multiple_recipients \
+  tests/test_ui_server.py::test_email_alerts_payload_uses_recipient_specific_dashboard_profiles \
+  tests/test_ui_server.py::test_email_digest_groups_operational_signals \
+  tests/test_ui_server.py::test_email_alerts_payload_includes_clickable_entalmata_once_per_recipient -q
+# 5 passed
+
+.venv/bin/python -m pytest -q
+# 336 passed
+```
+
 ## 2026-07-22 - Lazy admin audit row loading
 
 The runtime/UI version was bumped from `0.1.81` to `0.1.82`.

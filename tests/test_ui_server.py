@@ -1040,7 +1040,7 @@ def test_email_alerts_payload_skips_rows_already_sent(tmp_path, monkeypatch) -> 
     monkeypatch.setattr(
         ui_server,
         "dashboard_payload",
-        lambda scope="focus", sort="deadline_asc": {
+        lambda scope="focus", sort="deadline_asc", user_email=None, **kwargs: {
             "summary": {"visible": 2},
             "tenders": [
                 {
@@ -1091,7 +1091,7 @@ def test_email_alerts_payload_supports_multiple_recipients(tmp_path, monkeypatch
     monkeypatch.setattr(
         ui_server,
         "dashboard_payload",
-        lambda scope="focus", sort="deadline_asc": {
+        lambda scope="focus", sort="deadline_asc", user_email=None, **kwargs: {
             "summary": {"visible": 1},
             "tenders": [
                 {
@@ -1121,10 +1121,65 @@ def test_email_alerts_payload_supports_multiple_recipients(tmp_path, monkeypatch
     assert payload["new_count"] == 1
     assert payload["skipped_already_sent"] == 1
     by_recipient = {item["recipient"]: item for item in payload["per_recipient"]}
+    assert by_recipient["one@example.test"]["user_email"] == "one@example.test"
+    assert by_recipient["two@example.test"]["user_email"] == "two@example.test"
     assert by_recipient["one@example.test"]["new_count"] == 0
     assert by_recipient["one@example.test"]["skipped_already_sent"] == 1
     assert by_recipient["two@example.test"]["new_count"] == 1
     assert by_recipient["two@example.test"]["skipped_already_sent"] == 0
+
+
+def test_email_alerts_payload_uses_recipient_specific_dashboard_profiles(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    monkeypatch.setattr(ui_server, "email_alert_recipients", lambda recipient=None: ["road@example.test", "building@example.test"])
+
+    def fake_dashboard_payload(scope="focus", sort="deadline_asc", user_email=None, **kwargs):
+        if user_email == "road@example.test":
+            return {
+                "summary": {"visible": 1},
+                "profile": {"user_interest_active": True},
+                "tenders": [
+                    {
+                        "row_key": "ESHIDIS:ROAD",
+                        "display_id": "ROAD",
+                        "source_label": "ΕΣΗΔΗΣ",
+                        "eshidis_id": "ROAD",
+                        "title": "Συντήρηση οδικού δικτύου",
+                        "authority_name": "Περιφέρεια",
+                        "deadline_display": "2026-08-07 10:00",
+                        "why_visible": [{"label": "Προφίλ", "text": "λέξεις ενδιαφέροντος: οδοποιία"}],
+                    }
+                ],
+            }
+        return {
+            "summary": {"visible": 1},
+            "profile": {"user_interest_active": True},
+            "tenders": [
+                {
+                    "row_key": "ESHIDIS:BUILDING",
+                    "display_id": "BUILDING",
+                    "source_label": "ΕΣΗΔΗΣ",
+                    "eshidis_id": "BUILDING",
+                    "title": "Ενεργειακή αναβάθμιση κτιρίου",
+                    "authority_name": "Δήμος",
+                    "deadline_display": "2026-08-09 10:00",
+                    "why_visible": [{"label": "Προφίλ", "text": "κατηγορίες έργων: Κτιριακά έργα"}],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(ui_server, "dashboard_payload", fake_dashboard_payload)
+
+    payload = email_alerts_payload(dry_run=True)
+    by_recipient = {item["recipient"]: item for item in payload["per_recipient"]}
+
+    assert payload["candidate_rows"] == 2
+    assert by_recipient["road@example.test"]["user_interest_active"] is True
+    assert by_recipient["road@example.test"]["new_rows"][0]["row_key"] == "ESHIDIS:ROAD"
+    assert by_recipient["building@example.test"]["new_rows"][0]["row_key"] == "ESHIDIS:BUILDING"
+    assert "Συντήρηση οδικού δικτύου" in by_recipient["road@example.test"]["text_body"]
+    assert "Ενεργειακή αναβάθμιση κτιρίου" not in by_recipient["road@example.test"]["text_body"]
 
 
 def test_email_digest_groups_operational_signals(tmp_path, monkeypatch) -> None:
@@ -1134,7 +1189,7 @@ def test_email_digest_groups_operational_signals(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         ui_server,
         "dashboard_payload",
-        lambda scope="focus", sort="deadline_asc": {
+        lambda scope="focus", sort="deadline_asc", user_email=None, **kwargs: {
             "summary": {"visible": 1},
             "tenders": [
                 {
@@ -1175,7 +1230,11 @@ def test_email_alerts_payload_includes_clickable_entalmata_once_per_recipient(tm
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "data").mkdir()
     monkeypatch.setattr(ui_server, "email_alert_recipients", lambda recipient=None: ["one@example.test", "two@example.test"])
-    monkeypatch.setattr(ui_server, "dashboard_payload", lambda scope="focus", sort="deadline_asc": {"summary": {}, "tenders": []})
+    monkeypatch.setattr(
+        ui_server,
+        "dashboard_payload",
+        lambda scope="focus", sort="deadline_asc", user_email=None, **kwargs: {"summary": {}, "tenders": []},
+    )
     monkeypatch.setattr(
         ui_server,
         "entalmata_email_rows",

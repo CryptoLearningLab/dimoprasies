@@ -380,11 +380,23 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 )
                 return
             if parsed.path == "/api/email-alerts":
+                session = self._admin_session() or {}
                 scope = str(payload.get("scope") or "focus")
                 sort = str(payload.get("sort") or "deadline_asc")
                 dry_run = bool(payload.get("dry_run", False))
                 recipient = str(payload.get("recipient") or "").strip() or None
-                self._send_json(start_job("email-alerts", run_email_alerts, scope=scope, sort=sort, recipient=recipient, dry_run=dry_run), status=202)
+                self._send_json(
+                    start_job(
+                        "email-alerts",
+                        run_email_alerts,
+                        scope=scope,
+                        sort=sort,
+                        recipient=recipient,
+                        dry_run=dry_run,
+                        user_email=session.get("email"),
+                    ),
+                    status=202,
+                )
                 return
             if parsed.path == "/api/reverse-search":
                 session = self._admin_session() or {}
@@ -2772,8 +2784,9 @@ def run_email_alerts(
     sort: str = "deadline_asc",
     recipient: str | None = None,
     dry_run: bool = False,
+    user_email: str | None = None,
 ) -> dict[str, Any]:
-    payload = email_alerts_payload(scope=scope, sort=sort, recipient=recipient, dry_run=dry_run)
+    payload = email_alerts_payload(scope=scope, sort=sort, recipient=recipient, dry_run=dry_run, user_email=user_email)
     if dry_run:
         return payload
     sent_at = utc_now_iso()
@@ -3396,13 +3409,11 @@ def email_alerts_payload(
     sort: str = "deadline_asc",
     recipient: str | None = None,
     dry_run: bool = True,
+    user_email: str | None = None,
 ) -> dict[str, Any]:
     targets = email_alert_recipients(recipient)
     if not targets:
         raise ValueError("Email recipient is not configured. Set ALERT_EMAIL_TO or pass recipient.")
-    dashboard = dashboard_payload(scope=scope, sort=sort)
-    rows = [email_alert_row(row) for row in dashboard.get("tenders") or []]
-    rows = [row for row in rows if row["row_key"]]
     entalmata_rows = entalmata_email_rows()
     per_recipient: list[dict[str, Any]] = []
     all_new_keys: set[str] = set()
@@ -3410,6 +3421,14 @@ def email_alerts_payload(
     all_new_entalmata_keys: set[str] = set()
     all_skipped_entalmata_keys: set[str] = set()
     for target in targets:
+        target_user_email = email_digest_user_email_for_recipient(
+            target,
+            explicit_user_email=user_email,
+            explicit_recipient=recipient,
+        )
+        dashboard = dashboard_payload(scope=scope, sort=sort, user_email=target_user_email)
+        rows = [email_alert_row(row) for row in dashboard.get("tenders") or []]
+        rows = [row for row in rows if row["row_key"]]
         skipped = [
             row
             for row in rows
@@ -3447,6 +3466,10 @@ def email_alerts_payload(
                 "subject": f"Tender Radar: {', '.join(subject_parts) if subject_parts else 'καμία νέα ειδοποίηση'}",
                 "text_body": render_email_text(new_rows, entalmata_rows=new_entalmata_rows),
                 "html_body": render_email_html(new_rows, entalmata_rows=new_entalmata_rows),
+                "user_email": target_user_email,
+                "user_interest_active": bool((dashboard.get("profile") or {}).get("user_interest_active")),
+                "dashboard_summary": dashboard.get("summary") or {},
+                "candidate_rows": len(rows),
                 "sent": 0,
                 "sent_emails": 0,
             }
@@ -3458,8 +3481,8 @@ def email_alerts_payload(
         "recipient": targets[0],
         "recipients": targets,
         "subject": representative["subject"],
-        "dashboard_summary": dashboard.get("summary") or {},
-        "candidate_rows": len(rows),
+        "dashboard_summary": representative.get("dashboard_summary") or {},
+        "candidate_rows": sum(int(item.get("candidate_rows") or 0) for item in per_recipient),
         "entalmata_candidate_rows": len(entalmata_rows),
         "new_count": len(all_new_keys),
         "new_entalmata_count": len(all_new_entalmata_keys),
@@ -3475,6 +3498,20 @@ def email_alerts_payload(
         "html_body": representative["html_body"],
         "per_recipient": per_recipient,
     }
+
+
+def email_digest_user_email_for_recipient(
+    target_recipient: str,
+    *,
+    explicit_user_email: str | None = None,
+    explicit_recipient: str | None = None,
+) -> str | None:
+    normalized_recipient = target_recipient.strip().lower()
+    normalized_explicit = (explicit_user_email or "").strip().lower()
+    normalized_override = (explicit_recipient or "").strip().lower()
+    if normalized_explicit and (not normalized_override or normalized_explicit == normalized_recipient):
+        return normalized_explicit
+    return normalized_recipient or normalized_explicit or None
 
 
 def email_alert_row(row: dict[str, Any]) -> dict[str, Any]:

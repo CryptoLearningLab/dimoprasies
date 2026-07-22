@@ -1,5 +1,19 @@
 # Decision Log
 
+## D-126 — Public-works email digests are recipient-scoped
+**Status:** Accepted
+
+Public-works email alerts should use the same per-user interest model as the
+dashboard. Each recipient's digest is therefore built from
+`dashboard_payload(..., user_email=recipient)` so include/exclude keywords,
+selected Greek project categories, budget bounds, dismissals and review
+overrides affect only that recipient.
+
+When a logged-in admin explicitly sends to another recipient, the recipient's
+profile key takes precedence over the admin session email. Per-recipient
+`notification_log` de-duplication remains unchanged. Entalmata email rows stay
+shared/non-profiled until entalmata has its own user preference model.
+
 ## D-125 — Admin audit rows load on demand
 **Status:** Accepted
 
