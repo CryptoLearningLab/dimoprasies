@@ -1466,6 +1466,78 @@ def user_triage_overrides_by_key(db_path: Path, *, user_email: str) -> dict[str,
     return items
 
 
+def upsert_user_interest_profile(
+    db_path: Path,
+    *,
+    user_email: str,
+    profile: dict[str, object],
+    updated_at: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> None:
+    initialize(db_path)
+    normalized_email = user_email.strip().lower()
+    if not normalized_email:
+        raise ValueError("user_email is required")
+    updated_at = updated_at or datetime.now(timezone.utc).isoformat()
+    connection = connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO user_interest_profiles (
+                user_email, profile_json, updated_at, metadata_json
+            ) VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_email) DO UPDATE SET
+                profile_json = excluded.profile_json,
+                updated_at = excluded.updated_at,
+                metadata_json = excluded.metadata_json
+            """,
+            (
+                normalized_email,
+                json.dumps(profile or {}, ensure_ascii=False),
+                updated_at,
+                json.dumps(metadata or {}, ensure_ascii=False),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def user_interest_profile(db_path: Path, *, user_email: str) -> dict[str, object] | None:
+    initialize(db_path)
+    normalized_email = user_email.strip().lower()
+    if not normalized_email:
+        return None
+    connection = connect(db_path)
+    try:
+        row = connection.execute(
+            """
+            SELECT user_email, profile_json, updated_at, metadata_json
+            FROM user_interest_profiles
+            WHERE user_email = ?
+            """,
+            (normalized_email,),
+        ).fetchone()
+    finally:
+        connection.close()
+    if not row:
+        return None
+    try:
+        profile = json.loads(row[1] or "{}")
+    except json.JSONDecodeError:
+        profile = {}
+    try:
+        metadata = json.loads(row[3] or "{}")
+    except json.JSONDecodeError:
+        metadata = {}
+    return {
+        "user_email": row[0],
+        "profile": profile if isinstance(profile, dict) else {},
+        "updated_at": row[2],
+        "metadata": metadata if isinstance(metadata, dict) else {},
+    }
+
+
 def record_notification_sent(
     db_path: Path,
     *,
@@ -1900,6 +1972,13 @@ def _ensure_runtime_state_tables(connection: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             metadata_json TEXT NOT NULL DEFAULT '{}',
             PRIMARY KEY(user_email, row_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS user_interest_profiles (
+            user_email TEXT PRIMARY KEY,
+            profile_json TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}'
         );
 
         CREATE TABLE IF NOT EXISTS admin_hidden_events (

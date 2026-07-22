@@ -20,10 +20,12 @@ from tender_radar.db import (
     record_source_run,
     remove_tender_dismissal,
     triage_overrides_by_key,
+    user_interest_profile,
     user_triage_overrides_by_key,
     upsert_source_document,
     upsert_source_state,
     upsert_triage_override,
+    upsert_user_interest_profile,
     upsert_user_triage_override,
     upsert_verified_tender_link,
 )
@@ -97,6 +99,32 @@ def test_user_triage_overrides_are_keyed_by_user_and_row(tmp_path) -> None:
     assert owner["action"] == "CONFIRM_DROP"
     assert other["action"] == "FORCE_KEEP"
     assert owner["user_email"] == "owner@example.test"
+
+
+def test_user_interest_profiles_are_keyed_by_user_email(tmp_path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+
+    upsert_user_interest_profile(
+        db_path,
+        user_email="Owner@Example.Test",
+        profile={"include_keywords": ["οδοποιία"], "min_budget": 50000},
+        metadata={"source": "unit-test"},
+    )
+    upsert_user_interest_profile(
+        db_path,
+        user_email="other@example.test",
+        profile={"exclude_keywords": ["καύσιμα"]},
+    )
+
+    owner = user_interest_profile(db_path, user_email="owner@example.test")
+    other = user_interest_profile(db_path, user_email="other@example.test")
+
+    assert owner is not None
+    assert owner["user_email"] == "owner@example.test"
+    assert owner["profile"] == {"include_keywords": ["οδοποιία"], "min_budget": 50000}
+    assert owner["metadata"] == {"source": "unit-test"}
+    assert other is not None
+    assert other["profile"] == {"exclude_keywords": ["καύσιμα"]}
 
 
 def test_import_eshidis_resource_persists_tender_and_attachments(tmp_path) -> None:

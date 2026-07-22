@@ -118,8 +118,14 @@ dry-runs render alerts without requiring a recipient.
 Dashboard/admin rows now expose derived `profile_fit` and
 `ai_confidence_band` fields. The UI shows these as row/preview/admin labels so
 operators see `Σίγουρο έργο`, `Μάλλον έργο`, `Θέλει έλεγχο`, `Μάλλον άσχετο`
-or `Σίγουρα άσχετο` instead of only raw AI confidence. This does not yet add
-editable per-user profiles; that should be the next product slice.
+or `Σίγουρα άσχετο` instead of only raw AI confidence.
+Editable per-user public-works interest profiles are now implemented for the
+dashboard: include keywords, exclude keywords and optional budget bounds are
+stored per login email and only affect that user's visible list. They do not
+change cron discovery, global AI triage, downloaded files or another user's
+view. Future profile work should add structured categories/CPV/region
+preferences and optional user-specific email digest rules without slowing
+initial dashboard load.
 Keep measuring live endpoint timings after each UI-heavy change.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked

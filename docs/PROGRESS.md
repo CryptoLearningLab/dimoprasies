@@ -1,5 +1,43 @@
 # Project Progress
 
+## 2026-07-22 - Editable user interest profiles
+
+The runtime/UI version was bumped from `0.1.72` to `0.1.73`.
+
+The public-works dashboard now has a first editable per-user interest profile:
+
+- include keywords;
+- exclude keywords;
+- minimum budget;
+- maximum budget.
+
+Profiles are stored in SQLite under the logged-in user's email and are applied
+only to that user's visible dashboard rows. They do not change discovery,
+scheduled cron runs, global AI triage, document fetches or another user's
+dashboard. When no personal profile is configured, dashboard behavior remains
+unchanged.
+
+The profile filter is intentionally lightweight: it runs on the already
+assembled dashboard payload, so it adds no source requests, downloads, OCR or
+AI work to the initial page load. Rows that match a personal profile expose a
+`profile_fit` label/reason in the row pills and preview explanation.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py src/tender_radar/db.py
+# passed
+
+.venv/bin/python -m pytest tests/test_db.py::test_user_interest_profiles_are_keyed_by_user_email \
+  tests/test_ui_server.py::test_ui_exposes_user_interest_profile_controls \
+  tests/test_ui_server.py::test_user_interest_profile_filters_dashboard_for_current_user \
+  tests/test_ui_server.py::test_user_interest_profile_exclude_keyword_is_user_scoped -q
+# 4 passed
+
+.venv/bin/python -m pytest -q
+# 330 passed
+```
+
 ## 2026-07-22 - Public-works profile fit and AI confidence bands
 
 The runtime/UI version was bumped from `0.1.71` to `0.1.72`.

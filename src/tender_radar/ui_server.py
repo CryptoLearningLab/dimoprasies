@@ -69,10 +69,12 @@ from tender_radar.db import (
     upsert_admin_hidden_event,
     upsert_admin_user,
     upsert_triage_override,
+    upsert_user_interest_profile,
     upsert_user_triage_override,
     upsert_source_document,
     upsert_source_state,
     upsert_verified_tender_link,
+    user_interest_profile as db_user_interest_profile,
 )
 from tender_radar.discovery_watermark import (
     append_discovery_run,
@@ -190,6 +192,13 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/source-polling":
             self._send_json(source_polling_payload())
+            return
+        if parsed.path == "/api/user/interest-profile":
+            session = self._admin_session()
+            if not session or not session.get("email"):
+                self._send_json({"ok": False, "error": "Login required."}, status=401)
+                return
+            self._send_json(user_interest_profile_payload(str(session["email"])))
             return
         if parsed.path == "/api/entalmata":
             self._send_json(entalmata_payload())
@@ -419,6 +428,13 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                     self._send_json({"ok": False, "error": "Login required."}, status=401)
                     return
                 self._send_json(dismiss_tender(row_key, user_email=session["email"]))
+                return
+            if parsed.path == "/api/user/interest-profile":
+                session = self._admin_session()
+                if not session or not session.get("email"):
+                    self._send_json({"ok": False, "error": "Login required."}, status=401)
+                    return
+                self._send_json(update_user_interest_profile(str(session["email"]), payload))
                 return
             if parsed.path == "/api/admin/login":
                 self._admin_login(payload)
@@ -3767,6 +3783,77 @@ def update_admin_secrets(payload: dict[str, Any], *, actor_email: str | None = N
     return {**admin_secrets_payload(), "updated": sorted(updates), "cleared": sorted(clear_keys), "actor_email": actor_email}
 
 
+def user_interest_profile_payload(user_email: str) -> dict[str, Any]:
+    stored = db_user_interest_profile(runtime_db_path(), user_email=user_email)
+    profile = normalize_user_interest_profile((stored or {}).get("profile") if stored else {})
+    return {
+        "ok": True,
+        "user_email": user_email.strip().lower(),
+        "profile": profile,
+        "updated_at": (stored or {}).get("updated_at"),
+        "active": user_interest_profile_is_active(profile),
+    }
+
+
+def update_user_interest_profile(user_email: str, payload: dict[str, Any]) -> dict[str, Any]:
+    profile_payload = payload.get("profile") if isinstance(payload.get("profile"), dict) else payload
+    profile = normalize_user_interest_profile(profile_payload)
+    upsert_user_interest_profile(
+        runtime_db_path(),
+        user_email=user_email,
+        profile=profile,
+        metadata={"source": "ui"},
+    )
+    invalidate_ui_payload_cache()
+    return user_interest_profile_payload(user_email)
+
+
+def normalize_user_interest_profile(payload: object) -> dict[str, Any]:
+    data = payload if isinstance(payload, dict) else {}
+    return {
+        "include_keywords": normalize_profile_keyword_list(data.get("include_keywords")),
+        "exclude_keywords": normalize_profile_keyword_list(data.get("exclude_keywords")),
+        "min_budget": normalize_profile_budget(data.get("min_budget")),
+        "max_budget": normalize_profile_budget(data.get("max_budget")),
+    }
+
+
+def normalize_profile_keyword_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        raw_items = re.split(r"[\n,;]+", value)
+    elif isinstance(value, list):
+        raw_items = [str(item or "") for item in value]
+    else:
+        raw_items = []
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        text = re.sub(r"\s+", " ", str(item or "")).strip()
+        key = normalize_greek(text)
+        if not text or not key or key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(text[:80])
+        if len(cleaned) >= 40:
+            break
+    return cleaned
+
+
+def normalize_profile_budget(value: object) -> float | None:
+    if value in (None, ""):
+        return None
+    return budget_sort_value(value)
+
+
+def user_interest_profile_is_active(profile: dict[str, Any]) -> bool:
+    return bool(
+        profile.get("include_keywords")
+        or profile.get("exclude_keywords")
+        or profile.get("min_budget") is not None
+        or profile.get("max_budget") is not None
+    )
+
+
 def write_local_env_values(updates: dict[str, str], *, clear_keys: set[str] | None = None) -> None:
     clear_keys = clear_keys or set()
     path = REPO_ROOT / ".env.local"
@@ -4386,6 +4473,8 @@ def dashboard_payload(
 ) -> dict[str, Any]:
     safe_scope = dashboard_scope(scope)
     profile = location_focus_profile()
+    user_profile_payload = user_interest_profile_payload(user_email) if user_email else None
+    user_profile = (user_profile_payload or {}).get("profile") or {}
     overrides = triage_overrides_by_key(user_email=user_email)
     force_keep_keys = {key for key, item in overrides.items() if item.get("action") == "FORCE_KEEP"}
     confirmed_drop_keys = {key for key, item in overrides.items() if item.get("action") == "CONFIRM_DROP"}
@@ -4414,6 +4503,18 @@ def dashboard_payload(
     triage_hidden = [row for row in active_rows if row.get("ai_triage_hidden")]
     triage_visible_rows = [row for row in active_rows if not row.get("ai_triage_hidden")]
     visible_rows = [row for row in triage_visible_rows if row["interest_match"]]
+    if user_interest_profile_is_active(user_profile):
+        matched_rows = []
+        for row in visible_rows:
+            profile_match = user_profile_match_for_row(row, user_profile)
+            if profile_match["matches"]:
+                matched_rows.append({**row, "user_profile_match": profile_match})
+        visible_rows = matched_rows
+    else:
+        visible_rows = [
+            {**row, "user_profile_match": user_profile_match_for_row(row, user_profile)}
+            for row in visible_rows
+        ]
     visible_rows = sort_dashboard_rows(visible_rows, sort=sort)
     notifications = notification_logs_for_rows(visible_rows)
     visible_rows = [
@@ -4423,7 +4524,12 @@ def dashboard_payload(
     return {
         "scope": safe_scope,
         "sort": sort if sort in {"deadline_asc", "budget_desc"} else "deadline_asc",
-        "profile": profile,
+        "profile": {
+            **profile,
+            "user_interest": user_profile,
+            "user_interest_active": user_interest_profile_is_active(user_profile),
+            "user_interest_updated_at": (user_profile_payload or {}).get("updated_at"),
+        },
         "summary": {
             "total_known": len(rows),
             "visible": len(visible_rows),
@@ -4470,7 +4576,15 @@ def row_with_operational_explanation(row: dict[str, Any], *, notifications: list
 
 
 def profile_fit_for_row(row: dict[str, Any]) -> dict[str, str]:
+    user_match = row.get("user_profile_match") if isinstance(row.get("user_profile_match"), dict) else {}
     reason = str(row.get("interest_reason") or "").strip()
+    if user_match.get("active"):
+        details = [str(item) for item in user_match.get("reasons") or [] if str(item).strip()]
+        return {
+            "band": "USER_MATCH" if user_match.get("matches") else "USER_DROP",
+            "label": "Ταιριάζει στο δικό σου προφίλ" if user_match.get("matches") else "Δεν ταιριάζει στο δικό σου προφίλ",
+            "reason": "; ".join(details) or reason or "Εφαρμόστηκε προσωπικό προφίλ.",
+        }
     if reason:
         return {
             "band": "MATCH",
@@ -4482,6 +4596,65 @@ def profile_fit_for_row(row: dict[str, Any]) -> dict[str, str]:
         "label": "Χωρίς σαφές ταίριασμα προφίλ",
         "reason": "Δεν υπάρχει καταγεγραμμένη αιτιολόγηση περιοχής/προφίλ.",
     }
+
+
+def user_profile_match_for_row(row: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
+    normalized_profile = normalize_user_interest_profile(profile)
+    active = user_interest_profile_is_active(normalized_profile)
+    if not active:
+        return {"active": False, "matches": True, "reasons": []}
+    haystack = normalize_greek(
+        " ".join(
+            str(row.get(key) or "")
+            for key in (
+                "title",
+                "authority_name",
+                "display_id",
+                "source_label",
+                "interest_reason",
+                "official_status_label",
+            )
+        )
+    )
+    include_keywords = normalized_profile.get("include_keywords") or []
+    exclude_keywords = normalized_profile.get("exclude_keywords") or []
+    include_matches = [keyword for keyword in include_keywords if normalize_greek(keyword) in haystack]
+    exclude_matches = [keyword for keyword in exclude_keywords if normalize_greek(keyword) in haystack]
+    budget = row.get("budget_sort")
+    try:
+        budget_value = float(budget) if budget is not None else None
+    except (TypeError, ValueError):
+        budget_value = None
+    reasons: list[str] = []
+    matches = True
+    if include_keywords:
+        if include_matches:
+            reasons.append(f"λέξεις ενδιαφέροντος: {', '.join(include_matches[:4])}")
+        else:
+            matches = False
+            reasons.append("δεν βρέθηκε λέξη ενδιαφέροντος")
+    if exclude_matches:
+        matches = False
+        reasons.append(f"αποκλείστηκε από: {', '.join(exclude_matches[:4])}")
+    min_budget = normalized_profile.get("min_budget")
+    max_budget = normalized_profile.get("max_budget")
+    if budget_value is None and (min_budget is not None or max_budget is not None):
+        reasons.append("δεν υπάρχει καθαρός προϋπολογισμός για εφαρμογή ορίου")
+    if budget_value is not None and min_budget is not None:
+        if budget_value < float(min_budget):
+            matches = False
+            reasons.append(f"κάτω από ελάχιστο budget {format_budget(min_budget)}")
+        else:
+            reasons.append(f"πάνω από ελάχιστο budget {format_budget(min_budget)}")
+    if budget_value is not None and max_budget is not None:
+        if budget_value > float(max_budget):
+            matches = False
+            reasons.append(f"πάνω από μέγιστο budget {format_budget(max_budget)}")
+        else:
+            reasons.append(f"κάτω από μέγιστο budget {format_budget(max_budget)}")
+    if not reasons:
+        reasons.append("προσωπικό προφίλ χωρίς περιορισμούς που επηρεάζουν αυτό το έργο")
+    return {"active": True, "matches": matches, "reasons": reasons}
 
 
 def ai_confidence_band_for_row(row: dict[str, Any]) -> dict[str, str]:
@@ -7706,6 +7879,28 @@ INDEX_HTML = f"""<!doctype html>
         </div>
       </div>
 
+      <details class="interestProfileBox">
+        <summary>Προσωπικό προφίλ ενδιαφέροντος</summary>
+        <div class="interestProfileGrid">
+          <label>Λέξεις που θέλω
+            <textarea id="profileIncludeInput" rows="3" placeholder="οδοποιία&#10;ασφαλτόστρωση&#10;συντήρηση"></textarea>
+          </label>
+          <label>Λέξεις που κόβω
+            <textarea id="profileExcludeInput" rows="3" placeholder="καύσιμα&#10;μεταφορά μαθητών"></textarea>
+          </label>
+          <label>Ελάχιστος προϋπολογισμός
+            <input id="profileMinBudgetInput" type="number" min="0" step="1000" placeholder="π.χ. 50000">
+          </label>
+          <label>Μέγιστος προϋπολογισμός
+            <input id="profileMaxBudgetInput" type="number" min="0" step="1000" placeholder="π.χ. 5000000">
+          </label>
+        </div>
+        <div class="toolbar compact">
+          <button id="saveInterestProfileBtn" class="secondary">Αποθήκευση προφίλ</button>
+          <span id="interestProfileStatus" class="noteText">Χωρίς προσωπικούς περιορισμούς.</span>
+        </div>
+      </details>
+
       <div class="metrics">
         <div><span id="visibleTenderCount">0</span><small>έργα στη λίστα</small></div>
         <div><span id="focusTenderCount">0</span><small>ταιριάζουν στην περιοχή</small></div>
@@ -8261,6 +8456,28 @@ main { padding: 22px; min-width: 0; }
 .searchBand h3 {
   font-size: 20px;
   margin-bottom: 6px;
+}
+.interestProfileBox {
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.interestProfileBox summary {
+  cursor: pointer;
+  font-weight: 900;
+  color: var(--text);
+}
+.interestProfileGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.interestProfileGrid textarea {
+  resize: vertical;
+  min-height: 82px;
 }
 .searchPanel {
   display: grid;
@@ -9092,6 +9309,7 @@ const state = {
   adminSecrets: null,
   entalmata: null,
   reverseSearch: null,
+  interestProfile: null,
   session: null,
 };
 const $ = (id) => document.getElementById(id);
@@ -9170,6 +9388,7 @@ async function refresh() {
   fillSelect('profileSelect', state.profiles);
   fillSelect('evaluationProfileSelect', state.evaluationProfiles);
   fillSelect('ruleProfileSelect', state.evaluationProfiles);
+  await loadInterestProfile();
   await loadDashboard();
   await loadSourcePolling();
   if ($('entalmata').classList.contains('active')) {
@@ -9199,6 +9418,58 @@ async function loadDashboard() {
   const payload = await api(`/api/dashboard?scope=focus&sort=${sort}`);
   state.dashboard = payload;
   renderDashboard(payload);
+}
+
+async function loadInterestProfile() {
+  const payload = await api('/api/user/interest-profile');
+  state.interestProfile = payload;
+  renderInterestProfile(payload);
+}
+
+function renderInterestProfile(payload) {
+  const profile = (payload && payload.profile) || {};
+  $('profileIncludeInput').value = (profile.include_keywords || []).join('\\n');
+  $('profileExcludeInput').value = (profile.exclude_keywords || []).join('\\n');
+  $('profileMinBudgetInput').value = profile.min_budget ?? '';
+  $('profileMaxBudgetInput').value = profile.max_budget ?? '';
+  setInterestProfileStatus(Boolean(payload && payload.active), payload && payload.updated_at);
+}
+
+function setInterestProfileStatus(active, updatedAt = '') {
+  const suffix = updatedAt ? ` · ενημερώθηκε ${formatDateTime(updatedAt)}` : '';
+  $('interestProfileStatus').textContent = active
+    ? `Ενεργό προσωπικό φίλτρο${suffix}`
+    : 'Χωρίς προσωπικούς περιορισμούς.';
+}
+
+function profileInputLines(id) {
+  return String($(id).value || '')
+    .split(/[,;\\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function profileBudgetInput(id) {
+  const value = String($(id).value || '').trim();
+  return value ? Number(value) : null;
+}
+
+async function saveInterestProfile() {
+  $('interestProfileStatus').textContent = 'Αποθήκευση προφίλ...';
+  const payload = await api('/api/user/interest-profile', {
+    method: 'POST',
+    body: JSON.stringify({
+      profile: {
+        include_keywords: profileInputLines('profileIncludeInput'),
+        exclude_keywords: profileInputLines('profileExcludeInput'),
+        min_budget: profileBudgetInput('profileMinBudgetInput'),
+        max_budget: profileBudgetInput('profileMaxBudgetInput'),
+      },
+    }),
+  });
+  state.interestProfile = payload;
+  renderInterestProfile(payload);
+  await loadDashboard();
 }
 
 async function loadSourcePolling() {
@@ -9817,7 +10088,11 @@ function renderDashboard(payload) {
   $('visibleTenderCount').textContent = payload.summary.visible || 0;
   $('focusTenderCount').textContent = payload.summary.focus_matches || 0;
   const municipalityText = (payload.profile.municipalities || []).join(', ');
-  $('scopeText').textContent = `Προεπιλογή τοπικού ενδιαφέροντος: ${municipalityText}`;
+  const userProfileActive = Boolean(payload.profile.user_interest_active);
+  $('scopeText').textContent = userProfileActive
+    ? `Προεπιλογή τοπικού ενδιαφέροντος: ${municipalityText}. Εφαρμόζεται και το προσωπικό προφίλ σου.`
+    : `Προεπιλογή τοπικού ενδιαφέροντος: ${municipalityText}`;
+  setInterestProfileStatus(userProfileActive, payload.profile.user_interest_updated_at || '');
   renderDiscoverySafety(payload.discovery_run);
   renderDeadlineWatch(payload.tenders || []);
   const rows = $('tenderRows');
@@ -10416,6 +10691,7 @@ $('loginPasswordInput').addEventListener('keydown', (event) => {
 });
 $('refreshBtn').addEventListener('click', refresh);
 $('sortSelect').addEventListener('change', () => loadDashboard().catch((error) => { $('statusText').textContent = String(error); }));
+$('saveInterestProfileBtn').addEventListener('click', () => saveInterestProfile().catch((error) => { $('interestProfileStatus').textContent = String(error); }));
 $('discoverBtn').addEventListener('click', () => {
   const backfill = $('backfillToggle').checked;
   runAction(

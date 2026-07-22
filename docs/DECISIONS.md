@@ -1,5 +1,22 @@
 # Decision Log
 
+## D-116 — User interest profiles are scoped to dashboard users
+**Status:** Accepted
+
+Editable interest preferences represent a user's business focus, not a global
+truth about whether a tender exists. The first profile slice is therefore
+stored per `user_email` and applied only when assembling that user's
+public-works dashboard.
+
+Include keywords, exclude keywords and budget bounds may hide rows for that
+user, but they must not change source discovery, scheduled cron behavior,
+global AI triage, downloaded files, email provenance or another user's view.
+Rows without parseable budget remain visible under budget filters so missing
+budget evidence does not accidentally become a false negative.
+
+This keeps personalization fast and reversible while preserving the shared
+source/audit layer for future broader rule learning.
+
 ## D-115 — Confidence bands are derived presentation state
 **Status:** Accepted
 

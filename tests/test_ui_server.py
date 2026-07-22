@@ -98,6 +98,16 @@ def test_ui_preview_renders_operational_explanation() -> None:
     assert "Γιατί εμφανίζεται" in APP_JS
 
 
+def test_ui_exposes_user_interest_profile_controls() -> None:
+    assert 'id="profileIncludeInput"' in INDEX_HTML
+    assert 'id="profileExcludeInput"' in INDEX_HTML
+    assert 'id="profileMinBudgetInput"' in INDEX_HTML
+    assert 'id="profileMaxBudgetInput"' in INDEX_HTML
+    assert "/api/user/interest-profile" in APP_JS
+    assert "saveInterestProfile" in APP_JS
+    assert "loadInterestProfile" in APP_JS
+
+
 def test_ui_exposes_client_side_deadline_watch() -> None:
     assert 'id="deadlineWatchBuckets"' in INDEX_HTML
     assert 'id="deadlineWatchSummary"' in INDEX_HTML
@@ -3516,6 +3526,83 @@ regions: []
     assert payload["summary"]["ignored"] == 1
     assert other_payload["summary"]["visible"] == 1
     assert other_payload["summary"]["ignored"] == 0
+
+
+def test_user_interest_profile_filters_dashboard_for_current_user(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    write_patras_authority_fixture(
+        tmp_path,
+        [
+            {
+                "source": "AUTHORITY",
+                "record_type": "AUTHORITY_WEB",
+                "official_id": "AUTH-asphalt",
+                "title": "Ασφαλτόστρωση οδού Δήμου Πατρέων",
+                "authority": "Δήμος Πατρέων",
+                "source_url": "https://e-patras.gr/el/asphalt",
+                "budget_with_vat": "120.000,00",
+                "matched_scopes": ["Δήμος Πατρέων"],
+                "match_notes": [],
+                "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+            },
+            {
+                "source": "AUTHORITY",
+                "record_type": "AUTHORITY_WEB",
+                "official_id": "AUTH-playground",
+                "title": "Αναβάθμιση παιδικής χαράς Δήμου Πατρέων",
+                "authority": "Δήμος Πατρέων",
+                "source_url": "https://e-patras.gr/el/playground",
+                "budget_with_vat": "30.000,00",
+                "matched_scopes": ["Δήμος Πατρέων"],
+                "match_notes": [],
+                "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+            },
+        ],
+    )
+
+    saved = ui_server.update_user_interest_profile(
+        "owner@example.test",
+        {"include_keywords": "ασφαλτόστρωση\nοδοποιία", "min_budget": "50000"},
+    )
+
+    owner_payload = dashboard_payload(scope="focus", user_email="owner@example.test")
+    other_payload = dashboard_payload(scope="focus", user_email="other@example.test")
+
+    assert saved["active"] is True
+    assert owner_payload["summary"]["visible"] == 1
+    assert owner_payload["profile"]["user_interest_active"] is True
+    assert owner_payload["tenders"][0]["display_id"] == "AUTH-asphalt"
+    assert owner_payload["tenders"][0]["profile_fit"]["band"] == "USER_MATCH"
+    assert "ασφαλτόστρωση" in owner_payload["tenders"][0]["profile_fit"]["reason"]
+    assert other_payload["summary"]["visible"] == 2
+    assert other_payload["profile"]["user_interest_active"] is False
+
+
+def test_user_interest_profile_exclude_keyword_is_user_scoped(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    write_patras_authority_fixture(
+        tmp_path,
+        [
+            {
+                "source": "AUTHORITY",
+                "record_type": "AUTHORITY_WEB",
+                "official_id": "AUTH-asphalt",
+                "title": "Ασφαλτόστρωση οδού Δήμου Πατρέων",
+                "authority": "Δήμος Πατρέων",
+                "source_url": "https://e-patras.gr/el/asphalt",
+                "matched_scopes": ["Δήμος Πατρέων"],
+                "match_notes": [],
+                "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+            }
+        ],
+    )
+
+    ui_server.update_user_interest_profile("owner@example.test", {"exclude_keywords": ["ασφαλτόστρωση"]})
+
+    assert dashboard_payload(scope="focus", user_email="owner@example.test")["summary"]["visible"] == 0
+    assert dashboard_payload(scope="focus", user_email="other@example.test")["summary"]["visible"] == 1
 
 
 def test_dashboard_uses_cached_ai_triage_to_hide_drops(tmp_path, monkeypatch) -> None:
