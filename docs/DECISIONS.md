@@ -1,5 +1,16 @@
 # Decision Log
 
+## D-121 — Category filters should look like filters, not cards
+**Status:** Accepted
+
+The public-works personal profile category selector is a filter control, not a
+primary content surface. It should use compact native checkboxes and short
+labels instead of large card-like or pill-like controls on desktop.
+
+This visual simplification must remain presentation-only and must not change
+profile persistence, filtering semantics, source discovery, scheduled runs, AI
+triage, downloads, email behavior or another user's dashboard.
+
 ## D-120 — Desktop profile polish is presentation-only
 **Status:** Accepted
 

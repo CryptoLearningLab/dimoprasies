@@ -8773,41 +8773,40 @@ main { padding: 22px; min-width: 0; }
   min-height: 76px;
 }
 .profileCategoryBox {
-  margin: 14px 0 0;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fbfcfd;
+  margin: 12px 0 0;
+  padding: 10px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
 }
 .profileCategoryBox legend {
-  padding: 0 6px;
+  padding: 0 6px 0 0;
   color: var(--text);
   font-weight: 900;
+  font-size: 13px;
 }
 .profileCategoryOptions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  column-gap: 18px;
+  row-gap: 6px;
 }
 .profileCategoryOption {
   display: inline-flex;
-  gap: 7px;
+  gap: 6px;
   align-items: center;
-  min-height: 34px;
-  max-width: 270px;
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
   font-size: 12px;
-  font-weight: 800;
-  line-height: 1.2;
+  font-weight: 700;
+  line-height: 1.25;
   white-space: normal;
 }
 .profileCategoryOption input {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex: 0 0 auto;
   margin: 0;
 }
@@ -8815,8 +8814,6 @@ main { padding: 22px; min-width: 0; }
   overflow-wrap: anywhere;
 }
 .profileCategoryOption:has(input:checked) {
-  border-color: #0f8a7d;
-  background: #edfdf8;
   color: #0f766e;
 }
 .searchPanel {
@@ -9533,8 +9530,8 @@ h3 {
   .interestProfileGrid {
     grid-template-columns: 1fr;
   }
-  .profileCategoryOption {
-    max-width: 100%;
+  .profileCategoryOptions {
+    grid-template-columns: 1fr;
   }
   .metrics,
   .adminMetrics { grid-template-columns: 1fr; }

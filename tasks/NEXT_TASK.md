@@ -134,6 +134,9 @@ The Windows/desktop profile layout was polished after the category-filter
 slice: the main view is width-constrained on large screens, the profile grid is
 balanced, and category choices render as compact checkbox chips. This is
 presentation-only.
+The profile category selector was then simplified further into a minimal
+checkbox grid, because large pill/card controls looked oversized on Windows
+desktop.
 The public-works dashboard preview now exposes a dedup/source identity read
 model: `project_identity`, `source_merge` and enriched `project_sources` show
 which ESHIDIS row is canonical and which KIMDIS/authority sources point to it.

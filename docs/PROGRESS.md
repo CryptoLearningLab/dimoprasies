@@ -1,5 +1,31 @@
 # Project Progress
 
+## 2026-07-22 - Minimal desktop category filters
+
+The runtime/UI version was bumped from `0.1.77` to `0.1.78`.
+
+The public-works personal profile category selector was reduced from large
+chip/card controls to a compact checkbox grid. The category area now uses a
+simple top divider, small labels and native-size checkboxes so the profile
+section reads as a dense desktop filter panel instead of a large form block.
+
+This remains presentation-only and does not change profile persistence,
+filtering semantics, source discovery, scheduled runs, AI triage, downloads or
+email behavior.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_exposes_user_interest_profile_controls -q
+# 1 passed
+
+.venv/bin/python -m pytest -q
+# 335 passed
+```
+
 ## 2026-07-22 - Desktop profile layout polish
 
 The runtime/UI version was bumped from `0.1.76` to `0.1.77`.

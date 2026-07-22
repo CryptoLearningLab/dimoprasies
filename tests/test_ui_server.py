@@ -110,6 +110,7 @@ def test_ui_exposes_user_interest_profile_controls() -> None:
     assert "loadInterestProfile" in APP_JS
     assert "selectedProfileCategoryIds" in APP_JS
     assert ".profileCategoryOption:has(input:checked)" in STYLES_CSS
+    assert ".profileCategoryOption input" in STYLES_CSS
     assert "max-width: 1720px" in STYLES_CSS
 
 
