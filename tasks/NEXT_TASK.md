@@ -103,6 +103,8 @@ The browser/admin feedback buttons are user-scoped via `user_triage_overrides`;
 global `triage_overrides` remain for explicit system-wide rules only.
 Project detail timeline v2 now exposes sources, operational status, email
 notification status and feedback in the existing dashboard preview payload.
+The `Λήγουν σύντομα` overview is client-side only from `dashboard.tenders`, so
+it should not add backend work to initial load.
 Keep measuring live endpoint timings after each UI-heavy change.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked

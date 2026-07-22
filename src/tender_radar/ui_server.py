@@ -7286,6 +7286,17 @@ INDEX_HTML = f"""<!doctype html>
         <div><span id="focusTenderCount">0</span><small>ταιριάζουν στην περιοχή</small></div>
       </div>
 
+      <section class="deadlineWatch">
+        <div class="deadlineWatchHeader">
+          <div>
+            <p class="eyebrow">Λήγουν σύντομα</p>
+            <h3>Καθημερινή εικόνα ενεργειών</h3>
+          </div>
+          <span id="deadlineWatchSummary" class="noteText">Υπολογίζεται από την τρέχουσα λίστα.</span>
+        </div>
+        <div id="deadlineWatchBuckets" class="deadlineBuckets"></div>
+      </section>
+
       <details class="sourceAudit" open hidden>
         <summary>
           <span>Έλεγχος πηγών</span>
@@ -7838,6 +7849,65 @@ main { padding: 22px; min-width: 0; }
 .searchPanel h2 {
   font-size: 24px;
   margin: 0;
+}
+.deadlineWatch {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.deadlineWatchHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: end;
+}
+.deadlineWatchHeader h3 {
+  margin: 0;
+  font-size: 18px;
+}
+.deadlineBuckets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.deadlineBucket {
+  display: grid;
+  gap: 8px;
+  min-height: 116px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.deadlineBucket strong {
+  font-size: 24px;
+  line-height: 1;
+}
+.deadlineBucket h4 {
+  margin: 0;
+  font-size: 13px;
+}
+.deadlineBucketList {
+  display: grid;
+  gap: 5px;
+}
+.deadlineBucketItem {
+  display: block;
+  min-height: 28px;
+  padding: 5px 7px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.deadlineBucketItem:hover {
+  border-color: #9fb6c9;
+  background: #eef6f4;
 }
 .reverseSearchForm {
   display: grid;
@@ -9322,6 +9392,7 @@ function renderDashboard(payload) {
   const municipalityText = (payload.profile.municipalities || []).join(', ');
   $('scopeText').textContent = `Προεπιλογή τοπικού ενδιαφέροντος: ${municipalityText}`;
   renderDiscoverySafety(payload.discovery_run);
+  renderDeadlineWatch(payload.tenders || []);
   const rows = $('tenderRows');
   rows.innerHTML = '';
   if (!payload.tenders.length) {
@@ -9392,6 +9463,70 @@ function renderDashboard(payload) {
   if (!state.selected || !payload.tenders.some((item) => (item.row_key || item.eshidis_id) === state.selected)) {
     selectTender(payload.tenders[0].row_key || payload.tenders[0].eshidis_id, false);
   }
+}
+
+function renderDeadlineWatch(tenders) {
+  const buckets = deadlineWatchBuckets(tenders || []);
+  const totalActionRows = buckets.reduce((sum, bucket) => sum + bucket.rows.length, 0);
+  $('deadlineWatchSummary').textContent = `${totalActionRows} ενδείξεις από ${tenders.length || 0} ενεργά έργα`;
+  $('deadlineWatchBuckets').innerHTML = buckets.map((bucket) => `
+    <article class="deadlineBucket">
+      <div>
+        <strong>${escapeHtml(bucket.rows.length)}</strong>
+        <h4>${escapeHtml(bucket.label)}</h4>
+      </div>
+      <div class="deadlineBucketList">
+        ${bucket.rows.slice(0, 3).map((row) => deadlineBucketItem(row)).join('') || '<span class="noteText">Καμία άμεση ενέργεια</span>'}
+      </div>
+    </article>
+  `).join('');
+  document.querySelectorAll('.deadlineBucketItem').forEach((button) => {
+    button.addEventListener('click', () => selectTender(button.dataset.key, false));
+  });
+}
+
+function deadlineWatchBuckets(tenders) {
+  const rows = [...(tenders || [])];
+  return [
+    { id: 'tomorrow', label: 'Λήγουν αύριο', rows: rows.filter((row) => daysUntilDeadline(row) === 1) },
+    { id: 'threeDays', label: 'Λήγουν σε 3 ημέρες', rows: rows.filter((row) => inDeadlineWindow(row, 0, 3)) },
+    { id: 'sevenDays', label: 'Λήγουν σε 7 ημέρες', rows: rows.filter((row) => inDeadlineWindow(row, 0, 7)) },
+    { id: 'missingEmail', label: 'Χωρίς email', rows: rows.filter((row) => operationStatus(row, 'Email') !== 'sent') },
+    { id: 'missingDocs', label: 'Χωρίς έγγραφα', rows: rows.filter((row) => operationStatus(row, 'Έγγραφα') === 'pending') },
+    { id: 'missingEshidis', label: 'Χωρίς ΕΣΗΔΗΣ', rows: rows.filter((row) => !row.eshidis_id && !(row.linked_eshidis_ids || []).length) },
+  ].map((bucket) => ({ ...bucket, rows: bucket.rows.sort(deadlineWatchSort) }));
+}
+
+function deadlineBucketItem(row) {
+  const rowKey = row.row_key || row.eshidis_id || row.display_id || '';
+  const title = row.title || row.display_id || rowKey;
+  const meta = [row.deadline_display || '', row.source_label || ''].filter(Boolean).join(' · ');
+  return `<button class="deadlineBucketItem" data-key="${escapeHtml(rowKey)}">${escapeHtml(title)}${meta ? `<br><span class="noteText">${escapeHtml(meta)}</span>` : ''}</button>`;
+}
+
+function operationStatus(row, label) {
+  const item = (row.project_operations || []).find((operation) => operation.label === label);
+  return item ? item.status : '';
+}
+
+function inDeadlineWindow(row, minDays, maxDays) {
+  const days = daysUntilDeadline(row);
+  return days !== null && days >= minDays && days <= maxDays;
+}
+
+function daysUntilDeadline(row) {
+  const sortKey = String(row.deadline_sort || '').trim();
+  const match = sortKey.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);
+  if (!match) return null;
+  const deadline = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.floor((deadline - todayStart) / 86400000);
+}
+
+function deadlineWatchSort(left, right) {
+  return String(left.deadline_sort || '9999').localeCompare(String(right.deadline_sort || '9999'))
+    || String(left.display_id || '').localeCompare(String(right.display_id || ''));
 }
 
 function renderDiscoverySafety(run) {

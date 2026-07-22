@@ -1,5 +1,17 @@
 # Decision Log
 
+## D-112 — Expiring-soon view is derived client-side
+**Status:** Accepted
+
+The public-works `Λήγουν σύντομα` view should not slow the initial dashboard
+load. It is therefore rendered from the already loaded `dashboard.tenders`
+payload in the browser, using existing deadline, source and
+`project_operations` fields.
+
+No new endpoint, source scan, file read or per-row backend query should be
+introduced for this first version. If future daily metrics need persisted
+history or cross-user aggregation, they can be added as a lazy endpoint later.
+
 ## D-111 — Project detail timeline is assembled from cached row evidence
 **Status:** Accepted
 

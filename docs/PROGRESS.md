@@ -1,5 +1,40 @@
 # Project Progress
 
+## 2026-07-22 - Client-side expiring-soon public-works view
+
+The runtime/UI version was bumped from `0.1.68` to `0.1.69`.
+
+The public-works dashboard now includes a lightweight `Λήγουν σύντομα` section
+above the main table. It is computed entirely in the browser from the already
+loaded `dashboard.tenders` rows and does not add a new endpoint, source scan,
+file read or dashboard request.
+
+The section groups the current visible rows into daily-action buckets:
+
+- `Λήγουν αύριο`;
+- `Λήγουν σε 3 ημέρες`;
+- `Λήγουν σε 7 ημέρες`;
+- `Χωρίς email`;
+- `Χωρίς έγγραφα`;
+- `Χωρίς ΕΣΗΔΗΣ`.
+
+Each listed item is clickable and selects the same project in the existing
+preview pane.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_exposes_client_side_deadline_watch \
+  tests/test_ui_server.py::test_ui_shows_current_version_badge -q
+# 2 passed
+
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest -q
+# 324 passed
+```
+
 ## 2026-07-22 - Project detail timeline v2 adds sources and operations
 
 The runtime/UI version was bumped from `0.1.67` to `0.1.68`.

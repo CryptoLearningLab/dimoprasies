@@ -95,6 +95,16 @@ def test_ui_preview_renders_operational_explanation() -> None:
     assert "Γιατί εμφανίζεται" in APP_JS
 
 
+def test_ui_exposes_client_side_deadline_watch() -> None:
+    assert 'id="deadlineWatchBuckets"' in INDEX_HTML
+    assert 'id="deadlineWatchSummary"' in INDEX_HTML
+    assert "Λήγουν σύντομα" in INDEX_HTML
+    assert "deadlineWatchBuckets" in APP_JS
+    assert "renderDeadlineWatch(payload.tenders || [])" in APP_JS
+    assert "/api/deadline" not in APP_JS
+    assert "/api/expiring" not in APP_JS
+
+
 def test_cached_payload_reuses_builder_and_marks_cache_hit() -> None:
     ui_server.invalidate_ui_payload_cache()
     calls = {"count": 0}
