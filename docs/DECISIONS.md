@@ -1,5 +1,17 @@
 # Decision Log
 
+## D-123 — Category checkboxes override global input sizing
+**Status:** Accepted
+
+Global input styles are appropriate for text fields and selects, but they must
+not make category checkboxes inherit large minimum widths. Profile category
+checkboxes should explicitly set their own compact dimensions so the selector
+remains a quiet engineering filter instead of a form-heavy control block.
+
+This remains presentation-only and must not change profile persistence,
+filtering semantics, source discovery, scheduled runs, AI triage, downloads or
+email behavior.
+
 ## D-122 — Desktop category filters should be a compact checklist
 **Status:** Accepted
 

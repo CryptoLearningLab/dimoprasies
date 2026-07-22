@@ -112,6 +112,8 @@ def test_ui_exposes_user_interest_profile_controls() -> None:
     assert ".profileCategoryOption:has(input:checked)" in STYLES_CSS
     assert ".profileCategoryOption input" in STYLES_CSS
     assert "grid-template-columns: 12px minmax(0, 1fr)" in STYLES_CSS
+    assert "min-width: 0" in STYLES_CSS
+    assert "accent-color: #0f766e" in STYLES_CSS
     assert "max-width: 1720px" in STYLES_CSS
 
 

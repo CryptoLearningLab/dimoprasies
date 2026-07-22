@@ -140,6 +140,8 @@ desktop.
 After Windows review, the category selector was tightened into a constrained
 three-column checklist with smaller checkboxes and aligned labels to remove
 large empty gaps.
+The category checkboxes also explicitly override the global input min-width so
+they remain true 12px checkbox controls on desktop.
 The public-works dashboard preview now exposes a dedup/source identity read
 model: `project_identity`, `source_merge` and enriched `project_sources` show
 which ESHIDIS row is canonical and which KIMDIS/authority sources point to it.

@@ -8809,8 +8809,12 @@ main { padding: 22px; min-width: 0; }
 .profileCategoryOption input {
   width: 12px;
   height: 12px;
+  min-width: 0;
+  min-height: 0;
   flex: 0 0 auto;
   margin: 1px 0 0;
+  padding: 0;
+  accent-color: #0f766e;
 }
 .profileCategoryOption span {
   overflow-wrap: normal;
