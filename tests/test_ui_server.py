@@ -108,6 +108,13 @@ def test_ui_exposes_user_interest_profile_controls() -> None:
     assert "loadInterestProfile" in APP_JS
 
 
+def test_ui_preview_renders_project_identity_and_source_merge() -> None:
+    assert "project_identity" in APP_JS
+    assert "source_merge" in APP_JS
+    assert "Ταυτότητα έργου" in APP_JS
+    assert "Dedup" in APP_JS
+
+
 def test_ui_exposes_client_side_deadline_watch() -> None:
     assert 'id="deadlineWatchBuckets"' in INDEX_HTML
     assert 'id="deadlineWatchSummary"' in INDEX_HTML
@@ -1973,6 +1980,16 @@ regions: []
     assert payload["summary"]["visible"] == 1
     assert payload["tenders"][0]["source_label"] == "ΕΣΗΔΗΣ"
     assert payload["tenders"][0]["display_id"] == "221744"
+    assert payload["tenders"][0]["project_identity"]["canonical_key"] == "ESHIDIS:221744"
+    assert payload["tenders"][0]["project_identity"]["primary_source"] == "ΕΣΗΔΗΣ"
+    assert payload["tenders"][0]["source_merge"]["status"] == "CANONICAL_WITH_LINKED_SOURCES"
+    assert payload["tenders"][0]["source_merge"]["level"] == "LEVEL_1_OFFICIAL_CROSS_REFERENCE"
+    assert any(
+        source["label"] == "ΚΗΜΔΗΣ"
+        and source["identifier"] == "26PROC019444361"
+        and source["role"] == "linked source"
+        for source in payload["tenders"][0]["project_sources"]
+    )
 
 
 def test_dashboard_hides_authority_duplicate_when_linked_eshidis_row_exists(tmp_path, monkeypatch) -> None:
@@ -2075,6 +2092,14 @@ regions: []
     assert payload["tenders"][0]["source_label"] == "ΕΣΗΔΗΣ"
     assert payload["tenders"][0]["display_id"] == "221473"
     assert payload["tenders"][0]["title"] == "Official ΕΣΗΔΗΣ Πατρών"
+    assert payload["tenders"][0]["project_identity"]["canonical_key"] == "ESHIDIS:221473"
+    assert payload["tenders"][0]["source_merge"]["status"] == "CANONICAL_WITH_LINKED_SOURCES"
+    assert any(
+        source["label"] == "Φορέας"
+        and source["identifier"] == "AUTHORITY:AUTH-1234567890abcdef"
+        and source["merge_level"] == "LEVEL_1_OFFICIAL_CROSS_REFERENCE"
+        for source in payload["tenders"][0]["project_sources"]
+    )
 
 
 def test_authority_row_uses_linked_eshidis_ids_from_downloaded_documents(tmp_path, monkeypatch) -> None:

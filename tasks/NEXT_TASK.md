@@ -126,6 +126,11 @@ change cron discovery, global AI triage, downloaded files or another user's
 view. Future profile work should add structured categories/CPV/region
 preferences and optional user-specific email digest rules without slowing
 initial dashboard load.
+The public-works dashboard preview now exposes a dedup/source identity read
+model: `project_identity`, `source_merge` and enriched `project_sources` show
+which ESHIDIS row is canonical and which KIMDIS/authority sources point to it.
+This is not yet schema-level tender identity grouping; ambiguous title-only
+relations must still remain separate or manual-review records.
 Keep measuring live endpoint timings after each UI-heavy change.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked

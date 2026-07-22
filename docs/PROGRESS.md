@@ -1,5 +1,43 @@
 # Project Progress
 
+## 2026-07-22 - Deduplication identity view
+
+The runtime/UI version was bumped from `0.1.73` to `0.1.74`.
+
+Public-works dashboard rows now expose a clearer dedup/source identity read
+model:
+
+- `project_identity`: canonical operator-facing key/label, primary source,
+  preferred ESHIDIS id and best URL;
+- `source_merge`: merge/link level, status and rationale;
+- enriched `project_sources`: role and dedup level for primary, linked and
+  verified source entries.
+
+The preview now renders a `Ταυτότητα έργου` section before the source list, so
+an official ESHIDIS row can show that KIMDIS or authority records point to it
+instead of simply hiding those duplicates. Timeline events also record source
+unification when a real official cross-reference exists.
+
+This is intentionally a UI/read-model slice. It does not add schema-level
+tender identity groups and does not merge ambiguous records by title-only or
+weak composite evidence.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_preview_renders_project_identity_and_source_merge \
+  tests/test_ui_server.py::test_dashboard_hides_kimdis_duplicate_when_linked_eshidis_row_exists \
+  tests/test_ui_server.py::test_dashboard_hides_authority_duplicate_when_linked_eshidis_row_exists \
+  tests/test_ui_server.py::test_dashboard_rows_include_why_visible_and_timeline -q
+# 4 passed
+
+.venv/bin/python -m pytest -q
+# 331 passed
+```
+
 ## 2026-07-22 - Editable user interest profiles
 
 The runtime/UI version was bumped from `0.1.72` to `0.1.73`.

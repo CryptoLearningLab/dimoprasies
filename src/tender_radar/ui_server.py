@@ -4568,6 +4568,8 @@ def row_with_operational_explanation(row: dict[str, Any], *, notifications: list
         **row,
         "profile_fit": profile_fit_for_row(row),
         "ai_confidence_band": ai_confidence_band_for_row(row),
+        "project_identity": project_identity(row),
+        "source_merge": source_merge_summary(row),
         "why_visible": why_visible_reasons(row),
         "project_sources": project_sources(row),
         "project_operations": project_operations(row, notifications=notifications),
@@ -4693,16 +4695,102 @@ def ai_confidence_band_for_row(row: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def project_identity(row: dict[str, Any]) -> dict[str, Any]:
+    eshidis_id = str(row.get("eshidis_id") or "").strip()
+    linked_ids = linked_eshidis_ids_for_row(row)
+    verified_ids = [str(value) for value in row.get("verified_eshidis_ids") or [] if str(value).strip().isdigit()]
+    canonical_eshidis_id = eshidis_id or (verified_ids[0] if verified_ids else "") or (linked_ids[0] if linked_ids else "")
+    official_id = str(row.get("official_id") or row.get("display_id") or "").strip()
+    if canonical_eshidis_id:
+        canonical_key = f"ESHIDIS:{canonical_eshidis_id}"
+        canonical_label = f"ΕΣΗΔΗΣ {canonical_eshidis_id}"
+        best_url = official_resource_url(canonical_eshidis_id)
+    elif is_kimdis_identifier(official_id):
+        canonical_key = f"KIMDIS:{official_id}"
+        canonical_label = f"ΚΗΜΔΗΣ {official_id}"
+        best_url = str(row.get("official_url") or row.get("attachment_url") or "")
+    else:
+        row_key = row_key_for_tender(row)
+        canonical_key = row_key
+        canonical_label = f"{row.get('source_label') or 'Πηγή'} {row.get('display_id') or official_id or row_key}".strip()
+        best_url = str(row.get("official_url") or row.get("attachment_url") or row.get("download_url") or "")
+    return {
+        "canonical_key": canonical_key,
+        "canonical_label": canonical_label,
+        "primary_source": "ΕΣΗΔΗΣ" if canonical_eshidis_id else (row.get("source_label") or row.get("source") or ""),
+        "preferred_eshidis_id": canonical_eshidis_id,
+        "official_id": official_id,
+        "best_url": best_url,
+    }
+
+
+def source_merge_summary(row: dict[str, Any]) -> dict[str, Any]:
+    source_label = str(row.get("source_label") or "")
+    linked_ids = linked_eshidis_ids_for_row(row)
+    verified_ids = [str(value) for value in row.get("verified_eshidis_ids") or [] if str(value).strip().isdigit()]
+    inbound_links = row.get("verified_source_links") if isinstance(row.get("verified_source_links"), list) else []
+    status = str(row.get("verified_eshidis_link_status") or "").strip()
+    if source_label == "ΕΣΗΔΗΣ":
+        if inbound_links:
+            return {
+                "level": "LEVEL_1_OFFICIAL_CROSS_REFERENCE",
+                "status": "CANONICAL_WITH_LINKED_SOURCES",
+                "label": "Κύρια εγγραφή ΕΣΗΔΗΣ με συνδεδεμένες πηγές",
+                "reason": f"{len(inbound_links)} πηγή/ές δείχνουν σε αυτή την επίσημη εγγραφή ΕΣΗΔΗΣ.",
+                "linked_source_count": len(inbound_links),
+            }
+        return {
+            "level": "LEVEL_0_SAME_SOURCE_RECORD",
+            "status": "CANONICAL_SOURCE",
+            "label": "Κύρια εγγραφή ΕΣΗΔΗΣ",
+            "reason": "Η γραμμή είναι επίσημη εγγραφή ΕΣΗΔΗΣ.",
+            "linked_source_count": 0,
+        }
+    if verified_ids:
+        return {
+            "level": "LEVEL_1_OFFICIAL_CROSS_REFERENCE",
+            "status": status or "VERIFIED_ESHIDIS_LINK",
+            "label": "Συνδεδεμένο με ΕΣΗΔΗΣ",
+            "reason": f"Η πηγή έχει επαληθευμένη σύνδεση με ΕΣΗΔΗΣ {', '.join(verified_ids)}.",
+            "linked_eshidis_ids": verified_ids,
+        }
+    if linked_ids:
+        return {
+            "level": "LEVEL_1_OFFICIAL_CROSS_REFERENCE",
+            "status": status or "EXTRACTED_ESHIDIS_LINK",
+            "label": "Βρέθηκε αριθμός ΕΣΗΔΗΣ",
+            "reason": f"Εξήχθη αριθμός ΕΣΗΔΗΣ {', '.join(linked_ids)} από επίσημο κείμενο/έγγραφο.",
+            "linked_eshidis_ids": linked_ids,
+        }
+    return {
+        "level": "UNLINKED_SOURCE_RECORD",
+        "status": status or "NO_ESHIDIS_LINK",
+        "label": "Ανεξάρτητη πηγή",
+        "reason": "Δεν υπάρχει ακόμα επαληθευμένη σύνδεση με άλλη επίσημη πηγή.",
+        "linked_eshidis_ids": [],
+    }
+
+
 def project_sources(row: dict[str, Any]) -> list[dict[str, str]]:
     sources: list[dict[str, str]] = []
 
-    def add(label: str, identifier: str = "", url: str = "", status: str = "", primary: bool = False) -> None:
+    def add(
+        label: str,
+        identifier: str = "",
+        url: str = "",
+        status: str = "",
+        primary: bool = False,
+        role: str = "",
+        merge_level: str = "",
+    ) -> None:
         item = {
             "label": label,
             "identifier": identifier,
             "url": url,
             "status": status,
             "primary": "true" if primary else "false",
+            "role": role,
+            "merge_level": merge_level,
         }
         key = (item["label"], item["identifier"], item["url"])
         if not item["label"] or any((src["label"], src["identifier"], src["url"]) == key for src in sources):
@@ -4711,17 +4799,33 @@ def project_sources(row: dict[str, Any]) -> list[dict[str, str]]:
 
     source_label = str(row.get("source_label") or row.get("source") or "Πηγή").strip()
     display_id = str(row.get("display_id") or row.get("official_id") or row.get("eshidis_id") or "").strip()
-    add(source_label, display_id, str(row.get("official_url") or row.get("source_url") or row.get("attachment_url") or ""), "primary", True)
+    add(
+        source_label,
+        display_id,
+        str(row.get("official_url") or row.get("source_url") or row.get("attachment_url") or ""),
+        "primary",
+        True,
+        "canonical" if source_label == "ΕΣΗΔΗΣ" else "source record",
+        "LEVEL_0_SAME_SOURCE_RECORD",
+    )
 
     eshidis_id = str(row.get("eshidis_id") or "").strip()
     for linked_id in [eshidis_id, *linked_eshidis_ids_for_row(row)]:
         linked_id = str(linked_id or "").strip()
         if linked_id.isdigit():
-            add("ΕΣΗΔΗΣ", linked_id, official_resource_url(linked_id), "official" if linked_id == eshidis_id else "linked")
+            add(
+                "ΕΣΗΔΗΣ",
+                linked_id,
+                official_resource_url(linked_id),
+                "official" if linked_id == eshidis_id else "linked",
+                primary=linked_id == eshidis_id and source_label == "ΕΣΗΔΗΣ",
+                role="canonical" if linked_id == eshidis_id else "linked official",
+                merge_level="LEVEL_1_OFFICIAL_CROSS_REFERENCE" if linked_id != eshidis_id else "LEVEL_0_SAME_SOURCE_RECORD",
+            )
 
     official_id = str(row.get("official_id") or "").strip()
     if is_kimdis_identifier(official_id):
-        add("ΚΗΜΔΗΣ", official_id, str(row.get("official_url") or row.get("attachment_url") or ""), "notice")
+        add("ΚΗΜΔΗΣ", official_id, str(row.get("official_url") or row.get("attachment_url") or ""), "notice", role="notice")
 
     for link in row.get("verified_source_links") or []:
         if not isinstance(link, dict):
@@ -4730,7 +4834,9 @@ def project_sources(row: dict[str, Any]) -> list[dict[str, str]]:
             str(link.get("source_label") or "Συνδεδεμένη πηγή"),
             str(link.get("source_identifier") or ""),
             str(link.get("source_url") or ""),
-            "verified link",
+            str(link.get("verification_status") or "verified link"),
+            role="linked source",
+            merge_level="LEVEL_1_OFFICIAL_CROSS_REFERENCE",
         )
     return sources
 
@@ -4840,6 +4946,16 @@ def project_timeline_events(row: dict[str, Any], *, notifications: list[dict[str
     if eshidis_id or linked_ids:
         ids = ", ".join([eshidis_id, *[value for value in linked_ids if value != eshidis_id]]).strip(", ")
         events.append({"label": "ΕΣΗΔΗΣ", "text": f"Σύνδεση με Α/Α {ids}.", "at": ""})
+
+    source_merge = source_merge_summary(row)
+    if source_merge.get("level") == "LEVEL_1_OFFICIAL_CROSS_REFERENCE":
+        events.append(
+            {
+                "label": "Ενοποίηση πηγών",
+                "text": f"{source_merge.get('label')}: {source_merge.get('reason')}",
+                "at": "",
+            }
+        )
 
     deadline = str(row.get("deadline_display") or "").strip()
     if deadline:
@@ -10258,9 +10374,16 @@ function renderTenderExplanation(tender) {
   const sources = tender.project_sources || [];
   const operations = tender.project_operations || [];
   const timeline = tender.project_timeline || [];
+  const identity = tender.project_identity || {};
+  const sourceMerge = tender.source_merge || {};
   const profileFit = tender.profile_fit || null;
   const confidenceBand = tender.ai_confidence_band || null;
-  if (!reasons.length && !sources.length && !operations.length && !timeline.length && !profileFit && !confidenceBand) return '';
+  if (!reasons.length && !sources.length && !operations.length && !timeline.length && !identity.canonical_label && !sourceMerge.label && !profileFit && !confidenceBand) return '';
+  const identityItems = [
+    identity.canonical_label ? `<li><strong>Κύρια ταυτότητα</strong>: ${escapeHtml(identity.canonical_label)}</li>` : '',
+    identity.primary_source ? `<li><strong>Κύρια πηγή</strong>: ${escapeHtml(identity.primary_source)}</li>` : '',
+    sourceMerge.label ? `<li><strong>Dedup</strong>: ${escapeHtml(sourceMerge.label)}${sourceMerge.reason ? ` · ${escapeHtml(sourceMerge.reason)}` : ''}</li>` : '',
+  ].filter(Boolean).join('');
   const profileItems = [
     profileFit ? `<li><strong>Προφίλ</strong>: ${escapeHtml(profileFit.label || '')}${profileFit.reason ? ` · ${escapeHtml(profileFit.reason)}` : ''}</li>` : '',
     confidenceBand ? `<li><strong>AI band</strong>: ${escapeHtml(confidenceBand.label || '')}${confidenceBand.reason ? ` · ${escapeHtml(confidenceBand.reason)}` : ''}</li>` : '',
@@ -10269,7 +10392,7 @@ function renderTenderExplanation(tender) {
     <li><strong>${escapeHtml(item.label || '')}</strong>${item.label ? ': ' : ''}${escapeHtml(item.text || '')}</li>
   `).join('');
   const sourceItems = sources.map((item) => `
-    <li><strong>${escapeHtml(item.label || '')}</strong>${item.identifier ? ` ${escapeHtml(item.identifier)}` : ''}${item.primary === 'true' ? ' · primary' : ''}${item.status ? ` · ${escapeHtml(item.status)}` : ''}${item.url ? ` · <a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">Open</a>` : ''}</li>
+    <li><strong>${escapeHtml(item.label || '')}</strong>${item.identifier ? ` ${escapeHtml(item.identifier)}` : ''}${item.primary === 'true' ? ' · primary' : ''}${item.role ? ` · ${escapeHtml(item.role)}` : ''}${item.status ? ` · ${escapeHtml(item.status)}` : ''}${item.merge_level ? ` · ${escapeHtml(item.merge_level)}` : ''}${item.url ? ` · <a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">Open</a>` : ''}</li>
   `).join('');
   const operationItems = operations.map((item) => `
     <li><strong>${escapeHtml(item.label || '')}</strong>${item.status ? ` · ${escapeHtml(item.status)}` : ''}: ${escapeHtml(item.text || '')}</li>
@@ -10280,6 +10403,7 @@ function renderTenderExplanation(tender) {
   return `
     <section class="docItem auditBox">
       <h4>Γιατί εμφανίζεται</h4>
+      ${identityItems ? `<h4>Ταυτότητα έργου</h4><ul>${identityItems}</ul>` : ''}
       ${profileItems ? `<ul>${profileItems}</ul>` : ''}
       ${reasonItems ? `<ul>${reasonItems}</ul>` : ''}
       ${sourceItems ? `<h4>Πηγές</h4><ul>${sourceItems}</ul>` : ''}

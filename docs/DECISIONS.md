@@ -1,5 +1,25 @@
 # Decision Log
 
+## D-117 — Deduplication view exposes identity without unsafe merging
+**Status:** Accepted
+
+The dashboard should show one practical project view when KIMDIS or authority
+records are explicitly linked to an official ESHIDIS row, but it must not
+collapse ambiguous records based on title alone.
+
+Until the repository has schema-level tender identity groups, the UI payload
+will expose a read-model only:
+
+- `project_identity` for the canonical operator-facing id and best official
+  URL;
+- `source_merge` for the dedup/link level and rationale;
+- enriched `project_sources` entries with source role and merge level.
+
+This keeps the existing conservative duplicate suppression rules intact while
+making linked KIMDIS/authority evidence visible inside the canonical ESHIDIS
+preview. Ambiguous relations still remain separate records or admin-review
+items until an explicit identity/relation schema exists.
+
 ## D-116 — User interest profiles are scoped to dashboard users
 **Status:** Accepted
 
