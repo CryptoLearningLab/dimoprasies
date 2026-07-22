@@ -8730,11 +8730,15 @@ main { padding: 22px; min-width: 0; }
   justify-content: end;
 }
 .view { display: none; }
-.view.active { display: block; }
+.view.active {
+  display: block;
+  max-width: 1720px;
+  margin: 0 auto;
+}
 .searchBand {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto;
-  gap: 14px;
+  grid-template-columns: minmax(360px, 1fr) minmax(440px, 620px);
+  gap: 18px;
   align-items: start;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -8748,7 +8752,7 @@ main { padding: 22px; min-width: 0; }
 }
 .interestProfileBox {
   margin-bottom: 14px;
-  padding: 14px;
+  padding: 16px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -8760,19 +8764,20 @@ main { padding: 22px; min-width: 0; }
 }
 .interestProfileGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 10px;
-  margin-top: 12px;
+  grid-template-columns: minmax(220px, 1.15fr) minmax(220px, 1.15fr) minmax(180px, .85fr) minmax(180px, .85fr);
+  gap: 12px;
+  margin-top: 14px;
 }
 .interestProfileGrid textarea {
   resize: vertical;
-  min-height: 82px;
+  min-height: 76px;
 }
 .profileCategoryBox {
-  margin: 12px 0 0;
+  margin: 14px 0 0;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
+  background: #fbfcfd;
 }
 .profileCategoryBox legend {
   padding: 0 6px;
@@ -8780,25 +8785,39 @@ main { padding: 22px; min-width: 0; }
   font-weight: 900;
 }
 .profileCategoryOptions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .profileCategoryOption {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  min-height: 42px;
-  padding: 8px;
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  min-height: 34px;
+  max-width: 270px;
+  padding: 6px 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 999px;
   background: #ffffff;
-  font-size: 13px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+  font-size: 12px;
   font-weight: 800;
-  line-height: 1.25;
+  line-height: 1.2;
+  white-space: normal;
 }
 .profileCategoryOption input {
-  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 0;
+}
+.profileCategoryOption span {
+  overflow-wrap: anywhere;
+}
+.profileCategoryOption:has(input:checked) {
+  border-color: #0f8a7d;
+  background: #edfdf8;
+  color: #0f766e;
 }
 .searchPanel {
   display: grid;
@@ -9510,6 +9529,12 @@ h3 {
   .reverseSearchForm,
   .workspace {
     grid-template-columns: 1fr;
+  }
+  .interestProfileGrid {
+    grid-template-columns: 1fr;
+  }
+  .profileCategoryOption {
+    max-width: 100%;
   }
   .metrics,
   .adminMetrics { grid-template-columns: 1fr; }

@@ -1,5 +1,16 @@
 # Decision Log
 
+## D-120 — Desktop profile polish is presentation-only
+**Status:** Accepted
+
+The public-works profile controls may be visually tightened for desktop and
+wide Windows screens, but layout polish must remain presentation-only.
+
+Changing category controls from stretched cards to compact checkbox chips must
+not change profile persistence, filtering semantics, source discovery,
+scheduled runs, AI triage, downloaded files, email behavior or another user's
+dashboard.
+
 ## D-119 — User category preferences are scoped dashboard filters
 **Status:** Accepted
 

@@ -130,6 +130,10 @@ user's visible list. They do not change cron discovery, global AI triage,
 downloaded files or another user's view. Future profile work should add
 optional CPV/region preferences and user-specific email digest rules without
 slowing initial dashboard load.
+The Windows/desktop profile layout was polished after the category-filter
+slice: the main view is width-constrained on large screens, the profile grid is
+balanced, and category choices render as compact checkbox chips. This is
+presentation-only.
 The public-works dashboard preview now exposes a dedup/source identity read
 model: `project_identity`, `source_merge` and enriched `project_sources` show
 which ESHIDIS row is canonical and which KIMDIS/authority sources point to it.

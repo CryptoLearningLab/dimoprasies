@@ -1,5 +1,30 @@
 # Project Progress
 
+## 2026-07-22 - Desktop profile layout polish
+
+The runtime/UI version was bumped from `0.1.76` to `0.1.77`.
+
+The public-works dashboard desktop layout was tightened for Windows/wide
+screens. The active view now has a maximum desktop width, the profile form uses
+a more balanced grid, and taxonomy category choices render as compact checkbox
+chips instead of oversized stretched cards. Mobile remains single-column.
+
+This is presentation-only. It does not change profile persistence, category
+filtering, discovery, scheduled runs, AI triage or email behavior.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_exposes_user_interest_profile_controls -q
+# 1 passed
+
+.venv/bin/python -m pytest -q
+# 335 passed
+```
+
 ## 2026-07-22 - Category-based user interest profiles
 
 The runtime/UI version was bumped from `0.1.75` to `0.1.76`.
