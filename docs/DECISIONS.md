@@ -1,5 +1,18 @@
 # Decision Log
 
+## D-110 — Review feedback buttons are user-scoped
+**Status:** Accepted
+
+Interactive review feedback represents a user's judgment unless an explicit
+global rule/override workflow is used. The false-negative review queue buttons
+therefore persist to `user_triage_overrides`, keyed by `(user_email, row_key)`.
+
+`CONFIRM_DROP` removes the row from that user's review queue and keeps it out
+of that user's dashboard. `FORCE_KEEP` restores/keeps the row for that user
+only. Global `triage_overrides` remain supported for deliberate system-wide
+operator rules, but ordinary review clicks must not change another user's
+dashboard.
+
 ## D-109 — Admin review feedback is persisted before rule changes
 **Status:** Accepted
 

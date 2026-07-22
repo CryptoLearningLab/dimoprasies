@@ -1366,6 +1366,43 @@ def upsert_triage_override(
         connection.close()
 
 
+def upsert_user_triage_override(
+    db_path: Path,
+    *,
+    user_email: str,
+    row_key: str,
+    action: str,
+    reason: str | None = None,
+    created_at: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> None:
+    initialize(db_path)
+    normalized_email = user_email.strip().lower()
+    if not normalized_email:
+        raise ValueError("user_email is required")
+    if not row_key.strip():
+        raise ValueError("row_key is required")
+    created_at = created_at or datetime.now(timezone.utc).isoformat()
+    connection = connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO user_triage_overrides (
+                user_email, row_key, action, reason, created_at, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_email, row_key) DO UPDATE SET
+                action = excluded.action,
+                reason = excluded.reason,
+                created_at = excluded.created_at,
+                metadata_json = excluded.metadata_json
+            """,
+            (normalized_email, row_key, action, reason, created_at, json.dumps(metadata or {}, ensure_ascii=False)),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def triage_overrides_by_key(db_path: Path) -> dict[str, dict[str, object]]:
     initialize(db_path)
     connection = connect(db_path)
@@ -1390,6 +1427,41 @@ def triage_overrides_by_key(db_path: Path) -> dict[str, dict[str, object]]:
             "reason": row[2],
             "created_at": row[3],
             "metadata": metadata,
+        }
+    return items
+
+
+def user_triage_overrides_by_key(db_path: Path, *, user_email: str) -> dict[str, dict[str, object]]:
+    initialize(db_path)
+    normalized_email = user_email.strip().lower()
+    if not normalized_email:
+        return {}
+    connection = connect(db_path)
+    try:
+        rows = connection.execute(
+            """
+            SELECT user_email, row_key, action, reason, created_at, metadata_json
+            FROM user_triage_overrides
+            WHERE user_email = ?
+            """,
+            (normalized_email,),
+        ).fetchall()
+    finally:
+        connection.close()
+    items: dict[str, dict[str, object]] = {}
+    for row in rows:
+        try:
+            metadata = json.loads(row[5] or "{}")
+        except json.JSONDecodeError:
+            metadata = {}
+        items[str(row[1])] = {
+            "user_email": row[0],
+            "row_key": row[1],
+            "action": row[2],
+            "reason": row[3],
+            "created_at": row[4],
+            "metadata": metadata,
+            "scope": "user",
         }
     return items
 
@@ -1770,6 +1842,16 @@ def _ensure_runtime_state_tables(connection: sqlite3.Connection) -> None:
             reason TEXT,
             created_at TEXT NOT NULL,
             metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+
+        CREATE TABLE IF NOT EXISTS user_triage_overrides (
+            user_email TEXT NOT NULL,
+            row_key TEXT NOT NULL,
+            action TEXT NOT NULL,
+            reason TEXT,
+            created_at TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            PRIMARY KEY(user_email, row_key)
         );
 
         CREATE TABLE IF NOT EXISTS admin_hidden_events (

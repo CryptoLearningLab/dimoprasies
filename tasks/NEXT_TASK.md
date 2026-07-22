@@ -99,6 +99,8 @@ implemented in the dashboard payload and preview pane: visible rows expose
 Admin review feedback is now persisted through `triage_overrides`: confirmed
 drops leave the review queue but remain in the hidden audit, and false
 negatives use the same force-keep path as manual restores.
+The browser/admin feedback buttons are user-scoped via `user_triage_overrides`;
+global `triage_overrides` remain for explicit system-wide rules only.
 Keep measuring live endpoint timings after each UI-heavy change.
 
 Production `26PROC` KIMDIS audit: `9/14` current focus candidates have linked

@@ -3576,6 +3576,81 @@ def test_admin_review_feedback_confirms_drop_without_removing_audit_row(tmp_path
     assert hidden["feedback_reason"] == "σωστά κόπηκε"
 
 
+def test_admin_review_feedback_is_user_scoped(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    ui_server.invalidate_ui_payload_cache()
+    (tmp_path / "data").mkdir()
+    write_patras_authority_fixture(
+        tmp_path,
+        [
+            {
+                "source": "AUTHORITY",
+                "record_type": "AUTHORITY_WEB",
+                "official_id": "AUTH-user-scope",
+                "title": "Διακήρυξη έργου Πατρών για user scope",
+                "authority": "Δήμος Πατρέων",
+                "source_url": "https://e-patras.gr/el/admin",
+                "matched_scopes": ["Δήμος Πατρέων"],
+                "match_notes": [],
+                "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+            }
+        ],
+    )
+    (tmp_path / "work/reports/ai_triage_report.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "row_key": "AUTHORITY:AUTH-user-scope",
+                        "ai": {
+                            "decision": "DROP_ADMIN",
+                            "confidence": 0.9,
+                            "reason": "διοικητικό",
+                            "eshidis_id_candidates": [],
+                            "keep_for_daily_review": False,
+                        },
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    owner_before = ui_server.admin_audit_payload(user_email="owner@example.test")
+    other_before = ui_server.admin_audit_payload(user_email="other@example.test")
+    assert owner_before["summary"]["review_queue_total"] == 1
+    assert other_before["summary"]["review_queue_total"] == 1
+
+    ui_server.admin_review_feedback(
+        row_key="AUTHORITY:AUTH-user-scope",
+        action="CONFIRM_DROP",
+        reason="σωστά κόπηκε για μένα",
+        actor_email="owner@example.test",
+        user_email="owner@example.test",
+    )
+
+    assert ui_server.admin_audit_payload(user_email="owner@example.test")["summary"]["review_queue_total"] == 0
+    assert ui_server.admin_audit_payload(user_email="other@example.test")["summary"]["review_queue_total"] == 1
+    assert dashboard_payload(scope="focus", user_email="owner@example.test")["summary"]["visible"] == 0
+    assert dashboard_payload(scope="focus", user_email="other@example.test")["summary"]["visible"] == 0
+
+    ui_server.admin_review_feedback(
+        row_key="AUTHORITY:AUTH-user-scope",
+        action="FORCE_KEEP",
+        reason="το θέλω",
+        actor_email="other@example.test",
+        user_email="other@example.test",
+    )
+
+    owner_payload = dashboard_payload(scope="focus", user_email="owner@example.test")
+    other_payload = dashboard_payload(scope="focus", user_email="other@example.test")
+    assert owner_payload["summary"]["visible"] == 0
+    assert other_payload["summary"]["visible"] == 1
+    assert other_payload["tenders"][0]["triage_override"]["action"] == "FORCE_KEEP"
+    assert other_payload["tenders"][0]["triage_override"]["scope"] == "user"
+
+
 def test_admin_false_negative_review_queue_prioritizes_ai_drops_with_public_work_terms() -> None:
     hidden_rows = [
         {

@@ -19,9 +19,11 @@ from tender_radar.db import (
     record_source_run,
     remove_tender_dismissal,
     triage_overrides_by_key,
+    user_triage_overrides_by_key,
     upsert_source_document,
     upsert_source_state,
     upsert_triage_override,
+    upsert_user_triage_override,
     upsert_verified_tender_link,
 )
 from tender_radar.sources.eshidis import EshidisAttachmentListing, EshidisTenderDetails
@@ -69,6 +71,31 @@ def test_triage_overrides_are_keyed_by_row(tmp_path) -> None:
     override = triage_overrides_by_key(db_path)["AUTHORITY:AUTH-1"]
     assert override["action"] == "FORCE_KEEP"
     assert override["reason"] == "είναι έργο"
+
+
+def test_user_triage_overrides_are_keyed_by_user_and_row(tmp_path) -> None:
+    db_path = tmp_path / "runtime.sqlite"
+
+    upsert_user_triage_override(
+        db_path,
+        user_email="Owner@Example.Test",
+        row_key="AUTHORITY:AUTH-1",
+        action="CONFIRM_DROP",
+        reason="σωστά κόπηκε",
+    )
+    upsert_user_triage_override(
+        db_path,
+        user_email="other@example.test",
+        row_key="AUTHORITY:AUTH-1",
+        action="FORCE_KEEP",
+        reason="το θέλω",
+    )
+
+    owner = user_triage_overrides_by_key(db_path, user_email="owner@example.test")["AUTHORITY:AUTH-1"]
+    other = user_triage_overrides_by_key(db_path, user_email="other@example.test")["AUTHORITY:AUTH-1"]
+    assert owner["action"] == "CONFIRM_DROP"
+    assert other["action"] == "FORCE_KEEP"
+    assert owner["user_email"] == "owner@example.test"
 
 
 def test_import_eshidis_resource_persists_tender_and_attachments(tmp_path) -> None:

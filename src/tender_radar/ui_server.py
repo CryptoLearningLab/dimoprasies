@@ -64,9 +64,11 @@ from tender_radar.db import (
     remove_tender_dismissal,
     remove_user_tender_dismissal,
     triage_overrides_by_key as db_triage_overrides_by_key,
+    user_triage_overrides_by_key as db_user_triage_overrides_by_key,
     upsert_admin_hidden_event,
     upsert_admin_user,
     upsert_triage_override,
+    upsert_user_triage_override,
     upsert_source_document,
     upsert_source_state,
     upsert_verified_tender_link,
@@ -199,10 +201,11 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             self._send_json(pricing_ingest_status_payload())
             return
         if parsed.path == "/api/admin/audit":
-            if not self._admin_authenticated():
+            session = self._admin_session()
+            if not session or session.get("role") != "admin":
                 self._send_json({"ok": False, "authenticated": False, **admin_status_payload()}, status=401)
                 return
-            self._send_json(cached_admin_audit_payload())
+            self._send_json(cached_admin_audit_payload(user_email=session.get("email")))
             return
         if parsed.path == "/api/admin/users":
             session = self._admin_session()
@@ -453,12 +456,13 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 self._admin_logout()
                 return
             if parsed.path == "/api/admin/restore":
-                if not self._admin_authenticated():
+                session = self._admin_session()
+                if not session or session.get("role") != "admin":
                     self._send_json({"ok": False, "error": "Admin login required."}, status=401)
                     return
                 row_key = require_row_key(payload)
                 reason = str(payload.get("reason") or "").strip() or None
-                self._send_json(restore_admin_row(row_key=row_key, reason=reason))
+                self._send_json(restore_admin_row(row_key=row_key, reason=reason, user_email=session.get("email")))
                 return
             if parsed.path == "/api/admin/review-feedback":
                 session = self._admin_session()
@@ -468,7 +472,15 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 row_key = require_row_key(payload)
                 action = require_admin_review_feedback_action(payload)
                 reason = str(payload.get("reason") or "").strip() or None
-                self._send_json(admin_review_feedback(row_key=row_key, action=action, reason=reason, actor_email=session.get("email")))
+                self._send_json(
+                    admin_review_feedback(
+                        row_key=row_key,
+                        action=action,
+                        reason=reason,
+                        actor_email=session.get("email"),
+                        user_email=session.get("email"),
+                    )
+                )
                 return
             if parsed.path == "/api/fetch-kimdis-open-proc":
                 official_id = str(payload.get("official_id") or "").strip() or None
@@ -898,8 +910,8 @@ def cached_dashboard_payload(*, scope: str, sort: str, user_email: str | None = 
     )
 
 
-def cached_admin_audit_payload() -> dict[str, Any]:
-    return cached_payload(("admin_audit",), admin_audit_payload)
+def cached_admin_audit_payload(*, user_email: str | None = None) -> dict[str, Any]:
+    return cached_payload(("admin_audit", (user_email or "").strip().lower()), lambda: admin_audit_payload(user_email=user_email))
 
 
 def run_selected_fetch(identifier: str) -> dict[str, Any]:
@@ -4003,9 +4015,10 @@ def dashboard_payload(
 ) -> dict[str, Any]:
     safe_scope = dashboard_scope(scope)
     profile = location_focus_profile()
-    overrides = triage_overrides_by_key()
+    overrides = triage_overrides_by_key(user_email=user_email)
     force_keep_keys = {key for key, item in overrides.items() if item.get("action") == "FORCE_KEEP"}
-    ignored = ignored_tender_keys(user_email=user_email) - force_keep_keys
+    confirmed_drop_keys = {key for key, item in overrides.items() if item.get("action") == "CONFIRM_DROP"}
+    ignored = (ignored_tender_keys(user_email=user_email) | confirmed_drop_keys) - force_keep_keys
     triage = ai_triage_by_row_key() if apply_triage else {}
     rows = merged_tender_rows()
     rows = [row for row in rows if str(row.get("row_key") or row.get("eshidis_id") or row.get("display_id") or "") not in ignored]
@@ -4743,9 +4756,13 @@ def row_key_for_tender(row: dict[str, Any]) -> str:
     return str(row.get("row_key") or row.get("eshidis_id") or row.get("display_id") or "")
 
 
-def triage_overrides_by_key() -> dict[str, dict[str, object]]:
+def triage_overrides_by_key(user_email: str | None = None) -> dict[str, dict[str, object]]:
     try:
-        return db_triage_overrides_by_key(runtime_db_path())
+        overrides = db_triage_overrides_by_key(runtime_db_path())
+        normalized_email = (user_email or "").strip().lower()
+        if normalized_email:
+            overrides = {**overrides, **db_user_triage_overrides_by_key(runtime_db_path(), user_email=normalized_email)}
+        return overrides
     except (OSError, sqlite3.Error):
         return {}
 
@@ -4846,8 +4863,8 @@ def remove_legacy_ignored_tender(row_key: str) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def restore_admin_row(*, row_key: str, reason: str | None = None) -> dict[str, Any]:
-    return admin_review_feedback(row_key=row_key, action="FORCE_KEEP", reason=reason, actor_email=None)
+def restore_admin_row(*, row_key: str, reason: str | None = None, user_email: str | None = None) -> dict[str, Any]:
+    return admin_review_feedback(row_key=row_key, action="FORCE_KEEP", reason=reason, actor_email=user_email, user_email=user_email)
 
 
 def admin_review_feedback(
@@ -4856,27 +4873,43 @@ def admin_review_feedback(
     action: str,
     reason: str | None = None,
     actor_email: str | None = None,
+    user_email: str | None = None,
 ) -> dict[str, Any]:
     if action not in {"CONFIRM_DROP", "FORCE_KEEP"}:
         raise ValueError("Invalid admin review feedback action.")
     if action == "FORCE_KEEP":
-        remove_tender_dismissal(runtime_db_path(), row_key=row_key)
-        remove_user_tender_dismissal(runtime_db_path(), row_key=row_key)
-        remove_legacy_ignored_tender(row_key)
-    upsert_triage_override(
-        runtime_db_path(),
-        row_key=row_key,
-        action=action,
-        reason=reason,
-        metadata={"source": "admin_panel", "actor_email": actor_email or ""},
-    )
+        if user_email:
+            remove_user_tender_dismissal(runtime_db_path(), row_key=row_key, user_email=user_email)
+        else:
+            remove_tender_dismissal(runtime_db_path(), row_key=row_key)
+            remove_user_tender_dismissal(runtime_db_path(), row_key=row_key)
+            remove_legacy_ignored_tender(row_key)
+    metadata = {"source": "admin_panel", "actor_email": actor_email or ""}
+    if user_email:
+        upsert_user_triage_override(
+            runtime_db_path(),
+            user_email=user_email,
+            row_key=row_key,
+            action=action,
+            reason=reason,
+            metadata=metadata,
+        )
+    else:
+        upsert_triage_override(
+            runtime_db_path(),
+            row_key=row_key,
+            action=action,
+            reason=reason,
+            metadata=metadata,
+        )
     invalidate_ui_payload_cache()
     return {
         "ok": True,
         "row_key": row_key,
         "action": action,
-        "dashboard": dashboard_payload(scope="focus"),
-        "admin": admin_audit_payload(),
+        "user_email": (user_email or "").strip().lower() or None,
+        "dashboard": dashboard_payload(scope="focus", user_email=user_email),
+        "admin": admin_audit_payload(user_email=user_email),
     }
 
 
@@ -5164,8 +5197,8 @@ def admin_users_payload() -> dict[str, Any]:
     return {"ok": True, "users": users}
 
 
-def admin_audit_payload() -> dict[str, Any]:
-    overrides = triage_overrides_by_key()
+def admin_audit_payload(*, user_email: str | None = None) -> dict[str, Any]:
+    overrides = triage_overrides_by_key(user_email=user_email)
     force_keep_keys = {key for key, item in overrides.items() if item.get("action") == "FORCE_KEEP"}
     ignored_keys = ignored_tender_keys() - force_keep_keys
     triage = ai_triage_by_row_key()

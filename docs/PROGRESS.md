@@ -1,5 +1,33 @@
 # Project Progress
 
+## 2026-07-22 - Admin review feedback is user-scoped
+
+The runtime/UI version was bumped from `0.1.66` to `0.1.67`.
+
+Admin review-queue feedback is now scoped to the logged-in user session. The
+existing global `triage_overrides` table remains available for explicit global
+overrides, but the UI feedback buttons now persist to `user_triage_overrides`:
+
+- if one user confirms `Σωστά κόπηκε`, that row leaves that user's review
+  queue and remains dropped for that user;
+- another user can independently mark the same row as `Λάθος, κράτα τέτοια`,
+  which force-keeps it only for that user;
+- dashboard and admin-audit caches are keyed by user email so one user's
+  feedback cannot leak into another user's view.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_db.py::test_user_triage_overrides_are_keyed_by_user_and_row \
+  tests/test_ui_server.py::test_admin_review_feedback_is_user_scoped \
+  tests/test_ui_server.py::test_admin_review_feedback_confirms_drop_without_removing_audit_row \
+  tests/test_ui_server.py::test_ui_shows_current_version_badge -q
+# 4 passed
+
+.venv/bin/python -m pytest -q
+# 322 passed
+```
+
 ## 2026-07-22 - Admin review queue records keep/drop feedback
 
 The runtime/UI version was bumped from `0.1.65` to `0.1.66`.
