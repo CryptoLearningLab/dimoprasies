@@ -3790,6 +3790,7 @@ def user_interest_profile_payload(user_email: str) -> dict[str, Any]:
         "ok": True,
         "user_email": user_email.strip().lower(),
         "profile": profile,
+        "category_options": public_works_taxonomy_profile_options(),
         "updated_at": (stored or {}).get("updated_at"),
         "active": user_interest_profile_is_active(profile),
     }
@@ -3813,6 +3814,7 @@ def normalize_user_interest_profile(payload: object) -> dict[str, Any]:
     return {
         "include_keywords": normalize_profile_keyword_list(data.get("include_keywords")),
         "exclude_keywords": normalize_profile_keyword_list(data.get("exclude_keywords")),
+        "category_ids": normalize_profile_category_ids(data.get("category_ids")),
         "min_budget": normalize_profile_budget(data.get("min_budget")),
         "max_budget": normalize_profile_budget(data.get("max_budget")),
     }
@@ -3839,6 +3841,30 @@ def normalize_profile_keyword_list(value: object) -> list[str]:
     return cleaned
 
 
+def normalize_profile_category_ids(value: object) -> list[str]:
+    raw_items: list[str]
+    if isinstance(value, str):
+        raw_items = re.split(r"[\n,;]+", value)
+    elif isinstance(value, list):
+        raw_items = [str(item or "") for item in value]
+    else:
+        raw_items = []
+    allowed = {str(item.get("id") or "") for item in public_works_taxonomy_profile_options()}
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        category_id = re.sub(r"[^a-zA-Z0-9_-]+", "", str(item or "").strip())
+        if not category_id or category_id in seen:
+            continue
+        if allowed and category_id not in allowed:
+            continue
+        seen.add(category_id)
+        cleaned.append(category_id)
+        if len(cleaned) >= 30:
+            break
+    return cleaned
+
+
 def normalize_profile_budget(value: object) -> float | None:
     if value in (None, ""):
         return None
@@ -3849,6 +3875,7 @@ def user_interest_profile_is_active(profile: dict[str, Any]) -> bool:
     return bool(
         profile.get("include_keywords")
         or profile.get("exclude_keywords")
+        or profile.get("category_ids")
         or profile.get("min_budget") is not None
         or profile.get("max_budget") is not None
     )
@@ -4621,6 +4648,7 @@ def user_profile_match_for_row(row: dict[str, Any], profile: dict[str, Any]) -> 
     )
     include_keywords = normalized_profile.get("include_keywords") or []
     exclude_keywords = normalized_profile.get("exclude_keywords") or []
+    category_ids = set(str(item) for item in normalized_profile.get("category_ids") or [])
     include_matches = [keyword for keyword in include_keywords if normalize_greek(keyword) in haystack]
     exclude_matches = [keyword for keyword in exclude_keywords if normalize_greek(keyword) in haystack]
     budget = row.get("budget_sort")
@@ -4639,6 +4667,21 @@ def user_profile_match_for_row(row: dict[str, Any], profile: dict[str, Any]) -> 
     if exclude_matches:
         matches = False
         reasons.append(f"αποκλείστηκε από: {', '.join(exclude_matches[:4])}")
+    if category_ids:
+        audit = category_audit_for_row(row)
+        matched_categories = [
+            label
+            for label in audit.get("labels") or []
+            if label.get("polarity") == "positive" and str(label.get("id") or "") in category_ids
+        ]
+        if matched_categories:
+            reasons.append(
+                "κατηγορίες έργων: "
+                + ", ".join(str(label.get("label") or label.get("id") or "") for label in matched_categories[:4])
+            )
+        else:
+            matches = False
+            reasons.append("δεν ταιριάζει στις επιλεγμένες κατηγορίες έργων")
     min_budget = normalized_profile.get("min_budget")
     max_budget = normalized_profile.get("max_budget")
     if budget_value is None and (min_budget is not None or max_budget is not None):
@@ -4702,6 +4745,18 @@ def public_works_taxonomy_config() -> dict[str, Any]:
         return {"version": 0, "categories": []}
     data = cached_data(("public_works_taxonomy", str(path), path_mtime_ns(path)), lambda: load_config(path))
     return data if isinstance(data, dict) else {"version": 0, "categories": []}
+
+
+def public_works_taxonomy_profile_options() -> list[dict[str, str]]:
+    options: list[dict[str, str]] = []
+    for category in public_works_taxonomy_config().get("categories") or []:
+        if not isinstance(category, dict) or category.get("negative_weight"):
+            continue
+        category_id = str(category.get("id") or "").strip()
+        label = str(category.get("label") or category_id).strip()
+        if category_id and label:
+            options.append({"id": category_id, "label": label, "polarity": "positive"})
+    return options
 
 
 def category_audit_for_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -8124,6 +8179,11 @@ INDEX_HTML = f"""<!doctype html>
             <input id="profileMaxBudgetInput" type="number" min="0" step="1000" placeholder="π.χ. 5000000">
           </label>
         </div>
+        <fieldset class="profileCategoryBox">
+          <legend>Κατηγορίες έργων που με ενδιαφέρουν</legend>
+          <div id="profileCategoryOptions" class="profileCategoryOptions"></div>
+          <p class="noteText">Αν δεν επιλέξεις κατηγορία, δεν μπαίνει περιορισμός κατηγορίας.</p>
+        </fieldset>
         <div class="toolbar compact">
           <button id="saveInterestProfileBtn" class="secondary">Αποθήκευση προφίλ</button>
           <span id="interestProfileStatus" class="noteText">Χωρίς προσωπικούς περιορισμούς.</span>
@@ -8707,6 +8767,38 @@ main { padding: 22px; min-width: 0; }
 .interestProfileGrid textarea {
   resize: vertical;
   min-height: 82px;
+}
+.profileCategoryBox {
+  margin: 12px 0 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.profileCategoryBox legend {
+  padding: 0 6px;
+  color: var(--text);
+  font-weight: 900;
+}
+.profileCategoryOptions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+}
+.profileCategoryOption {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  min-height: 42px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+.profileCategoryOption input {
+  margin-top: 2px;
 }
 .searchPanel {
   display: grid;
@@ -9661,7 +9753,27 @@ function renderInterestProfile(payload) {
   $('profileExcludeInput').value = (profile.exclude_keywords || []).join('\\n');
   $('profileMinBudgetInput').value = profile.min_budget ?? '';
   $('profileMaxBudgetInput').value = profile.max_budget ?? '';
+  renderProfileCategoryOptions(payload?.category_options || [], profile.category_ids || []);
   setInterestProfileStatus(Boolean(payload && payload.active), payload && payload.updated_at);
+}
+
+function renderProfileCategoryOptions(options, selectedIds) {
+  const selected = new Set((selectedIds || []).map((value) => String(value)));
+  const target = $('profileCategoryOptions');
+  if (!options.length) {
+    target.innerHTML = '<span class="noteText">Δεν υπάρχουν ακόμα διαθέσιμες κατηγορίες έργων.</span>';
+    return;
+  }
+  target.innerHTML = options.map((option) => {
+    const optionId = String(option.id || '');
+    const checked = selected.has(optionId) ? ' checked' : '';
+    return `
+      <label class="profileCategoryOption">
+        <input type="checkbox" data-profile-category-id="${escapeHtml(optionId)}"${checked}>
+        <span>${escapeHtml(option.label || optionId)}</span>
+      </label>
+    `;
+  }).join('');
 }
 
 function setInterestProfileStatus(active, updatedAt = '') {
@@ -9683,6 +9795,12 @@ function profileBudgetInput(id) {
   return value ? Number(value) : null;
 }
 
+function selectedProfileCategoryIds() {
+  return Array.from(document.querySelectorAll('[data-profile-category-id]:checked'))
+    .map((input) => input.dataset.profileCategoryId)
+    .filter(Boolean);
+}
+
 async function saveInterestProfile() {
   $('interestProfileStatus').textContent = 'Αποθήκευση προφίλ...';
   const payload = await api('/api/user/interest-profile', {
@@ -9691,6 +9809,7 @@ async function saveInterestProfile() {
       profile: {
         include_keywords: profileInputLines('profileIncludeInput'),
         exclude_keywords: profileInputLines('profileExcludeInput'),
+        category_ids: selectedProfileCategoryIds(),
         min_budget: profileBudgetInput('profileMinBudgetInput'),
         max_budget: profileBudgetInput('profileMaxBudgetInput'),
       },

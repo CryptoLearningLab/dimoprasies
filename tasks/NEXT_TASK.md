@@ -124,12 +124,12 @@ Public-works rows now also expose a Greek-facing, config-driven
 coverage and discuss category refinements before promoting any category into a
 user-specific filter or automated rule.
 Editable per-user public-works interest profiles are now implemented for the
-dashboard: include keywords, exclude keywords and optional budget bounds are
-stored per login email and only affect that user's visible list. They do not
-change cron discovery, global AI triage, downloaded files or another user's
-view. Future profile work should add structured categories/CPV/region
-preferences and optional user-specific email digest rules without slowing
-initial dashboard load.
+dashboard: include keywords, exclude keywords, optional budget bounds and
+positive taxonomy category ids are stored per login email and only affect that
+user's visible list. They do not change cron discovery, global AI triage,
+downloaded files or another user's view. Future profile work should add
+optional CPV/region preferences and user-specific email digest rules without
+slowing initial dashboard load.
 The public-works dashboard preview now exposes a dedup/source identity read
 model: `project_identity`, `source_merge` and enriched `project_sources` show
 which ESHIDIS row is canonical and which KIMDIS/authority sources point to it.

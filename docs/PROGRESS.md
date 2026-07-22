@@ -1,5 +1,36 @@
 # Project Progress
 
+## 2026-07-22 - Category-based user interest profiles
+
+The runtime/UI version was bumped from `0.1.75` to `0.1.76`.
+
+Editable public-works interest profiles now support structured category
+preferences in addition to include/exclude keywords and budget bounds. The
+profile endpoint returns positive category options from
+`config/public_works_taxonomy.yml`, and the dashboard UI renders them as Greek
+checkboxes under `Κατηγορίες έργων που με ενδιαφέρουν`.
+
+Selected `category_ids` are stored inside the existing per-user profile JSON,
+so no schema migration is required. They only affect that user's dashboard
+rows. They do not change discovery, cron, global AI triage, downloaded files,
+email provenance or another user's list. If a user selects no categories,
+there is no category restriction.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_ui_exposes_user_interest_profile_controls \
+  tests/test_ui_server.py::test_user_interest_profile_category_filter_is_user_scoped \
+  tests/test_ui_server.py::test_user_interest_profile_filters_dashboard_for_current_user -q
+# 3 passed
+
+.venv/bin/python -m pytest -q
+# 335 passed
+```
+
 ## 2026-07-22 - Greek public-works taxonomy audit
 
 The runtime/UI version was bumped from `0.1.74` to `0.1.75`.

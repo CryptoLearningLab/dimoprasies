@@ -1,5 +1,20 @@
 # Decision Log
 
+## D-119 — User category preferences are scoped dashboard filters
+**Status:** Accepted
+
+Public-works taxonomy categories may be used as personal dashboard filters
+only after the taxonomy exists as auditable row evidence.
+
+User-selected category ids are stored inside the existing per-user interest
+profile JSON and are applied only while assembling that user's public-works
+dashboard. They must not change source discovery, scheduled runs, global AI
+triage, downloaded files, email provenance or another user's dashboard.
+
+The UI exposes only positive public-works categories as user choices. Negative
+taxonomy labels remain audit/admin evidence until enough false-negative review
+data supports a narrower rule.
+
 ## D-117 — Deduplication view exposes identity without unsafe merging
 **Status:** Accepted
 

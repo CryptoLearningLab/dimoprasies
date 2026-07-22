@@ -101,11 +101,14 @@ def test_ui_preview_renders_operational_explanation() -> None:
 def test_ui_exposes_user_interest_profile_controls() -> None:
     assert 'id="profileIncludeInput"' in INDEX_HTML
     assert 'id="profileExcludeInput"' in INDEX_HTML
+    assert 'id="profileCategoryOptions"' in INDEX_HTML
+    assert "Κατηγορίες έργων που με ενδιαφέρουν" in INDEX_HTML
     assert 'id="profileMinBudgetInput"' in INDEX_HTML
     assert 'id="profileMaxBudgetInput"' in INDEX_HTML
     assert "/api/user/interest-profile" in APP_JS
     assert "saveInterestProfile" in APP_JS
     assert "loadInterestProfile" in APP_JS
+    assert "selectedProfileCategoryIds" in APP_JS
 
 
 def test_ui_preview_renders_project_identity_and_source_merge() -> None:
@@ -3661,6 +3664,70 @@ def test_user_interest_profile_exclude_keyword_is_user_scoped(tmp_path, monkeypa
 
     assert dashboard_payload(scope="focus", user_email="owner@example.test")["summary"]["visible"] == 0
     assert dashboard_payload(scope="focus", user_email="other@example.test")["summary"]["visible"] == 1
+
+
+def test_user_interest_profile_category_filter_is_user_scoped(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    write_patras_authority_fixture(
+        tmp_path,
+        [
+            {
+                "source": "AUTHORITY",
+                "record_type": "AUTHORITY_WEB",
+                "official_id": "AUTH-asphalt",
+                "title": "Ασφαλτόστρωση οδού Δήμου Πατρέων",
+                "authority": "Δήμος Πατρέων",
+                "source_url": "https://e-patras.gr/el/asphalt",
+                "matched_scopes": ["Δήμος Πατρέων"],
+                "match_notes": [],
+                "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+            },
+            {
+                "source": "AUTHORITY",
+                "record_type": "AUTHORITY_WEB",
+                "official_id": "AUTH-playground",
+                "title": "Αναβάθμιση παιδικής χαράς Δήμου Πατρέων",
+                "authority": "Δήμος Πατρέων",
+                "source_url": "https://e-patras.gr/el/playground",
+                "matched_scopes": ["Δήμος Πατρέων"],
+                "match_notes": [],
+                "status": "AUTHORITY_DISCOVERY_CANDIDATE",
+            },
+        ],
+    )
+    (tmp_path / "config/public_works_taxonomy.yml").write_text(
+        """
+version: 1
+confidence:
+  strong: 0.85
+categories:
+  - id: road_works
+    label: "Οδοποιία / οδικά έργα"
+    positive_weight: 2
+    signals:
+      strong_terms: ["ασφαλτόστρωση"]
+  - id: public_space
+    label: "Αναπλάσεις / κοινόχρηστοι χώροι"
+    positive_weight: 2
+    signals:
+      strong_terms: ["παιδική χαρά"]
+""",
+        encoding="utf-8",
+    )
+
+    saved = ui_server.update_user_interest_profile("owner@example.test", {"category_ids": ["road_works"]})
+    owner_payload = dashboard_payload(scope="focus", user_email="owner@example.test")
+    other_payload = dashboard_payload(scope="focus", user_email="other@example.test")
+
+    assert saved["active"] is True
+    assert saved["profile"]["category_ids"] == ["road_works"]
+    assert saved["category_options"][0]["label"] == "Οδοποιία / οδικά έργα"
+    assert owner_payload["summary"]["visible"] == 1
+    assert owner_payload["tenders"][0]["display_id"] == "AUTH-asphalt"
+    assert "Οδοποιία / οδικά έργα" in owner_payload["tenders"][0]["profile_fit"]["reason"]
+    assert other_payload["summary"]["visible"] == 2
+    assert other_payload["profile"]["user_interest_active"] is False
 
 
 def test_dashboard_uses_cached_ai_triage_to_hide_drops(tmp_path, monkeypatch) -> None:
