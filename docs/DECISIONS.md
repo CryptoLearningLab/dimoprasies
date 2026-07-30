@@ -1,5 +1,20 @@
 # Decision Log
 
+## D-127 — Diavgeia source preflight is throttled
+**Status:** Accepted
+
+Diavgeia API probes should not be executed as a full parallel fan-out. The
+production source audit showed rotating HTTP 503 failures, commonly three
+failures out of nine Diavgeia source probes per run, which is consistent with
+transient throttling/service pressure rather than three permanently broken
+endpoints.
+
+Cheap source preflight may keep unrelated sources parallel, but `diavgeia_api`
+sources should run serially with a small delay and retry transient
+429/5xx/timeout failures before recording a source error. This keeps monitoring
+warnings focused on real degraded coverage instead of self-inflicted request
+bursts.
+
 ## D-126 — Public-works email digests are recipient-scoped
 **Status:** Accepted
 

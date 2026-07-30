@@ -2,6 +2,7 @@ from pathlib import Path
 from datetime import date, datetime, timezone
 import json
 import sqlite3
+import threading
 from types import SimpleNamespace
 import time
 
@@ -710,6 +711,104 @@ authority_adapters:
     }
 
 
+def test_quick_source_fingerprint_runs_diavgeia_sources_serially(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(ui_server, "DIAVGEIA_PREFLIGHT_DELAY_SECONDS", 0)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/sources.yml").write_text(
+        """
+authority_adapters:
+  - id: diavgeia_one
+    adapter: diavgeia_api
+    url: https://diavgeia.gov.gr/opendata/search.json
+  - id: diavgeia_two
+    adapter: diavgeia_api
+    url: https://diavgeia.gov.gr/opendata/search.json
+  - id: diavgeia_three
+    adapter: diavgeia_api
+    url: https://diavgeia.gov.gr/opendata/search.json
+  - id: authority_html
+    adapter: html_listing
+    url: https://example.test/list
+""".strip(),
+        encoding="utf-8",
+    )
+    lock = threading.Lock()
+    active_diavgeia = 0
+    max_active_diavgeia = 0
+    diavgeia_order: list[str] = []
+
+    def fake_fingerprint(source, *, timeout_seconds):
+        nonlocal active_diavgeia, max_active_diavgeia
+        source_id = source["id"]
+        if source.get("adapter") == "diavgeia_api":
+            with lock:
+                active_diavgeia += 1
+                max_active_diavgeia = max(max_active_diavgeia, active_diavgeia)
+                diavgeia_order.append(source_id)
+            time.sleep(0.01)
+            with lock:
+                active_diavgeia -= 1
+        return {
+            "source_id": source_id,
+            "source_group": source.get("source_group"),
+            "adapter": source.get("adapter"),
+            "url": source.get("url"),
+            "status": "REACHED",
+            "attempted": True,
+            "reachable": True,
+        }
+
+    monkeypatch.setattr(ui_server, "_configured_source_fingerprint", fake_fingerprint)
+
+    result = quick_source_fingerprint(timeout_seconds=1)
+
+    assert result["ok"] is True
+    assert max_active_diavgeia == 1
+    assert diavgeia_order == ["diavgeia_one", "diavgeia_two", "diavgeia_three"]
+
+
+def test_quick_source_fingerprint_retries_transient_diavgeia_503(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(ui_server, "DIAVGEIA_PREFLIGHT_DELAY_SECONDS", 0)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/sources.yml").write_text(
+        """
+authority_adapters:
+  - id: diavgeia_one
+    adapter: diavgeia_api
+    url: https://diavgeia.gov.gr/opendata/search.json
+""".strip(),
+        encoding="utf-8",
+    )
+    attempts = {"count": 0}
+
+    class Temporary503(Exception):
+        code = 503
+
+    def fake_fingerprint(source, *, timeout_seconds):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise Temporary503("HTTP Error 503: Service Temporarily Unavailable")
+        return {
+            "source_id": source["id"],
+            "source_group": source.get("source_group"),
+            "adapter": source.get("adapter"),
+            "url": source.get("url"),
+            "status": "REACHED",
+            "attempted": True,
+            "reachable": True,
+        }
+
+    monkeypatch.setattr(ui_server, "_configured_source_fingerprint", fake_fingerprint)
+
+    result = quick_source_fingerprint(timeout_seconds=1)
+
+    assert attempts["count"] == 2
+    assert result["ok"] is True
+    assert result["source_count"]["error_total"] == 0
+
+
 def test_eshidis_active_preflight_uses_cached_candidate_report(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "config").mkdir()
@@ -1201,8 +1300,8 @@ def test_email_digest_groups_operational_signals(tmp_path, monkeypatch) -> None:
                     "authority_name": "Δήμος Ναυπακτίας",
                     "budget_display": "750.000",
                     "budget_sort": 750000,
-                    "deadline_display": "2026-07-24 10:00",
-                    "deadline_sort": "2026-07-24 10:00",
+                    "deadline_display": "2026-08-02 10:00",
+                    "deadline_sort": "2026-08-02 10:00",
                     "why_visible": [
                         {"label": "Περιοχή", "text": "Ταιριάζει με Ναυπακτία."},
                         {"label": "Προθεσμία", "text": "Ενεργή προθεσμία: 2026-07-24 10:00."},
@@ -1898,7 +1997,7 @@ regions: []
       "title": "Έργο στην Πάτρα",
       "authority": "ΔΗΜΟΣ ΠΑΤΡΕΩΝ",
       "budget": "1240.0",
-      "submission_deadline": "2026-07-24T13:00:00",
+          "submission_deadline": "2026-08-24T13:00:00",
       "source_url": "https://example.test/notice",
       "attachment_url": "https://example.test/attachment/26PROC000000001",
       "matched_scopes": ["Δήμος Πατρέων"],
@@ -1911,7 +2010,7 @@ regions: []
       "title": "Άλλο έργο Πατρών",
       "authority": "ΔΗΜΟΣ ΠΑΤΡΕΩΝ",
       "budget": "2000.0",
-      "submission_deadline": "2026-07-25T10:00:00",
+          "submission_deadline": "2026-08-25T10:00:00",
       "source_url": "https://example.test/notice",
       "attachment_url": "https://example.test/attachment/26PROC000000002",
       "matched_scopes": ["Δήμος Πατρέων"],
@@ -1933,7 +2032,7 @@ regions: []
     assert payload["tenders"][0]["interest_reason"] == "Δήμος Πατρέων"
     assert payload["tenders"][0]["download_url"] == "https://example.test/attachment/26PROC000000001"
     assert payload["tenders"][0]["supports_eshidis_actions"] is False
-    assert payload["tenders"][0]["deadline_display"] == "24-07-2026 13:00"
+    assert payload["tenders"][0]["deadline_display"] == "24-08-2026 13:00"
 
 
 def test_dashboard_rows_include_why_visible_and_timeline(tmp_path, monkeypatch) -> None:

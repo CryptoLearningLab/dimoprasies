@@ -1,5 +1,48 @@
 # Project Progress
 
+## 2026-07-30 - Diavgeia source preflight throttling
+
+The runtime/UI version was bumped from `0.1.83` to `0.1.84`.
+
+Production monitoring showed recurring `SOURCE_ERRORS: 3` warnings. The latest
+production `source_state` had three Diavgeia API sources with HTTP 503 errors,
+but recent `source_runs` showed that the failing source ids rotated between
+runs. The common pattern was three failures out of nine Diavgeia source probes
+inside the same preflight run, which indicates rate limiting/transient service
+pressure rather than three permanently dead endpoints.
+
+The cheap source preflight now keeps non-Diavgeia sources parallel, but runs
+`diavgeia_api` sources serially with a small pause and one retry for transient
+HTTP 429/5xx/timeout-style failures. This should reduce self-inflicted
+Diavgeia 503s and make monitoring warnings more meaningful.
+
+This does not remove any Diavgeia source and does not change discovery parsing,
+AI triage, dashboard filtering, email notification skip behavior or source
+health semantics.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_quick_source_fingerprint_counts_configured_attempted_and_template_sources \
+  tests/test_ui_server.py::test_quick_source_fingerprint_runs_diavgeia_sources_serially \
+  tests/test_ui_server.py::test_quick_source_fingerprint_retries_transient_diavgeia_503 \
+  tests/test_ui_server.py::test_source_polling_payload_reads_sqlite_state_and_config \
+  tests/test_ui_server.py::test_scheduled_poll_reports_source_monitoring_alerts -q
+# 5 passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_email_digest_groups_operational_signals \
+  tests/test_ui_server.py::test_dashboard_includes_kimdis_expanded_open_proc_candidates \
+  tests/test_ui_server.py::test_quick_source_fingerprint_runs_diavgeia_sources_serially \
+  tests/test_ui_server.py::test_quick_source_fingerprint_retries_transient_diavgeia_503 -q
+# 4 passed
+
+.venv/bin/python -m pytest -q
+# 338 passed
+```
+
 ## 2026-07-22 - User-specific public-works email digest
 
 The runtime/UI version was bumped from `0.1.82` to `0.1.83`.

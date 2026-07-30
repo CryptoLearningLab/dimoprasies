@@ -98,6 +98,8 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_ESHIDIS_DISCOVERY_LIMIT = 100
 DEFAULT_KIMDIS_DISCOVERY_PAGES = 20
+DIAVGEIA_PREFLIGHT_DELAY_SECONDS = 0.35
+DIAVGEIA_PREFLIGHT_RETRIES = 2
 DEFAULT_SCHEDULED_AUTO_FETCH_SECONDS = 20
 DEFAULT_AUTHORITY_LIMIT_PER_SOURCE = 10
 ADMIN_USER_ROLES = ("admin", "pricing", "tester", "user")
@@ -4049,12 +4051,14 @@ def quick_source_fingerprint(*, timeout_seconds: int = 8) -> dict[str, Any]:
     sources: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     entries = configured_source_entries(config)
+    parallel_entries = [entry for entry in entries if not source_preflight_is_serial(entry)]
+    serial_entries = [entry for entry in entries if source_preflight_is_serial(entry)]
     tasks = [
         (
             str(entry.get("id") or "unknown"),
-            lambda entry=entry: _configured_source_fingerprint(entry, timeout_seconds=timeout_seconds),
+            lambda entry=entry: _configured_source_fingerprint_with_retry(entry, timeout_seconds=timeout_seconds),
         )
-        for entry in entries
+        for entry in parallel_entries
     ]
     with ThreadPoolExecutor(max_workers=max(1, len(tasks))) as executor:
         future_sources = {executor.submit(task): source_id for source_id, task in tasks}
@@ -4064,6 +4068,14 @@ def quick_source_fingerprint(*, timeout_seconds: int = 8) -> dict[str, Any]:
                 sources.append(future.result())
             except Exception as exc:  # pragma: no cover - defensive network boundary
                 errors.append({"source": source_id, "message": str(exc)})
+    for index, entry in enumerate(serial_entries):
+        source_id = str(entry.get("id") or "unknown")
+        if index:
+            time.sleep(DIAVGEIA_PREFLIGHT_DELAY_SECONDS)
+        try:
+            sources.append(_configured_source_fingerprint_with_retry(entry, timeout_seconds=timeout_seconds))
+        except Exception as exc:  # pragma: no cover - defensive network boundary
+            errors.append({"source": source_id, "message": str(exc)})
     stable_sources = sorted(sources, key=lambda item: str(item.get("source_id") or ""))
     template_total = sum(1 for item in stable_sources if item.get("status") == "REQUIRES_IDENTIFIER")
     digest = hashlib.sha256(json.dumps(stable_sources, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
@@ -4082,6 +4094,33 @@ def quick_source_fingerprint(*, timeout_seconds: int = 8) -> dict[str, Any]:
         },
         "status_note": "Cheap source fingerprint; unchanged means expensive discovery can reuse cached reports.",
     }
+
+
+def source_preflight_is_serial(source: dict[str, Any]) -> bool:
+    return str(source.get("adapter") or "") == "diavgeia_api"
+
+
+def _configured_source_fingerprint_with_retry(source: dict[str, Any], *, timeout_seconds: int) -> dict[str, Any]:
+    attempts = DIAVGEIA_PREFLIGHT_RETRIES if source_preflight_is_serial(source) else 1
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return _configured_source_fingerprint(source, timeout_seconds=timeout_seconds)
+        except Exception as exc:
+            last_error = exc
+            if attempt + 1 >= attempts or not source_preflight_error_is_transient(exc):
+                raise
+            time.sleep(DIAVGEIA_PREFLIGHT_DELAY_SECONDS)
+    assert last_error is not None
+    raise last_error
+
+
+def source_preflight_error_is_transient(exc: Exception) -> bool:
+    code = getattr(exc, "code", None)
+    if code in {429, 500, 502, 503, 504}:
+        return True
+    text = str(exc).lower()
+    return any(token in text for token in ("timed out", "timeout", "temporarily unavailable", "503"))
 
 
 def configured_source_entries(config: dict[str, Any]) -> list[dict[str, Any]]:

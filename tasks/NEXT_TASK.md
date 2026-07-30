@@ -154,6 +154,11 @@ from `dashboard_payload(..., user_email=recipient)`, so personal include/cut
 keywords, category filters, budget bounds, dismissals and review overrides
 affect only that recipient's email. Entalmata email rows remain shared until a
 separate entalmata preference model exists.
+Diavgeia source preflight is throttled as of v0.1.84. Production showed
+rotating HTTP 503 failures, usually 3/9 Diavgeia probes per run, caused by
+parallel fan-out pressure rather than three permanently dead endpoints. Keep
+Diavgeia API probes serial with retry unless a later measured endpoint contract
+supports concurrency.
 The public-works dashboard preview now exposes a dedup/source identity read
 model: `project_identity`, `source_merge` and enriched `project_sources` show
 which ESHIDIS row is canonical and which KIMDIS/authority sources point to it.
