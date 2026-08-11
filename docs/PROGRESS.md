@@ -1,5 +1,39 @@
 # Project Progress
 
+## 2026-08-11 - Owner-only monitoring warning emails
+
+The runtime/UI version was bumped from `0.1.84` to `0.1.85`.
+
+Scheduled monitoring warning/error emails now use a dedicated recipient
+resolver instead of the normal public-works/entalmata alert recipient list.
+By default, monitoring emails go only to `xrgeorg@gmail.com`. If needed later,
+the owner inbox can be overridden with `MONITORING_ALERT_EMAIL_TO` or
+`TENDER_RADAR_MONITORING_EMAIL_TO`.
+
+Normal new-project and entalmata digest recipients are unchanged and still use
+`ALERT_EMAIL_TO`, `EMAIL_ALERT_TO` or `EMAIL_TO`. This prevents operational
+warnings such as source errors from being sent to the broader alert recipient
+list.
+
+Verification:
+
+```bash
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_monitoring_alert_recipients_default_to_owner_only \
+  tests/test_ui_server.py::test_monitoring_alert_recipients_support_dedicated_override \
+  tests/test_ui_server.py::test_scheduled_poll_reports_source_monitoring_alerts -q
+# 3 passed
+
+.venv/bin/python -m pytest tests/test_ui_server.py::test_email_digest_groups_operational_signals \
+  tests/test_ui_server.py::test_dashboard_exposes_local_kimdis_preview_and_download -q
+# 2 passed
+
+.venv/bin/python -m pytest -q
+# 340 passed
+```
+
 ## 2026-07-30 - Diavgeia source preflight throttling
 
 The runtime/UI version was bumped from `0.1.83` to `0.1.84`.

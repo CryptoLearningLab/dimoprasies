@@ -158,7 +158,11 @@ Diavgeia source preflight is throttled as of v0.1.84. Production showed
 rotating HTTP 503 failures, usually 3/9 Diavgeia probes per run, caused by
 parallel fan-out pressure rather than three permanently dead endpoints. Keep
 Diavgeia API probes serial with retry unless a later measured endpoint contract
-supports concurrency.
+proves a safer concurrency limit that supports concurrency.
+Monitoring warning emails are owner-only as of v0.1.85: scheduled monitoring
+uses `MONITORING_ALERT_EMAIL_TO` or `TENDER_RADAR_MONITORING_EMAIL_TO`, falling
+back to `xrgeorg@gmail.com`, while normal public-works/entalmata digest emails
+continue to use the broader alert recipient list.
 The public-works dashboard preview now exposes a dedup/source identity read
 model: `project_identity`, `source_merge` and enriched `project_sources` show
 which ESHIDIS row is canonical and which KIMDIS/authority sources point to it.

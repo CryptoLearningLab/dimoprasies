@@ -1300,11 +1300,11 @@ def test_email_digest_groups_operational_signals(tmp_path, monkeypatch) -> None:
                     "authority_name": "Δήμος Ναυπακτίας",
                     "budget_display": "750.000",
                     "budget_sort": 750000,
-                    "deadline_display": "2026-08-02 10:00",
-                    "deadline_sort": "2026-08-02 10:00",
+                    "deadline_display": "2026-08-15 10:00",
+                    "deadline_sort": "2026-08-15 10:00",
                     "why_visible": [
                         {"label": "Περιοχή", "text": "Ταιριάζει με Ναυπακτία."},
-                        {"label": "Προθεσμία", "text": "Ενεργή προθεσμία: 2026-07-24 10:00."},
+                        {"label": "Προθεσμία", "text": "Ενεργή προθεσμία: 2026-08-15 10:00."},
                     ],
                     "project_operations": [
                         {"label": "Έγγραφα", "status": "pending", "text": "Δεν έχουν καταγραφεί ακόμα τοπικά έγγραφα."},
@@ -1371,6 +1371,29 @@ def test_email_alerts_payload_includes_clickable_entalmata_once_per_recipient(tm
     assert by_recipient["one@example.test"]["new_entalmata_count"] == 0
     assert by_recipient["two@example.test"]["new_entalmata_count"] == 1
     assert "https://diavgeia.gov.gr/doc/6ΤΩΚΚ2Π-Ω2Β" in by_recipient["two@example.test"]["html_body"]
+
+
+def test_monitoring_alert_recipients_default_to_owner_only(monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "load_local_env", lambda: {})
+    monkeypatch.setenv("ALERT_EMAIL_TO", "one@example.test,two@example.test,three@example.test")
+    monkeypatch.delenv("MONITORING_ALERT_EMAIL_TO", raising=False)
+    monkeypatch.delenv("TENDER_RADAR_MONITORING_EMAIL_TO", raising=False)
+
+    assert ui_server.email_alert_recipients() == [
+        "one@example.test",
+        "two@example.test",
+        "three@example.test",
+    ]
+    assert ui_server.monitoring_alert_recipients() == ["xrgeorg@gmail.com"]
+
+
+def test_monitoring_alert_recipients_support_dedicated_override(monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "load_local_env", lambda: {})
+    monkeypatch.setenv("ALERT_EMAIL_TO", "one@example.test,two@example.test")
+    monkeypatch.setenv("MONITORING_ALERT_EMAIL_TO", "owner@example.test;ops@example.test")
+    monkeypatch.delenv("TENDER_RADAR_MONITORING_EMAIL_TO", raising=False)
+
+    assert ui_server.monitoring_alert_recipients() == ["owner@example.test", "ops@example.test"]
 
 
 def test_scheduled_poll_and_alert_writes_audit_reports(tmp_path, monkeypatch) -> None:
@@ -1547,6 +1570,7 @@ def test_scheduled_poll_reports_source_monitoring_alerts(tmp_path, monkeypatch) 
     assert "HTTP 503" in ui_server.render_scheduled_monitoring_alert_html(payload)
     assert "## Problem Sources" in ui_server.render_scheduled_run_markdown(payload)
     assert payload["monitoring_email"]["ok"] is True
+    assert payload["monitoring_email"]["recipients"] == ["xrgeorg@gmail.com"]
     assert payload["monitoring_email"]["alerts"] == len(payload["monitoring_alerts"])
 
 
@@ -3085,7 +3109,7 @@ regions: []
       "title": "Έργο Ναυπακτίας",
       "authority": "ΔΗΜΟΣ ΝΑΥΠΑΚΤΙΑΣ",
       "budget": "1000.0",
-      "submission_deadline": "2026-08-01T10:00:00",
+      "submission_deadline": "2026-09-01T10:00:00",
       "source_url": "https://example.test/notice",
       "attachment_url": "https://example.test/attachment/26PROC000000001",
       "matched_scopes": ["Δήμος Ναυπακτίας"],

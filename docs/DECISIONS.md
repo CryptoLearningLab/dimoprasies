@@ -1,5 +1,17 @@
 # Decision Log
 
+## D-128 — Monitoring warning emails are owner-only
+**Status:** Accepted
+
+Operational monitoring warnings/errors are system-maintenance signals, not
+customer-facing tender digests. They should not use the normal
+public-works/entalmata recipient list.
+
+Scheduled monitoring emails therefore resolve recipients from
+`MONITORING_ALERT_EMAIL_TO` or `TENDER_RADAR_MONITORING_EMAIL_TO`, falling back
+to the owner inbox `xrgeorg@gmail.com`. Normal tender and entalmata alert
+emails continue to use `ALERT_EMAIL_TO`, `EMAIL_ALERT_TO` or `EMAIL_TO`.
+
 ## D-127 — Diavgeia source preflight is throttled
 **Status:** Accepted
 

@@ -3098,7 +3098,7 @@ def send_scheduled_monitoring_alerts(
     alerts = payload.get("monitoring_alerts") or []
     if not alerts:
         return {"ok": True, "skipped": True, "skip_reason": "NO_MONITORING_ALERTS", "sent": 0, "sent_emails": 0}
-    targets = email_alert_recipients(recipient)
+    targets = monitoring_alert_recipients(recipient)
     if not targets:
         if dry_run:
             return {
@@ -3820,6 +3820,25 @@ def email_alert_recipients(recipient: str | None = None) -> list[str]:
         or env.get("EMAIL_ALERT_TO")
         or env.get("EMAIL_TO")
     )
+    return parse_email_recipients(raw)
+
+
+DEFAULT_MONITORING_ALERT_EMAIL_TO = "xrgeorg@gmail.com"
+
+
+def monitoring_alert_recipients(recipient: str | None = None) -> list[str]:
+    env = load_local_env()
+    raw = (
+        os.environ.get("MONITORING_ALERT_EMAIL_TO")
+        or os.environ.get("TENDER_RADAR_MONITORING_EMAIL_TO")
+        or env.get("MONITORING_ALERT_EMAIL_TO")
+        or env.get("TENDER_RADAR_MONITORING_EMAIL_TO")
+        or DEFAULT_MONITORING_ALERT_EMAIL_TO
+    )
+    return parse_email_recipients(raw)
+
+
+def parse_email_recipients(raw: str | None) -> list[str]:
     if not raw:
         return []
     recipients: list[str] = []
