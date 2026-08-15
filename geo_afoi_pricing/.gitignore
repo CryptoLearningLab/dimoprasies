@@ -1,0 +1,7 @@
+data/*.sqlite
+data/*.sqlite-*
+work/*
+reports/*
+!data/.gitkeep
+!work/.gitkeep
+!reports/.gitkeep

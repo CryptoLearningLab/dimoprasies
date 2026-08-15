@@ -1,0 +1,37 @@
+source_root: "/mnt/synology/Files/Files/1. ΔΗΜΟΣΙΑ ΕΡΓΑ"
+database_path: "geo_afoi_pricing/data/geo_afoi_pricing.sqlite"
+work_dir: "geo_afoi_pricing/work"
+reports_dir: "geo_afoi_pricing/reports"
+
+inventory:
+  max_depth: 8
+  checkpoint_every_files: 100
+  hash_candidate_files_only: true
+  ignored_names:
+    - "Thumbs.db"
+    - ".DS_Store"
+  ignored_extensions:
+    - ".tmp"
+    - ".dwl"
+    - ".dwl2"
+    - ".bak"
+
+budget_document_candidates:
+  strong_filename_terms:
+    - "προϋπολογισ"
+    - "προυπολογισ"
+    - "proypolog"
+    - "budget"
+  weak_filename_terms:
+    - "πυ"
+    - "μελετη"
+    - "τευχη"
+  excluded_offer_terms:
+    - "οικονομικη προσφορα"
+    - "οικονομική προσφορά"
+    - "προσφορα"
+    - "προσφορά"
+
+pilot:
+  max_projects: 5
+  max_candidate_documents_per_project: 5

@@ -225,6 +225,26 @@ def test_parse_budget_rows_handles_category_prefixed_article_table() -> None:
     assert sum(row.amount or 0 for row in rows) == 34230
 
 
+def test_parse_budget_rows_handles_article_suffix_wrapped_to_next_line() -> None:
+    text = """
+       8 Προμήθεια, μεταφορά στη θέση ΝΑΥΔΡ          ΥΔΡ 6551.7       16           m       75,00      144,00          10.800,00
+         εγκατάστασης, και τοποθέτηση 12.01.01.07
+         προκατασκευασμένων τσιμεντοσωλήνων
+    """
+
+    rows = parse_budget_rows_from_text(text)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.row_number == 16
+    assert row.article_code == "ΝΑΥΔΡ 12.01.01.07"
+    assert row.revision_codes == ["ΥΔΡ-6551"]
+    assert row.unit == "m"
+    assert row.quantity == 75
+    assert row.unit_price == 144
+    assert row.amount == 10800
+
+
 def test_parse_budget_rows_handles_wrapped_numeric_prefix_rows() -> None:
     text = """
                                                     ΠΡΟΫΠΟΛΟΓΙΣΜΟΣ

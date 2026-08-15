@@ -1,5 +1,154 @@
 # Decision Log
 
+## D-137 — GEO_AFOI statistics use canonical units and materialized stats
+**Status:** Accepted
+
+GEO_AFOI article identities must use a canonical unit key rather than the raw
+unit text extracted from each budget document. Raw unit text remains stored on
+`geo_budget_rows` for provenance, but identity/statistics grouping normalizes
+known equivalent variants such as `μ/m`, `μ2/m2`, `μ3/m3`, `Kg/kgr/kg`,
+`t/ton`, `τεμ./τεμ`, `μμ/m`, and observed table artifacts such as `tonx1`.
+
+Pilot imports refresh `geo_article_stats` after row replacement. The materialized
+stats are computed only from rows marked `usable_for_stats=1`, grouped by
+article identity, canonical chapter and canonical unit, and include sample
+count, project count, mean, median, minimum, maximum and standard deviation.
+Unreferenced article identities and aliases are cleaned during this refresh so
+old normalization keys cannot remain visible as stale statistics candidates.
+
+When a row has the same apparent article but a conflicting description/revision
+family, it must be handled by reviewed alias evidence or left visible for
+review. The current reviewed correction maps the first-pilot mojibake `Γ03`
+asphaltic-precoat row with revision `ΟΔΟ-4110` to `ΝΑΟΔΟ Δ03`; it must not be
+merged with the true drainage `ΝΑΟΔΟ Γ03` row.
+
+## D-136 — GEO_AFOI fixed-column YPEHODE PDFs use a dedicated parser
+**Status:** Accepted
+
+Older GEO_AFOI PDF budgets generated from YPEHODE-style road-works tables may
+not be safe to parse with the general PDF row parser. Their rows can be split
+across context lines, include group subtotal columns, use Latin transliterated
+filenames such as `PROYPOLOG`, and occasionally omit the visible leading row
+number on a continuation row.
+
+For these files, the pilot importer uses a dedicated fixed-column parser that
+extracts article code, nearby revision prefix, unit, quantity, unit price and
+row amount from stable column positions, then requires declared-total
+validation before rows may feed statistics. Bare green-work articles with
+`ΠΡΣ-*` revision evidence are canonicalized to `ΝΑΠΡΣ`; ambiguous article
+prefixes, such as `Σ.72` with `ΥΔΡ-7107.1`, remain `NEEDS_REVIEW` until a
+reviewed alias policy exists.
+
+## D-135 — GEO_AFOI legacy Word budgets use block parsing
+**Status:** Accepted
+
+Some GEO_AFOI `.doc` budget files convert to text as one field per line rather
+than as a single table row. For these legacy Word documents, the pilot importer
+uses a block parser that reads `Α/Α`, description, article code, `Α.Τ.`,
+revision, unit, quantity, unit price and amount from consecutive lines.
+
+The converted text is stored as an audit artifact under
+`geo_afoi_pricing/work/extracted_text/`, while the original Synology `.doc`
+file remains read-only. A Word budget row may feed statistics only after row
+arithmetic and the declared `Εργασίες Προϋπολογισμού` total validation pass.
+
+## D-134 — GEO_AFOI reviewed numeric OIK aliases may be canonicalized
+**Status:** Accepted
+
+Bare numeric `ΟΙΚ` article references may be canonicalized only when a
+specific reviewed alias proves the raw article code, repaired revision code and
+description terms match the target article.
+
+The current reviewed aliases are:
+
+- `77.10` with `ΟΙΚ-7725` and the hydropainting description maps to
+  `ΝΑΟΙΚ 77.10`;
+- `77.30` with `ΟΙΚ-7735` and the acrylic primer/undercoat description maps
+  to `ΝΑΟΙΚ 77.30`.
+
+This is not a general rule that every bare numeric code becomes `ΝΑΟΙΚ`.
+Variants such as `77.34Ν` remain `NEEDS_REVIEW` until explicitly reviewed.
+
+## D-133 — GEO_AFOI new-price articles are project-local identities
+**Status:** Accepted
+
+GEO_AFOI rows marked as `Ν.Τ.` / `N.T.` are not reusable global article
+codes. The local number restarts per project, so `Ν.Τ.1` in one budget must not
+be grouped with `Ν.Τ.1` from another budget by code alone.
+
+When a `Ν.Τ.*` row has enough evidence, its article identity is derived from
+description fingerprint, repaired revision codes and unit. The raw local code
+is kept as an alias/provenance value, but the canonical article code uses a
+`LOCAL_NT_*` identity. Nonzero `Ν.Τ.*` rows may feed statistics through this
+project-local identity after amount validation passes; zero-amount or
+zero-quantity `Ν.Τ.*` rows are marked `READY_ZERO_AMOUNT` and excluded from
+statistics.
+
+Bare numeric/custom codes that are not explicit `Ν.Τ.*`, such as `77.xx` or
+`N.5354.1`, still remain `NEEDS_REVIEW` until a human-approved alias policy
+maps them to a known reusable article or keeps them project-specific.
+
+## D-132 — GEO_AFOI XLSX budgets use structured cell parsing
+**Status:** Accepted
+
+GEO_AFOI `.xlsx` budget documents must be parsed from worksheet cells instead
+of flattened text when the workbook exposes a regular budget table.
+
+The structured parser reads rows by spreadsheet columns for description,
+article code, revision code, `Α.Τ.`, unit, quantity, unit price and amount.
+It uses the `Α.Τ.` column as the stable row identifier when available and
+keeps the flattened worksheet text as an audit artifact for document-total
+validation and review.
+
+Rows with recognized article identities may feed statistics only after row
+arithmetic and declared works-total validation pass. Custom or ambiguous codes
+such as bare numeric `ΟΙΚ` article references or non-`Ν.Τ.` `N.*` rows remain
+`NEEDS_REVIEW` until an explicit alias/canonical policy is added.
+
+## D-131 — GEO_AFOI price statistics use reviewed article identities
+**Status:** Accepted
+
+GEO_AFOI historical price averages must group rows through an explicit
+article identity layer, not directly by the raw parser `article_code`.
+
+The raw budget rows remain unchanged for audit/provenance, while each row may
+also store repaired article code, repaired canonical article code, repaired
+revision codes, article quality status and a link to `geo_article_identities`.
+Known mojibake variants from PDF text layers may be repaired only when the raw
+row evidence supports a conservative token repair, such as `ΝΑΟΓΟ -> ΝΑΟΔΟ`,
+`ΟΓΟΝ -> ΟΔΟΝ`, `ΤΓΡ -> ΥΔΡ` or `ΝΑΤΓΡ -> ΝΑΥΔΡ`.
+
+Rows without a recognized repaired article prefix, unit or numeric fields must
+remain `NEEDS_REVIEW` and must not feed article statistics. Chapter titles
+also keep raw and repaired/canonical forms so future chapter-level grouping can
+avoid splitting the same work group due to mojibake or service-specific
+spelling variants.
+
+## D-129 — GEO_AFOI historical pricing stays isolated until validated
+**Status:** Accepted
+
+The Synology/GEO_AFOI historical budget-pricing workflow should start in a
+separate workspace under `geo_afoi_pricing/` instead of being wired directly
+into the main Tender Radar runtime.
+
+This keeps historical private-file ingestion, checkpointing, OCR/parsing
+artifacts and statistics isolated until pilot extraction quality is measured.
+The Synology source is treated as read-only, original files are not modified,
+and future integration with the main pricing UI should use only validated
+derived data with provenance.
+
+## D-130 — GEO_AFOI averages require repaired canonical article codes
+**Status:** Accepted
+
+Numeric row extraction can pass amount validation even when a PDF text layer
+has Greek font-encoding mojibake. Those rows may be stored for audit, but they
+must not feed historical averages until canonical article codes and
+descriptions are repaired or explicitly marked unusable for statistics.
+
+OCR may be stored as a reference artifact for readable Greek text, but OCR
+table layout is not trusted for numeric row extraction unless it passes the
+same deterministic amount validation.
+
 ## D-128 — Monitoring warning emails are owner-only
 **Status:** Accepted
 

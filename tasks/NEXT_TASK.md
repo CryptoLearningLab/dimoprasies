@@ -1,7 +1,104 @@
 # NEXT TASK
 
 Execute:
-`Validate v0.1.52 routing guard against live reverse-pricing review projects`
+`Review GEO_AFOI remaining custom/new article aliases before batch inventory`
+
+## GEO_AFOI Pricing Workspace Started
+
+A separate workspace now exists at `geo_afoi_pricing/` for the historical
+Synology/GEO_AFOI budget-pricing database. Keep this workflow isolated from
+the main Tender Radar runtime until pilot extraction quality is validated.
+
+Confirmed read-only source root:
+
+```text
+/mnt/synology/Files/Files/1. ΔΗΜΟΣΙΑ ΕΡΓΑ
+```
+
+Completed first implementation slice:
+
+- Direct-document pilot importer exists at
+  `geo_afoi_pricing/src/pilot_import.py`.
+- The first project budget PDF was ingested into local SQLite:
+  `geo_afoi_pricing/data/geo_afoi_pricing.sqlite`.
+- Latest report:
+  `geo_afoi_pricing/reports/pilot_one_project.json` and `.md`.
+- Result: `26` rows, `4` chapters linked, `0` unassigned rows.
+- Amount validation passed: extracted rows total `444.207,70` equals declared
+  work total `444.207,70`.
+- OCR audit text exists for the same PDF because the PDF text layer has Greek
+  mojibake.
+
+Latest completed slice:
+
+- First PDF pilot: `26` rows, row total `444.207,70`, declared works total
+  `444.207,70`, amount validation `PASS`, `26/26` article rows `READY`,
+  `26/26` rows usable for stats, `4/4` chapters `READY`.
+- Second XLSX pilot:
+  `/mnt/synology/Files/Files/1. ΔΗΜΟΣΙΑ ΕΡΓΑ/12. ΚΟΜΒΟΣ ΜΑΛΑΜΑΤΩΝ/ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ 2η φαση για Ασημάκη.xlsx`.
+- Result: `73` rows, row total `472.410,00`, declared works total
+  `472.410,00`, amount validation `PASS`, row arithmetic mismatches `0`,
+  `67/73` article rows `READY`, `67/73` rows usable for stats,
+  `7/7` chapters `READY`.
+- `Ν.Τ.*` / `N.T.*` rows are treated as project-local new-price identities:
+  nonzero rows may become `READY`, while zero-amount/zero-quantity rows are
+  `READY_ZERO_AMOUNT` and excluded from stats.
+- `2` rows are `READY_ZERO_AMOUNT`: `N.T.1` and `N.T.2`.
+- Reviewed numeric `ΟΙΚ` aliases were added for `77.10 -> ΝΑΟΙΚ 77.10` and
+  `77.30 -> ΝΑΟΙΚ 77.30`.
+- The second XLSX pilot now has `69/73` rows usable for stats,
+  `2` `READY_ZERO_AMOUNT` rows and `2` `NEEDS_REVIEW` rows:
+  `77.34Ν` and `N.5354.1`.
+- Third Word pilot:
+  `/mnt/synology/Files/Files/1. ΔΗΜΟΣΙΑ ΕΡΓΑ/3. ΑΝΑΠΛΑΣΕΙΣ ΚΑΙ ΕΣΩΤΕΡΙΚΗ ΟΔΟΠΟΙΪΑ ΔΕ ΝΑΥΠΑΚΤΟΥ/1. ΕΝΤΥΠΑ ΕΡΓΟΥ ΓΙΑ ΔΗΜΟΠΡΑΣΙΑ/4. ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.doc`.
+- Result: `25` rows, row total `173.942,11`, declared works total
+  `173.942,11`, amount validation `PASS`, row arithmetic mismatches `0`,
+  `24/25` rows usable for stats, `2/2` chapters `READY`.
+- `1` third-pilot row intentionally remains `NEEDS_REVIEW`:
+  `ΝΕΟ N/4720.A.2.1`, because it is a new/custom article without revision
+  evidence.
+- Fourth fixed-column PDF pilot:
+  `/mnt/synology/Files/Files/1. ΔΗΜΟΣΙΑ ΕΡΓΑ/6. ΑΜΦΙΣΣΑ -ΑΓΙΑ ΕΥΘΥΜΙΑ/1. ΕΝΤΥΠΑ ΕΣΗΔΗΣ/PROYPOLOG.xlk_signed.pdf`.
+- Result: `33` rows, row total `93.020,10`, declared works total
+  `93.020,10`, amount validation `PASS`, `0` unassigned rows,
+  `32/33` rows usable for stats and `3/3` chapters linked.
+- `1` fourth-pilot row intentionally remains `NEEDS_REVIEW`:
+  `Σ.72` with revision `ΥΔΡ-7107.1`, because the current safe policy does not
+  infer a canonical article prefix for it.
+- Canonical unit normalization is now in place for stats grouping while raw
+  units remain stored for provenance. `geo_article_stats` is refreshed after
+  each pilot import and currently has `134` rows, with `15` reusable
+  article/chapter/unit groups where `sample_count >= 2`.
+- Strict normalization review fixed the first-pilot `Γ03` asphaltic-precoat
+  mojibake row by mapping it to `ΝΑΟΔΟ Δ03`. No usable canonical article now
+  appears with multiple canonical units.
+- One non-blocking revision variant should remain visible during review:
+  `ΝΑΟΔΟ Δ06` appears with `ΟΔΟ-4421Β.1` in the Word budget and `ΟΔΟ-4421Β`
+  in the fixed-column PDF.
+
+Next implementation slice:
+
+1. Define an explicit review/alias policy for the remaining custom/new article
+   codes found in the pilots: `77.34Ν`, `N.5354.1`,
+   `ΝΕΟ N/4720.A.2.1` and `Σ.72`.
+2. Decide which custom codes should map to a reusable canonical identity and
+   which should remain project-specific.
+3. Extend the row-level review report with proposed alias action and rationale
+   for each `NEEDS_REVIEW` row.
+4. Decide whether `ΝΑΟΔΟ Δ06` revision variants should remain distinct aliases
+   or be manually accepted as the same revision family.
+5. Then implement checkpointed multi-project inventory.
+
+Gate:
+
+- Do not compute historical averages from `NEEDS_REVIEW` article rows.
+- Amount validation must remain `PASS`.
+- No original Synology file is changed, moved or deleted.
+- OCR/text-layer disagreement must remain visible in reports.
+- `geo_afoi_pricing/EXECPLAN.md`, `docs/PROGRESS.md`,
+  `docs/DECISIONS.md` and `tasks/NEXT_TASK.md` are updated at completion.
+
+## Previous Public-Works Task
 
 ## Public-Works Cron Prerequisite Completed
 

@@ -1,5 +1,463 @@
 # Project Progress
 
+## 2026-08-15 - GEO_AFOI unit normalization and article stats refresh
+
+Added canonical unit normalization to the GEO_AFOI article identity resolver
+while preserving each document's raw unit value on `geo_budget_rows` for
+provenance. The resolver now groups common variants such as `μ/m`, `μ2/m2`,
+`μ3/m3`, `Kg/kgr/kg`, `t/ton`, `τεμ./τεμ`, `μμ/m` and the observed PDF artifact
+`tonx1/ton`.
+
+Added automatic `geo_article_stats` refresh after each pilot import. The stats
+table is now materialized from usable rows and stores `sample_count`,
+`project_count`, `mean`, `median`, `min`, `max` and `stdev` by article identity,
+canonical chapter and canonical unit. Stale article identities and aliases that
+are no longer referenced by any budget row are removed during the refresh.
+
+Strict normalization pass findings and fixes:
+
+- local new-price identities now store the actual canonical unit instead of
+  accidentally deriving `canonical_unit` from the final fingerprint segment;
+- `Γ03` + `ΟΔΟ-4110` + asphaltic-precoat description from the first PDF is
+  reviewed and canonicalized as `ΝΑΟΔΟ Δ03`, not as drainage `ΝΑΟΔΟ Γ03`;
+- revision numbers now normalize Latin suffix letters and dot separators, e.g.
+  `1123.A -> 1123Α`, `2269A -> 2269Α`, `4421.Β.1 -> 4421Β.1`.
+
+After re-running all four pilot budgets, the database state is:
+
+- `4` projects and `157` budget rows;
+- extracted total across stored rows: `1.183.579,91`;
+- `151` rows are usable for stats;
+- `4` rows remain `NEEDS_REVIEW`: `77.34Ν`, `N.5354.1`,
+  `ΝΕΟ N/4720.A.2.1`, and `Σ.72`;
+- `134` rows exist in `geo_article_stats`;
+- `15` article/chapter/unit stat groups have `sample_count >= 2`;
+- stale article identities: `0`;
+- no canonical article currently appears with multiple canonical units;
+- one non-blocking revision variant remains visible for review:
+  `ΝΑΟΔΟ Δ06` has `ΟΔΟ-4421Β.1` in the Word budget and `ΟΔΟ-4421Β` in the
+  fixed-column PDF, while article, description family and canonical unit match.
+
+Latest refreshed runs:
+
+```text
+geo-pilot-20260815T171412Z  pilot_one_project
+geo-pilot-20260815T171453Z  pilot_second_project
+geo-pilot-20260815T171504Z  pilot_third_project
+geo-pilot-20260815T171519Z  pilot_fourth_project
+```
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_pricing.py geo_afoi_pricing/tests/test_pilot_import.py -q
+# 98 passed
+
+.venv/bin/python -m py_compile src/tender_radar/pricing.py geo_afoi_pricing/src/pilot_import.py
+# passed
+
+git diff --check
+# passed
+```
+
+## 2026-08-15 - GEO_AFOI fourth fixed-column PDF pilot
+
+Added fixed-column YPEHODE-style PDF budget parsing for older road-works
+tables where some rows continue across context lines and one row may omit the
+leading row number. The importer now keeps these rows deterministic by reading
+the fixed article/revision/unit/quantity/unit-price/amount columns and
+validating the sum against the declared `Άθροισμα`.
+
+Ran the fourth pilot document from the Synology path shown in the mobile
+screenshots:
+
+```text
+/mnt/synology/Files/Files/1. ΔΗΜΟΣΙΑ ΕΡΓΑ/6. ΑΜΦΙΣΣΑ -ΑΓΙΑ ΕΥΘΥΜΙΑ/1. ΕΝΤΥΠΑ ΕΣΗΔΗΣ/PROYPOLOG.xlk_signed.pdf
+```
+
+Latest fourth-project run:
+
+```text
+geo-pilot-20260815T165842Z
+geo_afoi_pricing/reports/pilot_fourth_project.json
+geo_afoi_pricing/reports/pilot_fourth_project.md
+```
+
+Observed fourth-project result:
+
+- `33` budget rows inserted;
+- `3` chapters linked and `0` unassigned rows;
+- extracted row amount total: `93.020,10`;
+- declared work total from the PDF: `93.020,10`;
+- amount validation: `PASS` with delta `0,00`;
+- `32/33` rows are `READY` and `usable_for_stats`;
+- green-work bare articles with `ΠΡΣ-*` revision evidence are canonicalized as
+  `ΝΑΠΡΣ` instead of being grouped under road-work `ΝΑΟΔΟ`;
+- `1/33` row remains `NEEDS_REVIEW`: `Σ.72` with revision `ΥΔΡ-7107.1`,
+  because its article prefix is not recognized by the current safe policy.
+
+The transliterated filename term `proypolog` is now treated as a strong budget
+candidate signal, so future scans can discover files named like
+`PROYPOLOG.xlk_signed.pdf`.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_pricing.py geo_afoi_pricing/tests/test_pilot_import.py -q
+# 94 passed
+
+.venv/bin/python -m py_compile src/tender_radar/pricing.py geo_afoi_pricing/src/pilot_import.py
+# passed
+```
+
+## 2026-08-15 - GEO_AFOI reviewed aliases and third Word pilot
+
+Added reviewed canonical aliases for the two bare numeric `ΟΙΚ` rows that were
+confirmed by description and revision code in the second XLSX pilot:
+
+- `77.10` + `ΟΙΚ-7725` -> `ΝΑΟΙΚ 77.10`;
+- `77.30` + `ΟΙΚ-7735` -> `ΝΑΟΙΚ 77.30`.
+
+Re-ran the second pilot document:
+
+```text
+/mnt/synology/Files/Files/1. ΔΗΜΟΣΙΑ ΕΡΓΑ/12. ΚΟΜΒΟΣ ΜΑΛΑΜΑΤΩΝ/ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ 2η φαση για Ασημάκη.xlsx
+```
+
+Latest second-project run:
+
+```text
+geo-pilot-20260815T161609Z
+geo_afoi_pricing/reports/pilot_second_project.json
+geo_afoi_pricing/reports/pilot_second_project.md
+```
+
+Updated second-project result:
+
+- `73` budget rows inserted;
+- extracted row amount total: `472.410,00`;
+- declared work total: `472.410,00`;
+- amount validation: `PASS` with delta `0,00`;
+- row arithmetic mismatches: `0`;
+- `69/73` rows are `READY` and `usable_for_stats`;
+- `2/73` rows are `READY_ZERO_AMOUNT` and excluded from stats;
+- `2/73` rows remain `NEEDS_REVIEW`: `77.34Ν` and `N.5354.1`.
+
+Then added legacy Word `.doc` support through LibreOffice text conversion and
+block parsing for budgets where Word emits one field per line. The original
+Synology file is not modified; the converted text is stored as an audit
+artifact.
+
+Ran the third pilot document from the Synology path shown in the mobile
+properties screenshot:
+
+```text
+/mnt/synology/Files/Files/1. ΔΗΜΟΣΙΑ ΕΡΓΑ/3. ΑΝΑΠΛΑΣΕΙΣ ΚΑΙ ΕΣΩΤΕΡΙΚΗ ΟΔΟΠΟΙΪΑ ΔΕ ΝΑΥΠΑΚΤΟΥ/1. ΕΝΤΥΠΑ ΕΡΓΟΥ ΓΙΑ ΔΗΜΟΠΡΑΣΙΑ/4. ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.doc
+```
+
+Latest third-project run:
+
+```text
+geo-pilot-20260815T162133Z
+geo_afoi_pricing/reports/pilot_third_project.json
+geo_afoi_pricing/reports/pilot_third_project.md
+```
+
+Observed third-project result:
+
+- `25` budget rows inserted;
+- `2` chapters linked and `0` unassigned rows;
+- extracted row amount total: `173.942,11`;
+- declared `Εργασίες Προϋπολογισμού` total: `173.942,11`;
+- amount validation: `PASS` with delta `0,00`;
+- row arithmetic mismatches: `0`;
+- `2/2` chapters are `READY`;
+- `24/25` rows are `READY` and `usable_for_stats`;
+- `1/25` row remains `NEEDS_REVIEW`: `ΝΕΟ N/4720.A.2.1`, because it is a
+  new/custom article without revision-code evidence.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_pricing.py geo_afoi_pricing/tests/test_pilot_import.py -q
+# 91 passed
+
+.venv/bin/python -m py_compile src/tender_radar/pricing.py geo_afoi_pricing/src/pilot_import.py
+# passed
+
+git diff --check
+# passed
+```
+
+## 2026-08-15 - GEO_AFOI local new-price identity policy
+
+Added explicit handling for `Ν.Τ.` / `N.T.` article rows. These are treated as
+project-local new-price entries because their numbering restarts in each
+project and must not be used as a global article key.
+
+The importer now builds a local identity for `Ν.Τ.*` rows from description
+fingerprint, repaired revision code evidence and unit. Nonzero local new-price
+rows can become `READY` and usable for statistics under that local identity;
+zero-quantity or zero-amount local new-price rows are marked
+`READY_ZERO_AMOUNT` and remain excluded from statistics.
+
+Re-ran the second pilot document:
+
+```text
+/mnt/synology/Files/Files/1. ΔΗΜΟΣΙΑ ΕΡΓΑ/12. ΚΟΜΒΟΣ ΜΑΛΑΜΑΤΩΝ/ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ 2η φαση για Ασημάκη.xlsx
+```
+
+Latest run:
+
+```text
+geo-pilot-20260815T160421Z
+geo_afoi_pricing/reports/pilot_second_project.json
+geo_afoi_pricing/reports/pilot_second_project.md
+```
+
+Observed result:
+
+- `73` budget rows inserted;
+- `7` chapters linked and `0` unassigned rows;
+- extracted row amount total: `472.410,00`;
+- declared work total from the workbook: `472.410,00`;
+- amount validation: `PASS` with delta `0,00`;
+- row arithmetic mismatches: `0`;
+- `7/7` chapters are `READY`;
+- `69` article identities linked;
+- `67/73` rows are `READY` and `usable_for_stats`;
+- `2/73` rows are `READY_ZERO_AMOUNT` and excluded from stats:
+  `N.T.1` and `N.T.2`;
+- `4/73` rows remain `NEEDS_REVIEW` and excluded from stats:
+  bare `ΟΙΚ` article references `77.10`, `77.30`, `77.34Ν`, and custom
+  `N.5354.1`.
+- the Markdown/JSON report lists the exact `NEEDS_REVIEW` rows and the
+  `READY_ZERO_AMOUNT` rows for row-level review.
+
+This pass improved the pilot from the earlier XLSX run because nonzero
+`Ν.Τ.*` rows were no longer incorrectly treated as unresolved global article
+codes. The `4`-row review set from this run was later superseded by the
+reviewed numeric `ΟΙΚ` alias pass documented above, which reduced the second
+project to `2` true `NEEDS_REVIEW` rows.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_pricing.py geo_afoi_pricing/tests/test_pilot_import.py -q
+# 87 passed
+
+.venv/bin/python -m py_compile src/tender_radar/pricing.py geo_afoi_pricing/src/pilot_import.py
+# passed
+
+git diff --check
+# passed
+```
+
+## 2026-08-15 - GEO_AFOI second-project XLSX budget pilot
+
+Extended the isolated `geo_afoi_pricing/` pilot importer to support `.xlsx`
+budget workbooks without adding a new dependency. The importer now reads XLSX
+worksheet XML with `zipfile`/`xml.etree`, writes flattened text as an audit
+artifact, and parses structured budget rows from spreadsheet cells.
+
+Re-ran the second pilot document:
+
+```text
+/mnt/synology/Files/Files/1. ΔΗΜΟΣΙΑ ΕΡΓΑ/12. ΚΟΜΒΟΣ ΜΑΛΑΜΑΤΩΝ/ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ 2η φαση για Ασημάκη.xlsx
+```
+
+Earlier run:
+
+```text
+geo-pilot-20260815T155147Z
+geo_afoi_pricing/reports/pilot_second_project.json
+geo_afoi_pricing/reports/pilot_second_project.md
+```
+
+Observed result:
+
+- `73` budget rows inserted;
+- `7` chapters linked and `0` unassigned rows;
+- extracted row amount total: `472.410,00`;
+- declared work total from the workbook: `472.410,00`;
+- amount validation: `PASS` with delta `0,00`;
+- row arithmetic mismatches: `0`;
+- `7/7` chapters are `READY`;
+- `67` article identities linked;
+- `67/73` rows are `READY` and `usable_for_stats`;
+- `6/73` rows remained `NEEDS_REVIEW` and were excluded from stats:
+  bare `ΟΙΚ` article references `77.10`, `77.30`, `77.34Ν`, and custom
+  `N.T.1`, `N.5354.1`, `Ν.Τ.3` rows.
+
+This second layout confirmed that the workflow can handle non-PDF budget
+sources and that ambiguous/custom article identities remain out of historical
+statistics until an explicit alias policy is added. This result was superseded
+by the local new-price identity policy documented above.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest geo_afoi_pricing/tests/test_pilot_import.py -q
+# 19 passed
+```
+
+## 2026-08-15 - GEO_AFOI article identities and chapter repair pilot
+
+Added an explicit article identity / alias layer to the isolated
+`geo_afoi_pricing/` workflow before historical averages are computed.
+
+Implemented changes:
+
+- `geo_article_identities` and `geo_article_aliases` tables;
+- repaired article/revision columns and `usable_for_stats` on
+  `geo_budget_rows`;
+- repaired/canonical chapter title fields and chapter quality status on
+  `geo_budget_chapters`;
+- migration support for the already-created local pilot SQLite database;
+- conservative mojibake token repair for PDF text-layer artifacts such as
+  `ΝΑΟΓΟ`, `ΟΓΟΝ`, `ΤΓΡ` and `ΝΑΤΓΡ`;
+- report output showing raw-to-repaired article samples and article quality
+  counts.
+
+Re-ran the same pilot document:
+
+```text
+/mnt/synology/Files/Files/1. ΔΗΜΟΣΙΑ ΕΡΓΑ/2. ΕΣΩΤΕΡΙΚΗ ΟΔΟΠΟΙΙΑ ΟΙΚΙΣΜΩΝ ΤΟΥ ΔΗΜΟΥ ΘΕΡΜΟΥ/1. ΕΝΤΥΠΑ ΔΗΜΟΠΡΑΤΗΣΗΣ/3.-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf
+```
+
+Latest run:
+
+```text
+geo-pilot-20260815T135006Z
+geo_afoi_pricing/reports/pilot_one_project.json
+geo_afoi_pricing/reports/pilot_one_project.md
+```
+
+Observed result:
+
+- `26` budget rows inserted, unchanged from the first pilot;
+- row amount total remains `444.207,70`;
+- declared work total remains `444.207,70`;
+- amount validation remains `PASS` with delta `0,00`;
+- `4` chapters linked and `0` unassigned rows;
+- `4/4` chapters now have repaired/canonical titles marked `READY`;
+- `26` article identities linked;
+- `26/26` rows marked article-quality `READY`;
+- `26/26` rows are currently `usable_for_stats`;
+- `22` rows had repaired article-code changes, e.g. `Α02 -> ΝΑΟΔΟ Α02`
+  and `ΤΓΡ 12.01.01.07 -> ΝΑΥΔΡ 12.01.01.07`;
+- `122` article aliases exist in the local pilot database.
+
+The pilot is now more mature for article-level statistics than the first
+pass, because the raw parser rows are still preserved but future min/mean/max
+aggregation can use reviewed article identities instead of mojibake/raw
+article codes.
+
+Remaining caution: this is still one PDF/layout. Before batch historical
+averages, run at least one more project with a different budget layout and
+confirm that non-repairable rows correctly remain `NEEDS_REVIEW`.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_pricing.py geo_afoi_pricing/tests/test_pilot_import.py -q
+# 81 passed
+
+.venv/bin/python -m py_compile geo_afoi_pricing/src/pilot_import.py
+# passed
+
+git diff --check
+# passed
+```
+
+## 2026-08-15 - GEO_AFOI pricing workspace scaffold
+
+Created a separate `geo_afoi_pricing/` workspace for the Synology/GEO_AFOI
+historical budget-pricing database. This workspace is intentionally isolated
+from the main Tender Radar runtime until pilot extraction quality is validated.
+
+The scaffold includes:
+
+- `README.md` with source-root, local layout and first gate;
+- `EXECPLAN.md` following the repository ExecPlan structure;
+- `schema.sql` for projects, source files, budget chapters, budget rows,
+  article statistics, extraction events and run logs;
+- `config.example.yml` for the Synology source root and pilot scanning rules;
+- local `data/`, `work/`, `reports/`, `src/` and `tests/` placeholders.
+
+The confirmed source root is:
+
+```text
+/mnt/synology/Files/Files/1. ΔΗΜΟΣΙΑ ΕΡΓΑ
+```
+
+No source files were modified or copied. Full ingestion has not started yet.
+
+Verification:
+
+```bash
+git diff --check
+# passed
+
+.venv/bin/python -c "import sqlite3, pathlib; con=sqlite3.connect(':memory:'); con.executescript(pathlib.Path('geo_afoi_pricing/schema.sql').read_text()); print(','.join(row[0] for row in con.execute(\"select name from sqlite_master where type='table' order by name\")))"
+# geo_article_stats,geo_budget_chapters,geo_budget_rows,geo_extraction_events,geo_projects,geo_runs,geo_source_files
+```
+
+## 2026-08-15 - GEO_AFOI one-project budget pilot
+
+Implemented a direct-document pilot importer at
+`geo_afoi_pricing/src/pilot_import.py` and ran it against the first clean
+project sample:
+
+```text
+/mnt/synology/Files/Files/1. ΔΗΜΟΣΙΑ ΕΡΓΑ/2. ΕΣΩΤΕΡΙΚΗ ΟΔΟΠΟΙΙΑ ΟΙΚΙΣΜΩΝ ΤΟΥ ΔΗΜΟΥ ΘΕΡΜΟΥ/1. ΕΝΤΥΠΑ ΔΗΜΟΠΡΑΤΗΣΗΣ/3.-ΠΡΟΥΠΟΛΟΓΙΣΜΟΣ.pdf
+```
+
+The pilot created/updated the local ignored SQLite database:
+
+```text
+geo_afoi_pricing/data/geo_afoi_pricing.sqlite
+```
+
+Latest pilot report:
+
+```text
+geo_afoi_pricing/reports/pilot_one_project.json
+geo_afoi_pricing/reports/pilot_one_project.md
+```
+
+Observed result:
+
+- `26` budget rows inserted;
+- `4` chapter candidates detected and linked;
+- `0` unassigned rows;
+- extracted row amount total: `444.207,70`;
+- declared work total: `444.207,70`;
+- amount validation: `PASS`;
+- OCR audit artifact stored at
+  `geo_afoi_pricing/work/extracted_text/geo-f2d021690731eea5-1.ocr.txt`.
+
+Important caveat: the PDF text layer contains Greek font-encoding mojibake.
+The deterministic parser now recovers the numeric rows and totals, but some
+descriptions/chapter labels/article prefixes remain text-layer mojibake
+(`ΝΑΟΓΟ`, `ΤΓΡ`, etc.). OCR provides readable Greek but not enough table
+layout for deterministic row parsing. Do not compute historical averages from
+this pilot until article-code/description repair is implemented and audited.
+
+The shared pricing parser was also fixed for budget rows where the article
+suffix is wrapped onto the next line, such as `ΝΑΥΔΡ ...` followed by
+`12.01.01.07`.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_pricing.py geo_afoi_pricing/tests/test_pilot_import.py -q
+# 75 passed
+
+.venv/bin/python -m py_compile src/tender_radar/pricing.py geo_afoi_pricing/src/pilot_import.py
+# passed
+```
+
 ## 2026-08-11 - Owner-only monitoring warning emails
 
 The runtime/UI version was bumped from `0.1.84` to `0.1.85`.
