@@ -1,5 +1,41 @@
 # Project Progress
 
+## 2026-08-15 - GEO_AFOI workspace committed and deployed
+
+Committed and pushed the GEO_AFOI pricing pilot workspace to GitHub:
+
+```text
+1557c11 Add GEO AFOI pricing pilot workspace
+```
+
+GitHub Actions deploy passed:
+
+```text
+Deploy Tender Radar run 31897955556
+Deploy to DigitalOcean droplet: success in 46s
+```
+
+DigitalOcean verification:
+
+```bash
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 \
+  'cd /root/workspace/dimoprasies && git rev-parse --short HEAD && test -f geo_afoi_pricing/src/pilot_import.py && test -f geo_afoi_pricing/schema.sql && echo geo_afoi_pricing_present'
+# 1557c11
+# geo_afoi_pricing_present
+
+ssh -o StrictHostKeyChecking=no codex-crisp-hawk-a759 \
+  'systemctl is-active tender-radar-ui.service && systemctl is-active tender-radar-scheduled.timer'
+# active
+# active
+```
+
+The commit intentionally excludes local Synology-derived runtime artifacts
+(`geo_afoi_pricing/data/*.sqlite`, extracted text, reports and pycache). The
+local working tree still has unrelated unstaged work in
+`config/evaluation_profiles/public_works_dynamic.yml` and
+`standalone_eshidis_ai_fetcher/`, which was not included in the GEO_AFOI
+commit.
+
 ## 2026-08-15 - GEO_AFOI unit normalization and article stats refresh
 
 Added canonical unit normalization to the GEO_AFOI article identity resolver

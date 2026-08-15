@@ -31,6 +31,14 @@ Completed first implementation slice:
 
 Latest completed slice:
 
+- GEO_AFOI pricing pilot workspace was committed and deployed:
+  `1557c11 Add GEO AFOI pricing pilot workspace`.
+- GitHub Actions run `31897955556` deployed successfully to the DigitalOcean
+  droplet. Droplet verification showed `/root/workspace/dimoprasies` at
+  `1557c11`, `geo_afoi_pricing/src/pilot_import.py` present, and both
+  `tender-radar-ui.service` and `tender-radar-scheduled.timer` active.
+- Local Synology-derived runtime artifacts remain ignored and were not pushed
+  to GitHub.
 - First PDF pilot: `26` rows, row total `444.207,70`, declared works total
   `444.207,70`, amount validation `PASS`, `26/26` article rows `READY`,
   `26/26` rows usable for stats, `4/4` chapters `READY`.

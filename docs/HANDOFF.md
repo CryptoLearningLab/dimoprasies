@@ -1,6 +1,6 @@
 # Project Handoff
 
-Last updated: `2026-07-18`
+Last updated: `2026-08-15`
 
 This is the compact handoff for a new Codex chat starting from zero.
 
@@ -76,6 +76,12 @@ and editable YAML/UI evaluation rules.
 - Dynamic evaluation profile:
   - `config/evaluation_profiles/public_works_dynamic.yml`
 - Editable Rules UI in `src/tender_radar/ui_server.py`.
+- Isolated GEO_AFOI historical budget-pricing workspace under
+  `geo_afoi_pricing/`. This contains code, schema, config example and tests
+  for parsing Synology/GEO_AFOI historical public-works budgets into a local
+  SQLite pricing database. Runtime artifacts under `geo_afoi_pricing/data/`,
+  `geo_afoi_pricing/work/` and `geo_afoi_pricing/reports/` are intentionally
+  ignored and are not pushed to GitHub.
 - UI tabs:
   - Discovery
   - Tender
