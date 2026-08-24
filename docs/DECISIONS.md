@@ -1,5 +1,20 @@
 # Decision Log
 
+## D-138 — Production email uses Resend HTTPS transport
+**Status:** Accepted
+
+Production public-works and monitoring emails must be deliverable without
+depending on outbound SMTP from the droplet. The scheduled service was running,
+but Gmail SMTP connections from production were unreachable while normal HTTPS
+egress worked.
+
+The runtime therefore supports Resend as the preferred production email
+transport through `https://api.resend.com/emails`. `RESEND_API_KEY` plus
+`RESEND_FROM`/`EMAIL_FROM` is enough to select Resend by default, and
+`EMAIL_DELIVERY_PROVIDER=resend` may make the selection explicit. The legacy
+SMTP transport remains supported for local or alternate environments via
+`EMAIL_DELIVERY_PROVIDER=smtp`.
+
 ## D-137 — GEO_AFOI statistics use canonical units and materialized stats
 **Status:** Accepted
 

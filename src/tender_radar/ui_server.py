@@ -3868,7 +3868,43 @@ def smtp_config() -> dict[str, str]:
     return config
 
 
+def resend_config() -> dict[str, str]:
+    env = load_local_env()
+    api_key = os.environ.get("RESEND_API_KEY") or env.get("RESEND_API_KEY") or ""
+    from_email = (
+        os.environ.get("RESEND_FROM")
+        or env.get("RESEND_FROM")
+        or os.environ.get("EMAIL_FROM")
+        or env.get("EMAIL_FROM")
+        or ""
+    )
+    reply_to = os.environ.get("RESEND_REPLY_TO") or env.get("RESEND_REPLY_TO") or ""
+    config = {"api_key": api_key, "from_email": from_email, "reply_to": reply_to}
+    missing = [name for name in ("api_key", "from_email") if not config[name]]
+    if missing:
+        raise ValueError(f"Resend is not configured: missing {', '.join(missing)}.")
+    return config
+
+
+def email_delivery_provider() -> str:
+    env = load_local_env()
+    provider = (os.environ.get("EMAIL_DELIVERY_PROVIDER") or env.get("EMAIL_DELIVERY_PROVIDER") or "").strip().lower()
+    if provider:
+        return provider
+    return "resend" if (os.environ.get("RESEND_API_KEY") or env.get("RESEND_API_KEY")) else "smtp"
+
+
 def send_email_alert(recipient: str, subject: str, text_body: str, html_body: str) -> None:
+    provider = email_delivery_provider()
+    if provider == "resend":
+        send_resend_email_alert(recipient, subject, text_body, html_body)
+        return
+    if provider != "smtp":
+        raise ValueError(f"Unsupported email delivery provider: {provider}.")
+    send_smtp_email_alert(recipient, subject, text_body, html_body)
+
+
+def send_smtp_email_alert(recipient: str, subject: str, text_body: str, html_body: str) -> None:
     config = smtp_config()
     message = EmailMessage()
     message["Subject"] = subject
@@ -3881,6 +3917,36 @@ def send_email_alert(recipient: str, subject: str, text_body: str, html_body: st
         smtp.starttls()
         smtp.login(config["username"], config["password"])
         smtp.send_message(message)
+
+
+def send_resend_email_alert(recipient: str, subject: str, text_body: str, html_body: str) -> None:
+    config = resend_config()
+    payload: dict[str, Any] = {
+        "from": config["from_email"],
+        "to": [recipient],
+        "subject": subject,
+        "text": text_body,
+        "html": html_body,
+    }
+    if config["reply_to"]:
+        payload["reply_to"] = [config["reply_to"]]
+    request = Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {config['api_key']}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            status = int(getattr(response, "status", 200) or 200)
+            body = response.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        raise RuntimeError(f"Resend email failed: {exc}") from exc
+    if status >= 300:
+        raise RuntimeError(f"Resend email failed: HTTP {status}: {body[:500]}")
 
 
 def load_local_env() -> dict[str, str]:

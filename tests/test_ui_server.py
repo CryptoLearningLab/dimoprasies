@@ -267,6 +267,64 @@ def test_admin_secret_payload_redacts_values_and_writes_env(tmp_path, monkeypatc
     assert result["actor_email"] == "owner@example.test"
 
 
+def test_send_email_alert_uses_resend_when_configured(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / ".env.local").write_text(
+        'RESEND_API_KEY="re_test"\n'
+        'RESEND_FROM="Tender Radar <alerts@example.test>"\n'
+        'RESEND_REPLY_TO="owner@example.test"\n',
+        encoding="utf-8",
+    )
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return b'{"id":"email_123"}'
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        captured["headers"] = dict(request.header_items())
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse()
+
+    monkeypatch.setattr(ui_server, "urlopen", fake_urlopen)
+
+    ui_server.send_email_alert("recipient@example.test", "Subject", "Plain text", "<p>Html</p>")
+
+    assert captured["url"] == "https://api.resend.com/emails"
+    assert captured["timeout"] == 30
+    assert captured["headers"]["Authorization"] == "Bearer re_test"
+    assert captured["payload"] == {
+        "from": "Tender Radar <alerts@example.test>",
+        "to": ["recipient@example.test"],
+        "subject": "Subject",
+        "text": "Plain text",
+        "html": "<p>Html</p>",
+        "reply_to": ["owner@example.test"],
+    }
+
+
+def test_send_email_alert_can_force_smtp_provider(monkeypatch) -> None:
+    calls: list[tuple[str, str, str, str]] = []
+    monkeypatch.setenv("EMAIL_DELIVERY_PROVIDER", "smtp")
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
+    monkeypatch.setattr(ui_server, "send_smtp_email_alert", lambda *args: calls.append(args))
+    monkeypatch.setattr(ui_server, "send_resend_email_alert", lambda *args: (_ for _ in ()).throw(AssertionError("unexpected resend")))
+
+    ui_server.send_email_alert("recipient@example.test", "Subject", "Plain text", "<p>Html</p>")
+
+    assert calls == [("recipient@example.test", "Subject", "Plain text", "<p>Html</p>")]
+
+
 def test_reverse_search_payload_searches_active_dashboard_and_documents(monkeypatch, tmp_path: Path) -> None:
     text_path = tmp_path / "declaration.txt"
     text_path.write_text("Τεχνική περιγραφή για γέφυρα και ασφαλτόστρωση δημοτικής οδού.", encoding="utf-8")

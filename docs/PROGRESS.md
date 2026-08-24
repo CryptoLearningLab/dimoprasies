@@ -1,5 +1,28 @@
 # Project Progress
 
+## 2026-08-24 - Resend email transport hotfix
+
+Production scheduled runs were active, but the email stages were failing after
+the report/triage work completed because outbound SMTP to Gmail was
+unreachable from the droplet. General HTTPS connectivity from the droplet was
+available, so the email delivery path now supports Resend through the HTTPS
+Email API.
+
+`send_email_alert` now selects `EMAIL_DELIVERY_PROVIDER=resend` when configured
+or automatically uses Resend when `RESEND_API_KEY` is present. The previous
+SMTP path remains available with `EMAIL_DELIVERY_PROVIDER=smtp`.
+
+Required production env for Resend:
+
+```text
+EMAIL_DELIVERY_PROVIDER=resend
+RESEND_API_KEY=...
+RESEND_FROM=Tender Radar <alerts@elevia.gr>
+RESEND_REPLY_TO=...
+```
+
+Focused tests cover Resend request construction and explicit SMTP fallback.
+
 ## 2026-08-15 - GEO_AFOI workspace committed and deployed
 
 Committed and pushed the GEO_AFOI pricing pilot workspace to GitHub:

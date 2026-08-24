@@ -3,6 +3,15 @@
 Execute:
 `Review GEO_AFOI remaining custom/new article aliases before batch inventory`
 
+## Operational hotfix completed before next GEO_AFOI slice
+
+Production email delivery was moved to Resend HTTPS transport because Gmail
+SMTP from the droplet became unreachable while the scheduled service and HTTPS
+egress were still working. Before resuming GEO_AFOI, verify the deployed
+scheduled run records successful `email` and `monitoring_email` notification
+rows after `RESEND_API_KEY`, `EMAIL_DELIVERY_PROVIDER=resend` and
+`RESEND_FROM` are present in production `.env.local`.
+
 ## GEO_AFOI Pricing Workspace Started
 
 A separate workspace now exists at `geo_afoi_pricing/` for the historical
