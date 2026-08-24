@@ -1,5 +1,5 @@
 from pathlib import Path
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import json
 import sqlite3
 import threading
@@ -59,7 +59,7 @@ regions: []
         json.dumps(
             {
                 "focus_authority_candidates": [
-                    {"submission_deadline": "2026-08-20T10:00:00", **row}
+                    {"submission_deadline": "2099-08-20T10:00:00", **row}
                     for row in rows
                 ]
             },
@@ -1342,6 +1342,7 @@ def test_email_alerts_payload_uses_recipient_specific_dashboard_profiles(tmp_pat
 def test_email_digest_groups_operational_signals(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
     (tmp_path / "data").mkdir()
+    soon_deadline = (datetime.now(timezone.utc) + timedelta(days=3)).strftime("%Y-%m-%d 10:00")
     monkeypatch.setattr(ui_server, "email_alert_recipients", lambda recipient=None: ["owner@example.test"])
     monkeypatch.setattr(
         ui_server,
@@ -1358,11 +1359,11 @@ def test_email_digest_groups_operational_signals(tmp_path, monkeypatch) -> None:
                     "authority_name": "Δήμος Ναυπακτίας",
                     "budget_display": "750.000",
                     "budget_sort": 750000,
-                    "deadline_display": "2026-08-15 10:00",
-                    "deadline_sort": "2026-08-15 10:00",
+                    "deadline_display": soon_deadline,
+                    "deadline_sort": soon_deadline,
                     "why_visible": [
                         {"label": "Περιοχή", "text": "Ταιριάζει με Ναυπακτία."},
-                        {"label": "Προθεσμία", "text": "Ενεργή προθεσμία: 2026-08-15 10:00."},
+                        {"label": "Προθεσμία", "text": f"Ενεργή προθεσμία: {soon_deadline}."},
                     ],
                     "project_operations": [
                         {"label": "Έγγραφα", "status": "pending", "text": "Δεν έχουν καταγραφεί ακόμα τοπικά έγγραφα."},
@@ -2000,7 +2001,7 @@ regions: []
                         "source_url": "https://e-patras.gr/el/tender",
                         "attachment_url": "https://e-patras.gr/sites/default/files/a.pdf",
                         "attachment_urls": ["https://e-patras.gr/sites/default/files/a.pdf"],
-                        "submission_deadline": "2026-08-20T10:00:00",
+                        "submission_deadline": "2099-08-20T10:00:00",
                         "matched_scopes": ["Δήμος Πατρέων"],
                         "match_notes": ["e-Patras: PARSED"],
                         "status": "AUTHORITY_DISCOVERY_CANDIDATE",
@@ -2079,7 +2080,7 @@ regions: []
       "title": "Έργο στην Πάτρα",
       "authority": "ΔΗΜΟΣ ΠΑΤΡΕΩΝ",
       "budget": "1240.0",
-          "submission_deadline": "2026-08-24T13:00:00",
+          "submission_deadline": "2099-08-24T13:00:00",
       "source_url": "https://example.test/notice",
       "attachment_url": "https://example.test/attachment/26PROC000000001",
       "matched_scopes": ["Δήμος Πατρέων"],
@@ -2092,7 +2093,7 @@ regions: []
       "title": "Άλλο έργο Πατρών",
       "authority": "ΔΗΜΟΣ ΠΑΤΡΕΩΝ",
       "budget": "2000.0",
-          "submission_deadline": "2026-08-25T10:00:00",
+          "submission_deadline": "2099-08-25T10:00:00",
       "source_url": "https://example.test/notice",
       "attachment_url": "https://example.test/attachment/26PROC000000002",
       "matched_scopes": ["Δήμος Πατρέων"],
@@ -2114,7 +2115,7 @@ regions: []
     assert payload["tenders"][0]["interest_reason"] == "Δήμος Πατρέων"
     assert payload["tenders"][0]["download_url"] == "https://example.test/attachment/26PROC000000001"
     assert payload["tenders"][0]["supports_eshidis_actions"] is False
-    assert payload["tenders"][0]["deadline_display"] == "24-08-2026 13:00"
+    assert payload["tenders"][0]["deadline_display"] == "24-08-2099 13:00"
 
 
 def test_dashboard_rows_include_why_visible_and_timeline(tmp_path, monkeypatch) -> None:
@@ -2227,7 +2228,7 @@ regions: []
                         "eshidis_id": "221744",
                         "title": "ΣΥΝΤΗΡΗΣΕΙΣ ΑΓΡΙΝΙΟΥ ΑΜΦΙΛΟΧΙΑΣ 2026-2027",
                         "authority_name": "ΔΗΜΟΣ ΑΜΦΙΛΟΧΙΑΣ",
-                        "submission_deadline": "2026-08-20T10:00:00",
+                        "submission_deadline": "2099-08-20T10:00:00",
                         "status": "DISCOVERED_ACTIVE_CANDIDATE",
                     }
                 ]
@@ -2246,7 +2247,7 @@ regions: []
                         "official_id": "26PROC019444361",
                         "title": "ΣΥΝΤΗΡΗΣΕΙΣ ΕΠΑΡΧΙΑΚΟΥ ΟΔΙΚΟΥ ΔΙΚΤΥΟΥ Δ. ΑΓΡΙΝΙΟΥ ΚΑΙ Δ. ΑΜΦΙΛΟΧΙΑΣ",
                         "authority": "ΠΕΡΙΦΕΡΕΙΑ ΔΥΤΙΚΗΣ ΕΛΛΑΔΑΣ",
-                        "submission_deadline": "2026-08-20T10:00:00",
+                        "submission_deadline": "2099-08-20T10:00:00",
                         "matched_scopes": ["Δήμος Αμφιλοχίας"],
                         "status": "SUBMISSION_OPEN_CANDIDATE",
                     }
@@ -2436,7 +2437,7 @@ regions: []
                         "authority": "Δήμος Δωρίδος / Ευπάλιο",
                         "source_url": "https://www.dorida.gr/blog/13778/work",
                         "attachment_urls": ["https://www.dorida.gr/wp-content/uploads/Περίληψη.pdf"],
-                        "submission_deadline": "2026-08-20T10:00:00",
+                        "submission_deadline": "2099-08-20T10:00:00",
                         "matched_scopes": ["Δήμος Δωρίδος / Ευπάλιο"],
                         "status": "AUTHORITY_DISCOVERY_CANDIDATE",
                     }
@@ -3352,7 +3353,7 @@ regions: []
                         "eshidis_id": "221473",
                         "title": "Έργο Ναυπάκτου",
                         "authority_name": "Δήμος Ναυπακτίας",
-                        "submission_deadline": "20-08-2026 10:00:00",
+                        "submission_deadline": "20-08-2099 10:00:00",
                         "row_text": "Ναύπακτος",
                     }
                 ]
@@ -3370,7 +3371,7 @@ regions: []
                         "title": "Διακήρυξη έργου Ναυπάκτου",
                         "authority": "Δήμος Ναυπακτίας",
                         "attachment_url": "https://example.test/26PROC000000001.pdf",
-                        "submission_deadline": "2026-08-20T10:00:00",
+                        "submission_deadline": "2099-08-20T10:00:00",
                         "matched_scopes": ["Δήμος Ναυπακτίας"],
                         "status": "SUBMISSION_OPEN_CANDIDATE",
                     }
@@ -3384,7 +3385,7 @@ regions: []
                         "source_url": "https://example.test/work",
                         "attachment_url": "https://example.test/work.pdf",
                         "attachment_urls": ["https://example.test/work.pdf"],
-                        "submission_deadline": "2026-08-20T10:00:00",
+                        "submission_deadline": "2099-08-20T10:00:00",
                         "matched_scopes": ["Δήμος Ναυπακτίας"],
                         "status": "AUTHORITY_DISCOVERY_CANDIDATE",
                     }
@@ -3835,7 +3836,7 @@ regions: []
                         "authority": "Δήμος Πατρέων",
                         "source_url": "https://e-patras.gr/el/tender",
                         "attachment_urls": ["https://e-patras.gr/a.pdf"],
-                        "submission_deadline": "2026-08-20T10:00:00",
+                        "submission_deadline": "2099-08-20T10:00:00",
                         "matched_scopes": ["Δήμος Πατρέων"],
                         "match_notes": [],
                         "status": "AUTHORITY_DISCOVERY_CANDIDATE",
@@ -4027,7 +4028,7 @@ regions: []
                         "title": "Έργο Δήμου Πατρέων",
                         "authority": "Δήμος Πατρέων",
                         "source_url": "https://e-patras.gr/el/tender",
-                        "submission_deadline": "2026-08-20T10:00:00",
+                        "submission_deadline": "2099-08-20T10:00:00",
                         "matched_scopes": ["Δήμος Πατρέων"],
                         "match_notes": [],
                         "status": "AUTHORITY_DISCOVERY_CANDIDATE",
@@ -4041,7 +4042,7 @@ regions: []
                             "source_url": "https://e-patras.gr/el/admin",
                             "attachment_url": "https://e-patras.gr/admin.pdf",
                             "attachment_urls": ["https://e-patras.gr/admin.pdf"],
-                            "submission_deadline": "2026-08-20T10:00:00",
+                            "submission_deadline": "2099-08-20T10:00:00",
                             "matched_scopes": ["Δήμος Πατρέων"],
                             "match_notes": [],
                             "status": "AUTHORITY_DISCOVERY_CANDIDATE",
@@ -4610,7 +4611,7 @@ regions: []
                         "source_url": "https://e-patras.gr/el/work",
                         "attachment_url": "https://e-patras.gr/work.pdf",
                         "attachment_urls": ["https://e-patras.gr/work.pdf"],
-                        "submission_deadline": "2026-08-20T10:00:00",
+                        "submission_deadline": "2099-08-20T10:00:00",
                         "matched_scopes": ["Δήμος Πατρέων"],
                         "match_notes": [],
                         "status": "AUTHORITY_DISCOVERY_CANDIDATE",
@@ -4657,7 +4658,7 @@ regions: []
                         "authority": "Δήμος Πατρέων",
                         "source_url": "https://e-patras.gr/el/tender",
                         "row_text": "Άρθρο 2.2 URL http://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/221744",
-                        "submission_deadline": "2026-08-20T10:00:00",
+                        "submission_deadline": "2099-08-20T10:00:00",
                         "matched_scopes": ["Δήμος Πατρέων"],
                         "match_notes": [],
                         "status": "AUTHORITY_DISCOVERY_CANDIDATE",
