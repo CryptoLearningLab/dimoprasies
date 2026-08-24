@@ -3936,6 +3936,7 @@ def send_resend_email_alert(recipient: str, subject: str, text_body: str, html_b
         headers={
             "Authorization": f"Bearer {config['api_key']}",
             "Content-Type": "application/json",
+            "User-Agent": "TenderRadar/0.1 email-resend",
         },
         method="POST",
     )

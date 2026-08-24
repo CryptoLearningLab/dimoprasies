@@ -303,6 +303,7 @@ def test_send_email_alert_uses_resend_when_configured(tmp_path, monkeypatch) -> 
     assert captured["url"] == "https://api.resend.com/emails"
     assert captured["timeout"] == 30
     assert captured["headers"]["Authorization"] == "Bearer re_test"
+    assert captured["headers"]["User-agent"] == "TenderRadar/0.1 email-resend"
     assert captured["payload"] == {
         "from": "Tender Radar <alerts@example.test>",
         "to": ["recipient@example.test"],
