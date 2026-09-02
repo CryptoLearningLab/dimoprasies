@@ -3169,7 +3169,7 @@ regions: []
       "title": "Έργο Ναυπακτίας",
       "authority": "ΔΗΜΟΣ ΝΑΥΠΑΚΤΙΑΣ",
       "budget": "1000.0",
-      "submission_deadline": "2026-09-01T10:00:00",
+      "submission_deadline": "2099-09-01T10:00:00",
       "source_url": "https://example.test/notice",
       "attachment_url": "https://example.test/attachment/26PROC000000001",
       "matched_scopes": ["Δήμος Ναυπακτίας"],
