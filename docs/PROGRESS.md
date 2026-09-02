@@ -5,14 +5,15 @@
 Performed a current-state audit across local repo state, production deployment,
 scheduled reporting, Main Tender Radar, Reverse Pricing and GEO_AFOI.
 
-Production is now deployed at:
+The application-code checkpoint audited before the documentation refresh was:
 
 ```text
 cafdca1 Stabilize KIMDIS preview deadline test
 ```
 
-The GitHub Actions deploy for `cafdca1` passed and the DigitalOcean droplet now
-reports:
+The GitHub Actions deploy for `cafdca1` passed. After the documentation refresh,
+commit `9f8252d` also deployed successfully through GitHub Actions run
+`33678796500`. The DigitalOcean droplet reports:
 
 ```text
 tender-radar-ui.service active

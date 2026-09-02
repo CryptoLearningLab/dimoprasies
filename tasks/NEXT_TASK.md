@@ -7,11 +7,15 @@ Execute:
 
 The previous operational blocker is closed. Production email uses Resend through
 the dedicated `worklogs.gr` sender, the accidental Tender Radar key under the
-`elevia.gr` sender has been removed, and production is deployed at:
+`elevia.gr` sender has been removed. The audited application-code checkpoint
+was:
 
 ```text
 cafdca1 Stabilize KIMDIS preview deadline test
 ```
+
+The documentation audit commit `9f8252d` also deployed successfully through
+GitHub Actions run `33678796500`.
 
 Production state verified during the audit:
 

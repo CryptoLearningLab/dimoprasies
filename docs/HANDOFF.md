@@ -33,10 +33,15 @@ Then inspect the implementation files relevant to the current task.
 
 ## Current State - 2026-09-02
 
-- Local repo: `/root/dimoprasies`, branch `main`, clean after commit
-  `cafdca1 Stabilize KIMDIS preview deadline test`.
+- Local repo: `/root/dimoprasies`, branch `main`, clean after the
+  documentation audit commit.
 - Production repo: `/root/workspace/dimoprasies` on
-  `codex-crisp-hawk-a759`, deployed at `cafdca1`.
+  `codex-crisp-hawk-a759`, deployed from GitHub `main`.
+- Audited application-code checkpoint:
+  `cafdca1 Stabilize KIMDIS preview deadline test`.
+- Documentation audit commit `9f8252d` was deployed by GitHub Actions run
+  `33678796500`; exact live HEAD should be checked with
+  `git rev-parse --short HEAD` in any future session.
 - Production services:
   - `tender-radar-ui.service` active on `127.0.0.1:8765`;
   - `tender-radar-scheduled.timer` active, next run after the audit:
@@ -54,7 +59,7 @@ Then inspect the implementation files relevant to the current task.
   - `source_errors=1`, `source_health_warnings=3`;
   - public-works email transport `ok=true`;
   - monitoring email sent to the owner fallback recipient.
-- Current dashboard payload at production `cafdca1`:
+- Current dashboard payload at audited application checkpoint `cafdca1`:
   - `210` known tenders;
   - `8` visible focus candidates;
   - `0` `VERIFIED_ACTIVE`;

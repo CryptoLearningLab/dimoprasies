@@ -7,10 +7,11 @@ the next session can continue without relying on chat memory.
 
 ## Current State
 
-Local `main` is clean after commit `cafdca1`. Production is deployed at
-`cafdca1`, with `tender-radar-ui.service` active and
-`tender-radar-scheduled.timer` active. The latest scheduled run completed with
-`ok=true` and `monitoring_status=WARNING`.
+Local `main` was clean after application-code checkpoint `cafdca1`. Production
+was verified at that checkpoint before the documentation audit commit, with
+`tender-radar-ui.service` active and `tender-radar-scheduled.timer` active. The
+latest scheduled run completed with `ok=true` and
+`monitoring_status=WARNING`.
 
 ## Scope
 
@@ -54,6 +55,8 @@ Local `main` is clean after commit `cafdca1`. Production is deployed at
 - Code/test commit `cafdca1` deployed through GitHub Actions successfully.
 - Handoff, progress, decisions, known limitations, available mechanisms and
   next-task docs were updated with the audited state.
+- Documentation audit commit `9f8252d` also deployed through GitHub Actions run
+  `33678796500`, and the droplet remained active.
 - Full local test suite passed after the documentation update.
 
 ## Decisions
