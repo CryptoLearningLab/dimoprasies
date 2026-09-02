@@ -1,5 +1,26 @@
 # Decision Log
 
+## D-140 — Production deploy fetches use the droplet GitHub key
+**Status:** Accepted
+
+Production deploys must fetch GitHub through the explicit droplet deploy key
+instead of relying on an HTTPS origin or default SSH key selection. The audit on
+`2026-09-02` found GitHub Actions reaching the droplet but failing at
+`git fetch origin main` because the droplet repo origin used HTTPS without
+interactive credentials. Plain SSH also failed until the existing key
+`/root/.ssh/digimhte_github_ed25519` was selected explicitly.
+
+The droplet deploy script `/root/workspace/deploy-dimoprasies.sh` therefore
+sets:
+
+```bash
+GIT_SSH_COMMAND="ssh -i /root/.ssh/digimhte_github_ed25519 -o IdentitiesOnly=yes"
+```
+
+before fetching. This is operational droplet state; if the droplet is rebuilt,
+the same deploy-key selection must be recreated or moved into tracked
+deployment automation.
+
 ## D-139 — Tender Radar sender uses worklogs.gr
 **Status:** Accepted
 

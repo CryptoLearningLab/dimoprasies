@@ -3,14 +3,45 @@
 Execute:
 `Review GEO_AFOI remaining custom/new article aliases before batch inventory`
 
-## Operational hotfix completed before next GEO_AFOI slice
+## Current Checkpoint - 2026-09-02
 
-Production email delivery was moved to Resend HTTPS transport because Gmail
-SMTP from the droplet became unreachable while the scheduled service and HTTPS
-egress were still working. Before resuming GEO_AFOI, verify the deployed
-scheduled run records successful `email` and `monitoring_email` notification
-rows after `RESEND_API_KEY`, `EMAIL_DELIVERY_PROVIDER=resend` and
-`RESEND_FROM` are present in production `.env.local`.
+The previous operational blocker is closed. Production email uses Resend through
+the dedicated `worklogs.gr` sender, the accidental Tender Radar key under the
+`elevia.gr` sender has been removed, and production is deployed at:
+
+```text
+cafdca1 Stabilize KIMDIS preview deadline test
+```
+
+Production state verified during the audit:
+
+- `tender-radar-ui.service` active;
+- `tender-radar-scheduled.timer` active;
+- latest scheduled report `ok=true`;
+- latest scheduled report `monitoring_status=WARNING` because of
+  `1` source error and `3` source health warnings;
+- public-works email transport `ok=true`;
+- monitoring email sent to the owner fallback recipient;
+- dashboard currently shows `8` visible focus candidates, `0`
+  `VERIFIED_ACTIVE`, and `0` new public-works email rows.
+
+Main Tender Radar can be treated as operational, not mid-hotfix. Continue normal
+public-works work from source-health review, candidate review, missing
+document/ESHIDIS-link coverage and false-negative audit. Do not claim national
+completeness or active verification from dashboard visibility alone.
+
+Reverse Pricing remains separate and incomplete. The inspected local pricing
+database has `7` projects, `97` pricing documents, `857` budget rows and `661`
+aliases, but no `pricing_budget_audit` metadata on `pricing_projects`. Those
+projects have July/August 2026 deadlines, so fresh status verification and the
+storage-audit/reprocess path are required before using them as an active
+production pricing dataset.
+
+GEO_AFOI remains the immediate next implementation slice. There is no blocker
+besides the known review work below.
+
+Repo hygiene: local `main` is clean after the audit/hotfix commit. Runtime
+databases, downloaded files and reports remain ignored artifacts.
 
 ## GEO_AFOI Pricing Workspace Started
 
@@ -141,11 +172,13 @@ The entalmata stage was also made skip-aware for repeated ADA rows:
 Production deployment has also been verified on the DigitalOcean droplet:
 
 - GitHub `main` deploy updates `/root/workspace/dimoprasies`;
-- latest verified deployed commit: `b662d5b`;
+- latest verified deployed commit: `cafdca1`;
 - `tender-radar-scheduled.timer` is `enabled` and `active`;
-- the production `.env.local` has the real SMTP/recipient settings;
-- production scheduled dry-run completed with `ok=true`;
-- entalmata UI/scheduled scan reported `skipped_existing=115`, `errors=0`.
+- the production `.env.local` has Resend/worklogs sender settings and the
+  recipient list;
+- latest production scheduled report completed with `ok=true` and
+  `monitoring_status=WARNING`;
+- latest entalmata summary reported `0` visible and `7` archived rows.
 
 The public-works UI discovery button now has the same source-preflight guard
 for completed unchanged backfill windows: when `Backfill safety` is enabled but

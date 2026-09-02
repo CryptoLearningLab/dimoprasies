@@ -104,6 +104,33 @@ human-friendly UI should compose these mechanisms instead of replacing them.
   - Starts a background Diavgeia entalmata scan using the configured
     organizations and keyword list.
 
+## Email and Scheduling
+
+- Production email delivery uses `send_email_alert` through Resend when
+  `EMAIL_DELIVERY_PROVIDER=resend` or `RESEND_API_KEY` is present.
+- Production sender is `Tender Radar <alerts@worklogs.gr>`.
+- Public-works digest emails are recipient-scoped and use the same
+  `dashboard_payload(..., user_email=recipient)` row model as the UI.
+- Monitoring emails use `MONITORING_ALERT_EMAIL_TO` or
+  `TENDER_RADAR_MONITORING_EMAIL_TO`, falling back to the owner recipient.
+- Scheduled reports include `coverage_metrics`, `monitoring_alerts` and
+  `monitoring_status`; warning/error reports can be emailed through the
+  monitoring notification channel.
+
+## Pricing Workspaces
+
+- Main Reverse Pricing commands live under `tender-radar pricing ...`.
+- Reverse Pricing remains disconnected from cron and should start from
+  `pricing storage-audit`, `pricing storage-repair` dry-run and targeted
+  `pricing reprocess-existing` before any production use.
+- The inspected local Reverse Pricing database has `7` projects, `97`
+  documents, `857` budget rows and `661` aliases, but no
+  `pricing_budget_audit` metadata on `pricing_projects`.
+- GEO_AFOI pricing is isolated under `geo_afoi_pricing/` and writes to its own
+  ignored SQLite database, reports and work artifacts.
+- GEO_AFOI statistics are materialized in `geo_article_stats` only from rows
+  marked `usable_for_stats=1`; `NEEDS_REVIEW` rows are excluded until reviewed.
+
 ## Current Presentation Rules
 
 - The first UI screen is a business-facing tender list.

@@ -1,6 +1,6 @@
 # Project Handoff
 
-Last updated: `2026-08-15`
+Last updated: `2026-09-02`
 
 This is the compact handoff for a new Codex chat starting from zero.
 
@@ -30,6 +30,61 @@ For a fresh chat, read these before changing code:
 10. `tasks/NEXT_TASK.md`
 
 Then inspect the implementation files relevant to the current task.
+
+## Current State - 2026-09-02
+
+- Local repo: `/root/dimoprasies`, branch `main`, clean after commit
+  `cafdca1 Stabilize KIMDIS preview deadline test`.
+- Production repo: `/root/workspace/dimoprasies` on
+  `codex-crisp-hawk-a759`, deployed at `cafdca1`.
+- Production services:
+  - `tender-radar-ui.service` active on `127.0.0.1:8765`;
+  - `tender-radar-scheduled.timer` active, next run after the audit:
+    `2026-09-03 00:12:54 UTC`.
+- Production email:
+  - provider: Resend HTTPS transport;
+  - sender: `Tender Radar <alerts@worklogs.gr>`;
+  - `RESEND_API_KEY` present in production `.env.local`;
+  - the old Tender Radar key tied to the accidental `elevia.gr` sender was
+    deleted; the separate Elevia production key/domain were not modified.
+- Latest production scheduled report inspected:
+  - completed at `2026-09-02T18:15:55.066743+00:00`;
+  - `ok=true`;
+  - `monitoring_status=WARNING`;
+  - `source_errors=1`, `source_health_warnings=3`;
+  - public-works email transport `ok=true`;
+  - monitoring email sent to the owner fallback recipient.
+- Current dashboard payload at production `cafdca1`:
+  - `210` known tenders;
+  - `8` visible focus candidates;
+  - `0` `VERIFIED_ACTIVE`;
+  - `190` expired rows hidden;
+  - `0` new public-works email rows, `8` already emailed rows;
+  - entalmata: `0` visible, `7` archived.
+- Production deploy detail:
+  - `/root/workspace/deploy-dimoprasies.sh` exports `GIT_SSH_COMMAND` with
+    `/root/.ssh/digimhte_github_ed25519` before `git fetch`;
+  - this repaired failed GitHub Actions deploys caused by the previous HTTPS
+    origin lacking interactive credentials.
+
+## Process Status - 2026-09-02
+
+- Main Tender Radar: operational. There is no known unfinished deployment/email
+  task. Continue with candidate review, source-health monitoring, false-negative
+  review and document/ESHIDIS-link coverage. Do not claim nationwide
+  completeness and do not label dashboard candidates as `VERIFIED_ACTIVE`
+  without the explicit status-verification gate.
+- Reverse Pricing: isolated and incomplete. The inspected local database has
+  `7` projects, `97` pricing documents, `857` budget rows and `661` aliases,
+  but all `pricing_projects` lack `pricing_budget_audit` metadata. Stored
+  deadlines are July/August 2026 and need fresh verification before any active
+  status claim.
+- GEO_AFOI: active current workstream. It has `4` projects, `157` budget rows,
+  `151` usable stats rows, `134` article stats rows and `4` `NEEDS_REVIEW`
+  rows: `77.34Ν`, `N.5354.1`, `ΝΕΟ N/4720.A.2.1` and `Σ.72`. Resolve those
+  aliases before checkpointed multi-project inventory.
+- Repo hygiene: local `main` is clean after the audit/hotfix commit. Runtime
+  SQLite databases, reports and downloaded files remain intentionally ignored.
 
 ## Mission
 

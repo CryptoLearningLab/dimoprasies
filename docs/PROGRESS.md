@@ -1,5 +1,78 @@
 # Project Progress
 
+## 2026-09-02 - Process audit, deployment repair and docs refresh
+
+Performed a current-state audit across local repo state, production deployment,
+scheduled reporting, Main Tender Radar, Reverse Pricing and GEO_AFOI.
+
+Production is now deployed at:
+
+```text
+cafdca1 Stabilize KIMDIS preview deadline test
+```
+
+The GitHub Actions deploy for `cafdca1` passed and the DigitalOcean droplet now
+reports:
+
+```text
+tender-radar-ui.service active
+tender-radar-scheduled.timer active
+RESEND_FROM=Tender Radar <alerts@worklogs.gr>
+RESEND_API_KEY present
+```
+
+During the audit, production deploy fetches were found blocked because the
+droplet repo used an HTTPS GitHub origin without interactive credentials. The
+droplet deploy script `/root/workspace/deploy-dimoprasies.sh` now exports
+`GIT_SSH_COMMAND` with the existing deploy key
+`/root/.ssh/digimhte_github_ed25519`; a timestamped backup was kept beside the
+script.
+
+Latest production dashboard/email dry-run state at `cafdca1`:
+
+- `210` known tenders;
+- `8` visible focus candidates;
+- `0` `VERIFIED_ACTIVE`;
+- `190` expired rows hidden;
+- `32` public-works email candidate rows;
+- `0` new public-works email rows;
+- `8` already emailed rows;
+- entalmata summary: `0` visible, `7` archived.
+
+Latest scheduled production run:
+
+- completed at `2026-09-02T18:15:55.066743+00:00`;
+- `ok=true`;
+- `monitoring_status=WARNING`;
+- `sources_configured=31`, `sources_checked=31`;
+- `source_errors=1`, `source_health_warnings=3`;
+- public-works email transport `ok=true`;
+- monitoring email sent to owner fallback recipient.
+
+Current local process state:
+
+- Main Tender Radar is operational; remaining work is source-health monitoring,
+  candidate review and document/ESHIDIS-link coverage improvement, not an
+  unfinished deployment task.
+- Reverse Pricing remains an isolated/incomplete workflow. The inspected local
+  pricing database has `7` projects, `97` pricing documents, `857` budget rows
+  and `661` aliases, but all `pricing_projects` lack
+  `pricing_budget_audit` metadata. The stored deadlines are July/August 2026,
+  so these rows must not be treated as currently verified active without fresh
+  status verification.
+- GEO_AFOI has `4` projects, `157` budget rows, `151` rows usable for stats,
+  `134` article stats rows and `4` `NEEDS_REVIEW` rows:
+  `77.34Ν`, `N.5354.1`, `ΝΕΟ N/4720.A.2.1` and `Σ.72`.
+- Repo hygiene is clean on local `main`; only expected ignored runtime
+  artifacts should remain outside git.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest -q
+# 343 passed in 46.09s
+```
+
 ## 2026-09-02 - Tender Radar sender moved to worklogs.gr
 
 Resend now has `worklogs.gr` verified with sending enabled, so production email
