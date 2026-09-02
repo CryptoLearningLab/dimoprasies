@@ -1,5 +1,20 @@
 # Project Progress
 
+## 2026-09-02 - Tender Radar sender moved to worklogs.gr
+
+Resend now has `worklogs.gr` verified with sending enabled, so production email
+delivery was moved off the shared `elevia.gr` sender. Tender Radar uses its own
+domain-restricted Resend API key and sends from:
+
+```text
+Tender Radar <alerts@worklogs.gr>
+```
+
+Production `.env.local` was backed up before the change. An app-level smoke
+email sent through `tender_radar.ui_server.send_email_alert` succeeded from the
+new sender, and both `tender-radar-ui.service` and
+`tender-radar-scheduled.timer` remained active.
+
 ## 2026-08-24 - Resend email transport hotfix
 
 Production scheduled runs were active, but the email stages were failing after
@@ -17,7 +32,7 @@ Required production env for Resend:
 ```text
 EMAIL_DELIVERY_PROVIDER=resend
 RESEND_API_KEY=...
-RESEND_FROM=Tender Radar <alerts@elevia.gr>
+RESEND_FROM=Tender Radar <alerts@worklogs.gr>
 RESEND_REPLY_TO=...
 ```
 

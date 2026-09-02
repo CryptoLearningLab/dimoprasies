@@ -1,5 +1,17 @@
 # Decision Log
 
+## D-139 — Tender Radar sender uses worklogs.gr
+**Status:** Accepted
+
+Tender Radar production email should not send from the `elevia.gr` domain once
+a dedicated verified domain is available. Resend now verifies `worklogs.gr` with
+sending enabled, so the production sender is `Tender Radar
+<alerts@worklogs.gr>`.
+
+The Tender Radar Resend API key remains project-specific and restricted to the
+sender domain. Existing Elevia keys and the `elevia.gr` domain are not part of
+the Tender Radar runtime configuration.
+
 ## D-138 — Production email uses Resend HTTPS transport
 **Status:** Accepted
 
