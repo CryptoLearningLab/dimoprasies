@@ -23,6 +23,9 @@ tender-radar-ui = "tender_radar.ui_server:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+tender_radar = ["assets/*.png"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

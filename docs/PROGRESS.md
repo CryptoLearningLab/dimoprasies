@@ -1,5 +1,41 @@
 # Project Progress
 
+## 2026-09-03 - Branded wait overlay and home-screen icon
+
+Added Tender Radar logo assets to the UI package and wired them into the local
+web app shell. The busy/wait overlay now shows the branded logo inside the
+existing radar loading treatment, and the HTML head exposes PWA/mobile metadata
+for Safari/Chrome home-screen installation:
+
+- `/manifest.webmanifest`;
+- `/apple-touch-icon.png`;
+- `/apple-touch-icon-180x180.png`;
+- `/apple-touch-icon-precomposed.png`;
+- `/favicon.png`;
+- `/icon-192.png`;
+- `/icon-512.png`.
+
+The logo files are stored under `src/tender_radar/assets/` and included through
+setuptools package data so source and packaged installs serve the same icons.
+The HTML and manifest use a versioned asset query string, and icon responses
+send a short cache lifetime so mobile browsers can pick up replacements.
+
+Verification:
+
+```bash
+.venv/bin/python -m pytest tests/test_ui_server.py -q
+# 153 passed in 24.77s
+
+.venv/bin/python -m py_compile src/tender_radar/ui_server.py
+# passed
+
+.venv/bin/python -m pytest -q
+# 344 passed in 34.68s
+
+git diff --check
+# passed
+```
+
 ## 2026-09-02 - Process audit, deployment repair and docs refresh
 
 Performed a current-state audit across local repo state, production deployment,

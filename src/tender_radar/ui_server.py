@@ -94,6 +94,16 @@ from tender_radar.sources.kimdis_fetch import extract_eshidis_ids_from_text
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+ASSET_DIR = Path(__file__).resolve().parent / "assets"
+APP_ASSET_VERSION = "20260903"
+APP_ICON_PATHS = {
+    "/apple-touch-icon.png": "apple-touch-icon.png",
+    "/apple-touch-icon-180x180.png": "apple-touch-icon.png",
+    "/apple-touch-icon-precomposed.png": "apple-touch-icon.png",
+    "/favicon.png": "favicon.png",
+    "/icon-192.png": "tender-radar-logo-192.png",
+    "/icon-512.png": "tender-radar-logo-512.png",
+}
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_ESHIDIS_DISCOVERY_LIMIT = 100
@@ -156,6 +166,12 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path in {"/", "/password-setup"}:
             self._send_html(INDEX_HTML)
+            return
+        if parsed.path == "/manifest.webmanifest":
+            self._send_text(MANIFEST_JSON, "application/manifest+json; charset=utf-8")
+            return
+        if parsed.path in APP_ICON_PATHS:
+            self._send_asset(APP_ICON_PATHS[parsed.path])
             return
         if parsed.path == "/styles.css":
             self._send_text(STYLES_CSS, "text/css; charset=utf-8")
@@ -753,6 +769,17 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
         body = path.read_bytes()
         content_type = content_type_for_path(path)
         self._send_bytes(body, content_type)
+
+    def _send_asset(self, name: str) -> None:
+        path = (ASSET_DIR / name).resolve()
+        if ASSET_DIR.resolve() not in path.parents or not path.exists():
+            self._send_bytes(b"Not found", "text/plain; charset=utf-8", status=404)
+            return
+        self._send_bytes(
+            path.read_bytes(),
+            content_type_for_path(path),
+            extra_headers={"Cache-Control": "public, max-age=300"},
+        )
 
     def _send_bytes(
         self,
@@ -8319,12 +8346,50 @@ def evaluation_profile_payload(path: Path) -> dict[str, Any]:
     }
 
 
+MANIFEST_JSON = json.dumps(
+    {
+        "name": "Tender Radar",
+        "short_name": "Tender Radar",
+        "description": "Public Works & Tenders Search",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#f4f6f8",
+        "theme_color": "#07395a",
+        "icons": [
+            {
+                "src": f"/icon-192.png?v={APP_ASSET_VERSION}",
+                "sizes": "192x192",
+                "type": "image/png",
+                "purpose": "any maskable",
+            },
+            {
+                "src": f"/icon-512.png?v={APP_ASSET_VERSION}",
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "any maskable",
+            },
+        ],
+    },
+    ensure_ascii=False,
+    indent=2,
+)
+
+
 INDEX_HTML = f"""<!doctype html>
 <html lang="el">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07395a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Tender Radar">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>Tender Radar</title>
+  <link rel="manifest" href="/manifest.webmanifest?v={APP_ASSET_VERSION}">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v={APP_ASSET_VERSION}">
+  <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon-precomposed.png?v={APP_ASSET_VERSION}">
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v={APP_ASSET_VERSION}">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -8778,7 +8843,10 @@ INDEX_HTML = f"""<!doctype html>
   </div>
   <div id="busyOverlay" class="busyOverlay" aria-live="polite" aria-hidden="true">
     <div class="busyPanel">
-      <div class="radarPulse"><span></span></div>
+      <div class="busyLogoWrap">
+        <img class="busyLogo" src="/icon-192.png?v={APP_ASSET_VERSION}" alt="Tender Radar">
+        <div class="radarPulse" aria-hidden="true"><span></span></div>
+      </div>
       <h3 id="busyTitle">Περιμένετε όσο συλλέγουμε όλα τα δεδομένα</h3>
       <p id="busyText">Επικοινωνούμε με τις επίσημες πηγές και οργανώνουμε τα αρχεία.</p>
     </div>
@@ -9765,17 +9833,32 @@ h3 {
 }
 .busyPanel h3 {
   font-size: 18px;
-  margin: 12px 0 6px;
+  margin: 16px 0 6px;
 }
 .busyPanel p {
   color: #a8b6c5;
   line-height: 1.45;
 }
-.radarPulse {
+.busyLogoWrap {
   position: relative;
-  width: 88px;
-  height: 88px;
+  display: grid;
+  place-items: center;
+  width: 132px;
+  height: 132px;
   margin: 0 auto;
+}
+.busyLogo {
+  position: relative;
+  z-index: 2;
+  width: 96px;
+  height: 96px;
+  border-radius: 20px;
+  object-fit: cover;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .32);
+}
+.radarPulse {
+  position: absolute;
+  inset: 0;
   border: 1px solid rgba(140, 189, 182, .5);
   border-radius: 50%;
   background:
@@ -9787,15 +9870,15 @@ h3 {
   content: "";
   position: absolute;
   inset: 50% 50% 0 50%;
-  width: 44px;
-  height: 44px;
+  width: 66px;
+  height: 66px;
   background: linear-gradient(45deg, rgba(45, 212, 191, .85), transparent 62%);
   transform-origin: 0 0;
   animation: sweep 1.45s linear infinite;
 }
 .radarPulse span {
   position: absolute;
-  inset: 20px;
+  inset: 22px;
   border: 1px solid rgba(45, 212, 191, .45);
   border-radius: 50%;
   animation: pulse 1.8s ease-in-out infinite;

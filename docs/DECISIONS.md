@@ -1,5 +1,19 @@
 # Decision Log
 
+## D-141 — UI branding assets are served by the local app
+**Status:** Accepted
+
+Tender Radar home-screen and wait-overlay branding should be served by the
+existing local UI server instead of depending on external files, generated
+browser fallbacks or untracked screenshots. The app now exposes a web manifest,
+Apple touch icon, favicon and 192/512 PNG icons from
+`src/tender_radar/assets/`. iOS-specific aliases and versioned icon URLs are
+served to avoid stale Home Screen icon caching after a visual replacement.
+
+The source logo is used only as a visual asset. It does not alter source
+adapters, search profiles, tender status rules, provenance handling or
+verification semantics.
+
 ## D-140 — Production deploy fetches use the droplet GitHub key
 **Status:** Accepted
 

@@ -3,6 +3,21 @@
 Execute:
 `Review GEO_AFOI remaining custom/new article aliases before batch inventory`
 
+## UI Branding Note - 2026-09-03
+
+The Tender Radar logo was added as packaged UI assets and connected to the
+busy/wait overlay plus PWA/iOS home-screen metadata. The icon links are
+versioned and include iOS touch/precomposed aliases to reduce stale Home Screen
+cache issues. This was a visual-only slice; it did not change discovery, status
+verification, pricing, source adapters or notification behavior.
+
+Relevant files:
+
+- `src/tender_radar/ui_server.py`
+- `src/tender_radar/assets/`
+- `pyproject.toml`
+- `tests/test_ui_server.py`
+
 ## Current Checkpoint - 2026-09-02
 
 The previous operational blocker is closed. Production email uses Resend through

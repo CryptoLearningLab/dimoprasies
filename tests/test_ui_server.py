@@ -12,6 +12,7 @@ from tender_radar.ui_server import (
     APP_JS,
     DEFAULT_KIMDIS_DISCOVERY_PAGES,
     INDEX_HTML,
+    MANIFEST_JSON,
     STYLES_CSS,
     content_type_for_path,
     configured_source_entries,
@@ -72,6 +73,30 @@ regions: []
 def test_ui_shows_current_version_badge() -> None:
     assert "versionBadge" in INDEX_HTML
     assert f"v{ui_server.__version__}" in INDEX_HTML
+
+
+def test_ui_exposes_logo_icons_for_wait_overlay_and_home_screen() -> None:
+    manifest = json.loads(MANIFEST_JSON)
+    icon_srcs = {icon["src"] for icon in manifest["icons"]}
+
+    assert f'<link rel="manifest" href="/manifest.webmanifest?v={ui_server.APP_ASSET_VERSION}">' in INDEX_HTML
+    assert f'<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v={ui_server.APP_ASSET_VERSION}">' in INDEX_HTML
+    assert f'<link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon-precomposed.png?v={ui_server.APP_ASSET_VERSION}">' in INDEX_HTML
+    assert f'<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v={ui_server.APP_ASSET_VERSION}">' in INDEX_HTML
+    assert f'<img class="busyLogo" src="/icon-192.png?v={ui_server.APP_ASSET_VERSION}" alt="Tender Radar">' in INDEX_HTML
+    assert ".busyLogoWrap" in STYLES_CSS
+    assert ".busyLogo" in STYLES_CSS
+    assert manifest["display"] == "standalone"
+    assert manifest["theme_color"] == "#07395a"
+    assert icon_srcs == {
+        f"/icon-192.png?v={ui_server.APP_ASSET_VERSION}",
+        f"/icon-512.png?v={ui_server.APP_ASSET_VERSION}",
+    }
+    assert ui_server.APP_ICON_PATHS["/apple-touch-icon-180x180.png"] == "apple-touch-icon.png"
+    assert ui_server.APP_ICON_PATHS["/apple-touch-icon-precomposed.png"] == "apple-touch-icon.png"
+    assert (ui_server.ASSET_DIR / "apple-touch-icon.png").exists()
+    assert (ui_server.ASSET_DIR / "tender-radar-logo-192.png").exists()
+    assert (ui_server.ASSET_DIR / "tender-radar-logo-512.png").exists()
 
 
 def test_ui_exposes_source_polling_audit() -> None:
