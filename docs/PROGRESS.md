@@ -23,13 +23,14 @@ send a short cache lifetime so mobile browsers can pick up replacements.
 
 Production deployment:
 
-- commit `fa56e9c` pushed to GitHub `main`;
-- GitHub Actions `Deploy Tender Radar` run `33747110573` completed
-  successfully in `56s`;
-- production droplet `/root/workspace/dimoprasies` reports HEAD `fa56e9c`;
+- commit `d31aafc` pushed to GitHub `main`;
+- GitHub Actions `Deploy Tender Radar` run `33749866546` completed
+  successfully in `54s`;
+- production droplet `/root/workspace/dimoprasies` reports HEAD `d31aafc`;
 - `tender-radar-ui.service` and `caddy.service` are active;
 - live website `https://165.227.143.152.sslip.io/` contains the versioned
-  manifest, Apple touch icon, precomposed touch icon, favicon and logo markup;
+  manifest, Apple touch icon, precomposed touch icon, favicon, two website
+  `brandLogo` images and loading logo markup;
 - live `/apple-touch-icon.png?v=20260903` returns `image/png`, `180x180`;
 - live `/manifest.webmanifest?v=20260903` lists versioned `192x192` and
   `512x512` PNG icons.
