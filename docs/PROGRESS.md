@@ -1,11 +1,12 @@
 # Project Progress
 
-## 2026-09-03 - Branded wait overlay and home-screen icon
+## 2026-09-03 - Branded website and home-screen icon
 
 Added Tender Radar logo assets to the UI package and wired them into the local
-web app shell. The busy/wait overlay now shows the branded logo inside the
-existing radar loading treatment, and the HTML head exposes PWA/mobile metadata
-for Safari/Chrome home-screen installation:
+web app shell. The login/public website screen and authenticated app sidebar
+now show the real Tender Radar logo instead of the former text-only `TR` mark.
+The HTML head also exposes PWA/mobile metadata for Safari/Chrome home-screen
+installation:
 
 - `/manifest.webmanifest`;
 - `/apple-touch-icon.png`;
@@ -28,8 +29,7 @@ Production deployment:
 - production droplet `/root/workspace/dimoprasies` reports HEAD `fa56e9c`;
 - `tender-radar-ui.service` and `caddy.service` are active;
 - live website `https://165.227.143.152.sslip.io/` contains the versioned
-  manifest, Apple touch icon, precomposed touch icon, favicon and wait-overlay
-  logo markup;
+  manifest, Apple touch icon, precomposed touch icon, favicon and logo markup;
 - live `/apple-touch-icon.png?v=20260903` returns `image/png`, `180x180`;
 - live `/manifest.webmanifest?v=20260903` lists versioned `192x192` and
   `512x512` PNG icons.

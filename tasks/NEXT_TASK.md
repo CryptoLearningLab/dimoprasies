@@ -6,10 +6,11 @@ Execute:
 ## UI Branding Note - 2026-09-03
 
 The Tender Radar logo was added as packaged UI assets and connected to the
-busy/wait overlay plus PWA/iOS home-screen metadata. The icon links are
-versioned and include iOS touch/precomposed aliases to reduce stale Home Screen
-cache issues. This was a visual-only slice; it did not change discovery, status
-verification, pricing, source adapters or notification behavior.
+login/public website screen, authenticated app sidebar and PWA/iOS home-screen
+metadata. The icon links are versioned and include iOS touch/precomposed
+aliases to reduce stale Home Screen cache issues. This was a visual-only slice;
+it did not change discovery, status verification, pricing, source adapters or
+notification behavior.
 
 Relevant files:
 

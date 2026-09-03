@@ -75,7 +75,7 @@ def test_ui_shows_current_version_badge() -> None:
     assert f"v{ui_server.__version__}" in INDEX_HTML
 
 
-def test_ui_exposes_logo_icons_for_wait_overlay_and_home_screen() -> None:
+def test_ui_exposes_logo_icons_for_website_and_home_screen() -> None:
     manifest = json.loads(MANIFEST_JSON)
     icon_srcs = {icon["src"] for icon in manifest["icons"]}
 
@@ -83,7 +83,9 @@ def test_ui_exposes_logo_icons_for_wait_overlay_and_home_screen() -> None:
     assert f'<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v={ui_server.APP_ASSET_VERSION}">' in INDEX_HTML
     assert f'<link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon-precomposed.png?v={ui_server.APP_ASSET_VERSION}">' in INDEX_HTML
     assert f'<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v={ui_server.APP_ASSET_VERSION}">' in INDEX_HTML
+    assert INDEX_HTML.count(f'<img class="brandLogo" src="/icon-192.png?v={ui_server.APP_ASSET_VERSION}"') == 2
     assert f'<img class="busyLogo" src="/icon-192.png?v={ui_server.APP_ASSET_VERSION}" alt="Tender Radar">' in INDEX_HTML
+    assert ".brandLogo" in STYLES_CSS
     assert ".busyLogoWrap" in STYLES_CSS
     assert ".busyLogo" in STYLES_CSS
     assert manifest["display"] == "standalone"

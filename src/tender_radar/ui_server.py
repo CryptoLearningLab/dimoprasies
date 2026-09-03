@@ -8396,7 +8396,7 @@ INDEX_HTML = f"""<!doctype html>
   <section id="loginScreen" class="loginScreen">
     <div class="loginTop">
       <div class="brand loginBrand">
-        <span class="mark">TR</span>
+        <img class="brandLogo" src="/icon-192.png?v={APP_ASSET_VERSION}" alt="" aria-hidden="true">
         <div>
           <h1>Tender Radar</h1>
           <p>Δημόσια έργα <span class="versionBadge">v{__version__}</span></p>
@@ -8432,7 +8432,7 @@ INDEX_HTML = f"""<!doctype html>
   <div id="appShell" class="appShell" hidden>
   <aside class="sidebar">
     <div class="brand">
-      <span class="mark">TR</span>
+      <img class="brandLogo" src="/icon-192.png?v={APP_ASSET_VERSION}" alt="" aria-hidden="true">
       <div>
         <h1>Tender Radar</h1>
         <p>Δημόσια έργα <span class="versionBadge">v{__version__}</span></p>
@@ -8906,10 +8906,9 @@ body {
   padding: 0;
   color: var(--text);
 }
-.loginBrand .mark {
-  background: #1f2933;
-  color: #f8fafc;
-  border-radius: 999px;
+.loginBrand .brandLogo {
+  width: 64px;
+  height: 64px;
 }
 .loginCard {
   width: min(560px, 100%);
@@ -8990,14 +8989,12 @@ body {
   align-items: center;
   padding: 4px 6px 22px;
 }
-.mark {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border: 1px solid #8cbdb6;
-  color: #b8e7df;
-  font-weight: 700;
+.brandLogo {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  object-fit: cover;
+  box-shadow: 0 8px 24px rgba(2, 32, 55, .22);
 }
 h1, h2, p { margin: 0; }
 h1 { font-size: 17px; }
