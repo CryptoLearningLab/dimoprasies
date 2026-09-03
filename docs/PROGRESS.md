@@ -20,6 +20,20 @@ setuptools package data so source and packaged installs serve the same icons.
 The HTML and manifest use a versioned asset query string, and icon responses
 send a short cache lifetime so mobile browsers can pick up replacements.
 
+Production deployment:
+
+- commit `fa56e9c` pushed to GitHub `main`;
+- GitHub Actions `Deploy Tender Radar` run `33747110573` completed
+  successfully in `56s`;
+- production droplet `/root/workspace/dimoprasies` reports HEAD `fa56e9c`;
+- `tender-radar-ui.service` and `caddy.service` are active;
+- live website `https://165.227.143.152.sslip.io/` contains the versioned
+  manifest, Apple touch icon, precomposed touch icon, favicon and wait-overlay
+  logo markup;
+- live `/apple-touch-icon.png?v=20260903` returns `image/png`, `180x180`;
+- live `/manifest.webmanifest?v=20260903` lists versioned `192x192` and
+  `512x512` PNG icons.
+
 Verification:
 
 ```bash
