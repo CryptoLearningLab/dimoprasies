@@ -1,5 +1,15 @@
 # Project Progress
 
+## 2026-11-23 - Isolate P.D.E. tender listing cards
+
+The regional archive's Elementor wrapper previously let navigation links
+consume the source limit and merged separate tenders under the wrong link.
+Extract the actual P.D.E. listing cards before limiting results, preserving
+each item's title, detail link and provenance. The road-maintenance notice
+ΕΣΗΔΗΣ 223065 / ΚΗΜΔΗΣ 26PROC020198470 is the regression case, not a
+production special case. This change does not alter ΚΗΜΔΗΣ ingestion or
+tender-status verification.
+
 ## 2026-09-03 - Branded website and home-screen icon
 
 Added Tender Radar logo assets to the UI package and wired them into the local

@@ -11,7 +11,7 @@ import ssl
 import unicodedata
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlsplit
 from urllib.request import Request, urlopen
 
 
@@ -288,10 +288,12 @@ class DrupalListingParser(HTMLParser):
 
 
 class LinkCollector(HTMLParser):
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, *, collect_eshidis_links: bool = False) -> None:
         super().__init__(convert_charrefs=True)
         self.base_url = base_url
+        self.collect_eshidis_links = collect_eshidis_links
         self.document_links: list[str] = []
+        self.eshidis_detail_links: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag != "a":
@@ -302,6 +304,90 @@ class LinkCollector(HTMLParser):
         absolute = urljoin(self.base_url, href)
         if _document_url(absolute):
             self.document_links.append(absolute)
+        if not self.collect_eshidis_links:
+            return
+        parsed = urlsplit(absolute)
+        if parsed.hostname == "pwgopendata.eprocurement.gov.gr" and re.fullmatch(
+            r"/actSearchErgwn/resources/search/\d{6}/?", parsed.path
+        ):
+            self.eshidis_detail_links.append(absolute)
+
+
+class PdeTenderListingParser(HTMLParser):
+    """Parse the P.D.E. Elementor cards, not the navigation or outer grid."""
+
+    CARD_CLASS = "premium-blog-post-outer-container"
+    MONTHS = (
+        "ιανουαριου", "φεβρουαριου", "μαρτιου", "απριλιου", "μαιου", "ιουνιου",
+        "ιουλιου", "αυγουστου", "σεπτεμβριου", "οκτωβριου", "νοεμβριου", "δεκεμβριου",
+    )
+
+    def __init__(self, base_url: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self.base_url = base_url
+        self.items: list[dict[str, Any]] = []
+        self._depth = 0
+        self._heading = False
+        self._title_parts: list[str] | None = None
+        self._current: dict[str, Any] = {}
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        if tag == "div":
+            if self._depth:
+                self._depth += 1
+            elif self.CARD_CLASS in (attributes.get("class") or "").split():
+                self._depth = 1
+                self._current = {"attachment_urls": [], "text": []}
+        if not self._depth:
+            return
+        if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            self._heading = True
+        if tag == "time" and attributes.get("datetime"):
+            self._current["published_at"] = attributes["datetime"]
+        if tag != "a" or not attributes.get("href"):
+            return
+        absolute = urljoin(self.base_url, str(attributes["href"]))
+        if _document_url(absolute):
+            self._current["attachment_urls"].append(absolute)
+        if self._heading and not self._current.get("detail_url"):
+            parsed = urlsplit(absolute)
+            if parsed.hostname == urlsplit(self.base_url).hostname and re.fullmatch(
+                r"/(?:el/|en/)?prokirikseis/[^/]+/?", parsed.path
+            ):
+                self._current["detail_url"] = absolute
+                self._title_parts = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if not self._depth:
+            return
+        if tag == "a" and self._title_parts is not None:
+            self._current["title"] = _clean_text(" ".join(self._title_parts))
+            self._title_parts = None
+        if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            self._heading = False
+        if tag == "div":
+            self._depth -= 1
+            if not self._depth and self._current.get("title") and self._current.get("detail_url"):
+                self._current.setdefault("published_at", self._printed_date(self._current["text"]))
+                self.items.append(self._current)
+
+    def handle_data(self, data: str) -> None:
+        if self._depth and (cleaned := _clean_text(data)):
+            self._current["text"].append(cleaned)
+            if self._title_parts is not None:
+                self._title_parts.append(cleaned)
+
+    @classmethod
+    def _printed_date(cls, text: list[str]) -> str | None:
+        for part in text:
+            match = re.fullmatch(r"(\d{1,2}) ([α-ω]+) (\d{4})", _normalize_text(part))
+            if match and match[2] in cls.MONTHS:
+                try:
+                    return datetime(int(match[3]), cls.MONTHS.index(match[2]) + 1, int(match[1])).date().isoformat()
+                except ValueError:
+                    continue
+        return None
 
 
 class GenericListingParser(HTMLParser):
@@ -499,7 +585,8 @@ def _parse_html_listing(
     context: ssl.SSLContext | None,
     limit: int,
 ) -> list[AuthorityCandidate]:
-    parser = GenericListingParser(source_url)
+    is_pde_tender_archive = source.get("id") == "pde_prokirikseis"
+    parser = PdeTenderListingParser(source_url) if is_pde_tender_archive else GenericListingParser(source_url)
     parser.feed(html)
     candidates = []
     for item in parser.items[:limit]:
@@ -511,7 +598,13 @@ def _parse_html_listing(
         if detail_url:
             try:
                 detail_html = _fetch_text(str(detail_url), timeout_seconds=timeout_seconds, context=context)
-                detail_links = _links_from_html(detail_html, str(detail_url))
+                detail_parser = LinkCollector(str(detail_url), collect_eshidis_links=is_pde_tender_archive)
+                detail_parser.feed(detail_html)
+                detail_links = _dedupe(detail_parser.document_links)
+                if is_pde_tender_archive:
+                    official_links = _dedupe(detail_parser.eshidis_detail_links)
+                    if len(official_links) == 1:
+                        item["text"].append(official_links[0])
             except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError):
                 detail_html = ""
         candidates.append(_candidate_from_item(source, source_url, item, detail_html, retrieved_at, extra_links=detail_links))

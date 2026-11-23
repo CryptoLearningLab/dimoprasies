@@ -128,6 +128,76 @@ def test_html_listing_skips_public_authority_landing_pages() -> None:
     assert candidates[0].official_id == "26PROC019417347"
 
 
+def test_pde_archive_excludes_navigation_and_keeps_each_tender_card() -> None:
+    listing_url = "https://pde.gov.gr/el/diafaneia/prokirikseis/"
+    preceding = "https://pde.gov.gr/el/prokirikseis/herit-adapt/"
+    article = "https://pde.gov.gr/el/prokirikseis/road-maintenance/"
+    title = "ΑΝΤΙΜΕΤΩΠΙΣΗ ΕΚΤΑΚΤΩΝ ΑΝΑΓΚΩΝ ΣΥΝΤΗΡΗΣΗΣ ΕΘΝΙΚΟΥ ΟΔΙΚΟΥ ΔΙΚΤΥΟΥ"
+    nav = "".join(f'<li><a href="/navigation/{n}">Menu {n}</a></li>' for n in range(28))
+
+    def card(url, text, date):
+        return f"""
+        <div class="premium-blog-post-outer-container" data-total="12">
+          <div class="premium-blog-post-container premium-blog-skin-classic">
+            <div class="premium-blog-content-wrapper empty-thumb">
+              <div class="premium-blog-inner-container">
+                <h1 class="premium-blog-entry-title"><a href="{url}">{text}</a></h1>
+                <div class="premium-blog-entry-meta">
+                  <div class="premium-blog-post-time"><i aria-hidden="true"></i><span>{date}</span></div>
+                </div>
+              </div>
+              <div class="premium-blog-content-inner-wrapper">
+                <a href="{url}" class="premium-blog-excerpt-link">Περισσότερα</a>
+              </div>
+            </div>
+          </div>
+        </div>
+        """
+
+    listing = f"""
+    <header><ul>{nav}</ul></header>
+    <div class="elementor-element premium-blog">
+      <div class="premium-blog-wrap">
+        {card(preceding, "Ανάρτηση οριστικού πίνακα κατάταξης HERIT ADAPT", "20 Νοεμβρίου 2026")}
+        {card(article, title, "16 Νοεμβρίου 2026")}
+        {card("https://pde.gov.gr/el/prokirikseis/other/", "Άλλο έργο", "12 Νοεμβρίου 2026")}
+      </div>
+    </div>
+    """
+    detail = """
+    <main>
+      <a href="/wp-content/uploads/diakiryxi.pdf">Διακήρυξη</a>
+      <a href="http://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/223065">Επίσκεψη</a>
+    </main>
+    """
+    config = {"authority_adapters": [{
+        "id": "pde_prokirikseis",
+        "name": "Π.Δ.Ε. - Προκηρύξεις",
+        "adapter": "html_listing",
+        "url": listing_url,
+    }]}
+
+    def fake_urlopen(request, **kwargs):
+        return Response({listing_url: listing, preceding: "", article: detail}[request.full_url])
+
+    with patch("tender_radar.sources.authority.urlopen", side_effect=fake_urlopen) as fetch:
+        candidates, errors, pages = discover_authority_candidates(config, limit_per_source=2)
+
+    assert not errors
+    assert pages[0]["items_returned"] == 2
+    assert [call.args[0].full_url for call in fetch.call_args_list] == [listing_url, preceding, article]
+    assert "ΕΚΤΑΚΤΩΝ ΑΝΑΓΚΩΝ" not in candidates[0].row_text
+    tender = candidates[1]
+    assert tender.title == title
+    assert tender.detail_url == article
+    assert tender.published_at == "2026-11-16"
+    assert tender.official_id == "223065"
+    assert tender.record_type == "ESHIDIS"
+    assert tender.attachment_urls == ["https://pde.gov.gr/wp-content/uploads/diakiryxi.pdf"]
+    assert tender.status == "AUTHORITY_DISCOVERY_CANDIDATE"
+    assert tender.submission_deadline is None
+
+
 def test_wordpress_category_extracts_attachment_links() -> None:
     config = {
         "authority_adapters": [

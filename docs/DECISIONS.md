@@ -1,5 +1,14 @@
 # Decision Log
 
+## D-142 — Treat P.D.E. listing cards as the source boundary
+**Status:** Accepted
+
+The P.D.E. regional archive adapter must extract individual tender cards,
+not navigation items or an enclosing Elementor wrapper. Apply the source
+limit to eligible cards and keep the generic listing behavior for other
+sources. Use official IDs only as regression evidence and keep independent
+ΚΗΜΔΗΣ/ΕΣΗΔΗΣ ingestion and status checks unchanged.
+
 ## D-141 — UI branding assets are served by the local app
 **Status:** Accepted
 

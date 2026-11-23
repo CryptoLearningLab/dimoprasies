@@ -283,6 +283,9 @@ https://diavgeia.gov.gr/
 ## Πηγές
 
 - Προκηρύξεις: https://pde.gov.gr/el/diafaneia/prokirikseis/
+  - Ο adapter `pde_prokirikseis` διαβάζει τις ξεχωριστές κάρτες του αρχείου
+    και διατηρεί το επίσημο ΕΣΗΔΗΣ link από τη σελίδα λεπτομερειών. Δεν
+    επαληθεύει από μόνος του ενεργή προθεσμία.
 - Περιφερειακή Επιτροπή: https://pde.gov.gr/el/perifereia/perifereiaki_epitropi/
 - Διεύθυνση Τεχνικών Έργων Π.Ε. Αιτωλοακαρνανίας: https://pde.gov.gr/el/perifereia/organotiki-domi/genikes-dieuthinseis/dieuthinsi-anapt-progr/dtepea/
 - Διαύγεια Περιφέρειας: https://diavgeia.gov.gr/f/pde
