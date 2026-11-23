@@ -1,5 +1,17 @@
 # Decision Log
 
+## Linked digest rows and official record identity — 2026-11-23
+
+A regional listing can supply the evidence that puts a tender inside a
+search profile. When the independently retrieved ΕΣΗΔΗΣ record for the same ID
+supplies its own deadline, its official identity survives the merge and the
+existing verified-link check selects one digest row. Source candidates remain
+available while the official deadline is missing. Preserve the regional source
+evidence. An authority-only candidate retains its own provenance and status.
+Verification of a link establishes that the records refer to the same tender.
+Verification of an active deadline still requires a check of the official
+sources and any later acts.
+
 ## D-142 — Treat P.D.E. listing cards as the source boundary
 **Status:** Accepted
 

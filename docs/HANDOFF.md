@@ -1,10 +1,18 @@
 # Project Handoff
 
-Last updated: `2026-09-02`
+Last updated: `2026-11-23`
 
 This is the compact handoff for a new Codex chat starting from zero.
 
-## Repository
+## Current release and production access
+
+The November 23 P.D.E. release and no-send verification are recorded in
+`docs/PROGRESS.md`. The unresolved deadline check is in `tasks/NEXT_TASK.md`.
+For production access and recovery, consult the current host registry and the
+private migration handoff preserved on the production host. The September
+hosting and credential instructions below describe the previous environment.
+
+## Historical September repository and access notes
 
 - Main workspace: `/root/dimoprasies`
 - GitHub repo: `https://github.com/CryptoLearningLab/dimoprasies`

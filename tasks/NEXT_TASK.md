@@ -3,15 +3,16 @@
 Execute:
 `Review GEO_AFOI remaining custom/new article aliases before batch inventory`
 
-## P.D.E. catch-up after parser verification
+## P.D.E. deadline follow-up
 
-Once the parser change is deployed through the normal workflow, run a
-no-send discovery replay covering November 16, 2026 onward or from the last
-successful discovery watermark if earlier. Trace ΕΣΗΔΗΣ 223065 /
-ΚΗΜΔΗΣ 26PROC020198470 through source candidates, deduplication, status
-verification and the would-be digest. Separately investigate the registry
-ingestion path if no registry record is present. Do not treat a recovered
-parser candidate as official confirmation of the bid deadline.
+The November 16–23 no-send replay recovered ΕΣΗΔΗΣ 223065 and found
+ΚΗΜΔΗΣ 26PROC020198470 already ingested and linked. See the November 23
+entry in `docs/PROGRESS.md` for provenance and the digest regression.
+
+The open verification item is the time of the December 14 deadline. Check
+for a later official clarification or amendment reconciling the portal's
+10:44:36 and the declaration's 14:00. Record the source, retrieval date and
+document location before changing the tender's status.
 
 ## UI Branding Note - 2026-09-03
 

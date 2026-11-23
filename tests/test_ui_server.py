@@ -4,6 +4,7 @@ import json
 import sqlite3
 import threading
 from types import SimpleNamespace
+from unittest.mock import Mock
 import time
 
 import tender_radar.ui_server as ui_server
@@ -41,7 +42,9 @@ from tender_radar.ui_server import (
 )
 
 
-def write_patras_authority_fixture(tmp_path: Path, rows: list[dict]) -> None:
+def write_patras_authority_fixture(
+    tmp_path: Path, rows: list[dict], *, kimdis_rows: list[dict] | None = None
+) -> None:
     (tmp_path / "config").mkdir(exist_ok=True)
     (tmp_path / "work/reports").mkdir(parents=True, exist_ok=True)
     (tmp_path / "config/locations.yml").write_text(
@@ -59,6 +62,7 @@ regions: []
     (tmp_path / "work/reports/expanded_discovery_report.json").write_text(
         json.dumps(
             {
+                "focus_open_proc_candidates": kimdis_rows or [],
                 "focus_authority_candidates": [
                     {"submission_deadline": "2099-08-20T10:00:00", **row}
                     for row in rows
@@ -2325,6 +2329,104 @@ regions: []
         and source["role"] == "linked source"
         for source in payload["tenders"][0]["project_sources"]
     )
+
+
+def test_digest_uses_official_sqlite_tender_when_authority_shares_its_numeric_key(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    send_email = Mock()
+    monkeypatch.setattr(ui_server, "send_email_alert", send_email)
+    eshidis = "221473"
+    adam = "26PROC019444361"
+    registry_key = f"KIMDIS:{adam}"
+    authority_url = "https://authority.example.test/road"
+    document_url = f"{authority_url}/notice.pdf"
+    common = {
+        "title": "Διακήρυξη έργου συντήρησης οδικού δικτύου",
+        "matched_scopes": ["Δήμος Πατρέων"],
+        "submission_deadline": "2099-08-20T10:00:00",
+    }
+    authority = {
+        **common,
+        "source": "AUTHORITY",
+        "record_type": "AUTHORITY_WEB",
+        "official_id": eshidis,
+        "source_url": authority_url,
+        "row_text": f"ΕΣΗΔΗΣ {eshidis} {ui_server.official_resource_url(eshidis)}",
+    }
+    registry = {
+        **common,
+        "source": "KIMDIS",
+        "record_type": "PROC",
+        "official_id": adam,
+        "source_url": "https://registry.example.test/road",
+    }
+    write_patras_authority_fixture(tmp_path, [authority], kimdis_rows=[registry])
+    db_path = ui_server.runtime_db_path()
+    for key, label, url in (
+        (eshidis, "Φορέας", authority_url),
+        (registry_key, "ΚΗΜΔΗΣ", registry["source_url"]),
+    ):
+        ui_server.upsert_verified_tender_link(
+            db_path, source_row_key=key, source_identifier=key, source_label=label,
+            source_url=url, target_eshidis_id=eshidis, evidence={"official_fetch_ok": True},
+        )
+    ui_server.upsert_source_document(
+        db_path, row_key=eshidis, document_url=document_url, source_url=authority_url,
+        metadata={"document_analysis": {
+            "text_sample": "Η καταληκτική προθεσμία υποβολής προσφορών είναι 20/08/2099 ώρα 10:00.",
+        }},
+    )
+
+    # Neither the authority card nor its document can give a SQLite placeholder an official deadline.
+    def check_pending_sources() -> None:
+        rows = ui_server.rows_with_document_evidence(ui_server.merged_tender_rows())
+        assert eshidis not in ui_server.canonical_eshidis_ids_in_rows(rows)
+        kept, hidden = ui_server.suppress_linked_eshidis_duplicates(rows)
+        assert not hidden
+        assert eshidis not in ui_server.official_eshidis_deadlines_by_id(kept)
+        source = next(row for row in kept if row["row_key"] == eshidis)
+        assert source["source_label"] == "Φορέας"
+        assert source["deadline_evidence"]["source_url"] == authority_url
+        assert source["deadline_evidence"]["deadline_at"].startswith("2099-08-20")
+        registry_row = next(row for row in kept if row["row_key"] == registry_key)
+        assert registry_row["verified_eshidis_link_status"] == "VERIFIED_ESHIDIS_LINK_PENDING_OFFICIAL_ROW"
+
+    check_pending_sources()
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """INSERT INTO tenders (eshidis_id, title, created_at, updated_at)
+               VALUES (?, 'Επίσημος τίτλος συντήρησης οδικού δικτύου', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)""",
+            (eshidis,),
+        )
+    check_pending_sources()
+
+    # A grid listing without its own deadline does not verify the regional document date either.
+    grid = tmp_path / "work/reports/eshidis_active_candidates.json"
+    grid.write_text(json.dumps({"candidates": [{"eshidis_id": eshidis, "title": "Συντήρηση οδικού δικτύου"}]}))
+    check_pending_sources()
+    grid.unlink()
+
+    official_deadline = "2099-09-10T12:00:00"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("UPDATE tenders SET current_deadline_at = ? WHERE eshidis_id = ?", (official_deadline, eshidis))
+
+    digest = ui_server.run_email_alerts(recipient="reader@example.test", dry_run=True)
+    assert [(row["row_key"], row["source_label"]) for row in digest["new_rows"]] == [(eshidis, "ΕΣΗΔΗΣ")]
+    assert digest["sent"] == digest["sent_emails"] == 0
+    send_email.assert_not_called()
+    assert not ui_server.notification_already_sent(db_path, row_key=eshidis, channel="email", recipient="reader@example.test")
+
+    [tender] = dashboard_payload()["tenders"]
+    assert tender["source"] == "sqlite"
+    assert tender["title"] == "Επίσημος τίτλος συντήρησης οδικού δικτύου"
+    assert tender["official_url"] == ui_server.official_resource_url(eshidis)
+    assert tender["current_deadline_at"] == official_deadline
+    assert tender["interest_match"]
+    assert {doc["document_url"] for doc in tender["document_evidence"]} == {document_url}
+    assert {(source["label"], source["url"]) for source in tender["project_sources"] if source["role"] == "linked source"} == {
+        ("Φορέας", authority_url),
+        ("ΚΗΜΔΗΣ", registry["source_url"]),
+    }
 
 
 def test_dashboard_hides_authority_duplicate_when_linked_eshidis_row_exists(tmp_path, monkeypatch) -> None:

@@ -1,5 +1,38 @@
 # Project Progress
 
+## 2026-11-23 — P.D.E. release and linked digest rows
+
+The ordinary deployment of `dec41fa` initially stopped at the local-change
+check. The server's six local documentation files were preserved and verified
+privately before the same workflow was retried. Attempt 2 passed all 345
+tests, restarted the UI and returned HTTP 200. The rollback branch
+`rollback/pre-pde-parser-20261123` points to `a3f1ab6`.
+[Deployment record](https://github.com/CryptoLearningLab/dimoprasies/actions/runs/45128668804/attempts/2)
+
+In the isolated November 16–23 replay, the Western Greece listing returned
+ΕΣΗΔΗΣ 223065 on its second card, dated November 16. The third card was
+dated November 12. The ΚΗΜΔΗΣ notice 26PROC020198470 was already in discovery
+history and had a verified link to the same ΕΣΗΔΗΣ record. The live notice
+query found it on API page 4 (zero-based). Pages 5–19 returned HTTP 429.
+
+Refreshing the P.D.E. candidate made both IDs appear as new entries in the
+same dry-run digest. Merging the authority candidate with an imported ΕΣΗΔΗΣ
+record had left the authority's source label on the imported row. The duplicate
+filter therefore missed the verified link. Checks used a copy of the database
+and the ordinary recipient filter with delivery disabled.
+
+The follow-up keeps the imported ΕΣΗΔΗΣ identity and official URL while
+preserving regional focus and document evidence. With the same inputs the
+preview now shows one ΕΣΗΔΗΣ entry per recipient. The verified ΚΗΜΔΗΣ notice
+remains available as a linked source. The notification history was identical
+before and after both dry runs. The regression test reproduced the duplicate
+on the parser release and passed with the fix. The isolated suite passed
+all 346 tests.
+
+The ΕΣΗΔΗΣ portal gives 14 December 2026 at 10:44:36. The ΚΗΜΔΗΣ notice and
+article 18 of the declaration (p. 31) give 14:00 that day. The imported tender's
+status remains `UNKNOWN`. [ΕΣΗΔΗΣ record](https://pwgopendata.eprocurement.gov.gr/actSearchErgwn/resources/search/223065) · [ΚΗΜΔΗΣ declaration](https://cerpp.eprocurement.gov.gr/khmdhs-opendata/notice/attachment/26PROC020198470)
+
 ## 2026-11-23 - Isolate P.D.E. tender listing cards
 
 The regional archive's Elementor wrapper previously let navigation links

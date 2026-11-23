@@ -1631,7 +1631,7 @@ def legacy_row_document_evidence(
             document_evidence_payload(
                 row_key=row_key,
                 document_url=str(document.get("attachment_url") or document.get("document_url") or ""),
-                source_url=str(document.get("source_url") or row.get("official_url") or ""),
+                source_url=str(document.get("source_url") or row.get("authority_source_url") or row.get("official_url") or ""),
                 local_path=_none_or_str(document.get("local_path")),
                 metadata=metadata,
                 fetch_error=_none_or_str(document.get("fetch_error")),
@@ -5171,16 +5171,16 @@ def source_merge_summary(row: dict[str, Any]) -> dict[str, Any]:
     source_label = str(row.get("source_label") or "")
     linked_ids = linked_eshidis_ids_for_row(row)
     verified_ids = [str(value) for value in row.get("verified_eshidis_ids") or [] if str(value).strip().isdigit()]
-    inbound_links = row.get("verified_source_links") if isinstance(row.get("verified_source_links"), list) else []
     status = str(row.get("verified_eshidis_link_status") or "").strip()
     if source_label == "ΕΣΗΔΗΣ":
-        if inbound_links:
+        linked_count = sum(source["role"] == "linked source" for source in project_sources(row))
+        if linked_count:
             return {
                 "level": "LEVEL_1_OFFICIAL_CROSS_REFERENCE",
                 "status": "CANONICAL_WITH_LINKED_SOURCES",
                 "label": "Κύρια εγγραφή ΕΣΗΔΗΣ με συνδεδεμένες πηγές",
-                "reason": f"{len(inbound_links)} πηγή/ές δείχνουν σε αυτή την επίσημη εγγραφή ΕΣΗΔΗΣ.",
-                "linked_source_count": len(inbound_links),
+                "reason": f"{linked_count} πηγή/ές δείχνουν σε αυτή την επίσημη εγγραφή ΕΣΗΔΗΣ.",
+                "linked_source_count": linked_count,
             }
         return {
             "level": "LEVEL_0_SAME_SOURCE_RECORD",
@@ -5280,6 +5280,11 @@ def project_sources(row: dict[str, Any]) -> list[dict[str, str]]:
             str(link.get("verification_status") or "verified link"),
             role="linked source",
             merge_level="LEVEL_1_OFFICIAL_CROSS_REFERENCE",
+        )
+    if row.get("authority_source_url"):
+        add(
+            "Φορέας", display_id, row["authority_source_url"], "discovery candidate",
+            role="linked source", merge_level="LEVEL_1_OFFICIAL_CROSS_REFERENCE",
         )
     return sources
 
@@ -7051,15 +7056,23 @@ def merged_tender_rows() -> list[dict[str, Any]]:
         if official_id:
             existing = merged.get(f"KIMDIS:{official_id}", {})
             merged[f"KIMDIS:{official_id}"] = {**existing, **candidate}
-    for candidate in discovery_candidate_rows():
-        eshidis_id = str(candidate.get("eshidis_id") or "")
-        if eshidis_id:
-            merged[eshidis_id] = candidate
-    for tender in sqlite_tender_rows():
+    for tender in [*discovery_candidate_rows(), *sqlite_tender_rows()]:
         eshidis_id = str(tender.get("eshidis_id") or "")
-        if eshidis_id:
-            existing = merged.get(eshidis_id, {})
-            merged[eshidis_id] = {**existing, **{key: value for key, value in tender.items() if value not in (None, "")}}
+        if not eshidis_id:
+            continue
+        existing = merged.get(eshidis_id, {})
+        if existing.get("source") == "authority":
+            # The authority's deadline cannot establish a canonical ESHIDIS row.
+            if not tender.get("current_deadline_at"):
+                continue
+            existing = {
+                **existing,
+                "authority_source_url": existing.get("official_url"),
+                "source_label": "ΕΣΗΔΗΣ",
+                "official_url": official_resource_url(eshidis_id),
+                "supports_authority_actions": False,
+            }
+        merged[eshidis_id] = {**existing, **{key: value for key, value in tender.items() if value not in (None, "")}}
     rows = [decorate_tender_row(row) for row in merged.values()]
     return sorted(rows, key=lambda row: (row.get("deadline_sort") or "9999", row.get("display_id") or ""))
 
