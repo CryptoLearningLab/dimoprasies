@@ -326,3 +326,64 @@ def test_extract_project_title_from_common_entalma_phrases() -> None:
         )
         == "ΣΥΝΤΗΡΗΣΗ ΟΔΙΚΟΥ ΔΙΚΤΥΟΥ ΦΘΙΩΤΙΔΑΣ"
     )
+
+
+def test_scan_entalmata_rechecks_cached_pdf_when_keywords_change(tmp_path, monkeypatch) -> None:
+    config_path = tmp_path / "diavgeia_entalmata.yml"
+    write_config(config_path)
+    db_path = tmp_path / "state.sqlite"
+    download_dir = tmp_path / "downloads"
+    payload = {
+        "decisions": [
+            {
+                "ada": "NEWKW1",
+                "subject": "ΕΝΤΟΛΗ ΠΛΗΡΩΜΗΣ 1800-08/07/2026",
+                "protocolNumber": "1800",
+                "issueDate": "2026-07-08",
+                "documentUrl": "https://example.test/1800.pdf",
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        entalmata, "extract_pdf_text", lambda _path: "Επωνυμία δικαιούχου NOVORA ΑΝΩΝΥΜΗ ΕΤΑΙΡΕΙΑ"
+    )
+
+    first = scan_entalmata(
+        db_path=db_path,
+        config_path=config_path,
+        download_dir=download_dir,
+        today=date(2026, 7, 19),
+        json_fetcher=lambda url: payload,
+        bytes_fetcher=lambda url: b"%PDF-1.4 fake",
+    )
+    assert first["summary"]["rejected"] == 1
+
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8") + '  - "NOVORA"\n', encoding="utf-8"
+    )
+
+    def fail_download(_url):
+        raise AssertionError("existing entalma PDF should not be downloaded again")
+
+    second = scan_entalmata(
+        db_path=db_path,
+        config_path=config_path,
+        download_dir=download_dir,
+        today=date(2026, 7, 19),
+        json_fetcher=lambda url: payload,
+        bytes_fetcher=fail_download,
+    )
+    assert second["summary"]["matched"] == 1
+    assert second["summary"]["skipped_existing"] == 0
+    records = list_entalmata(db_path, today=date(2026, 7, 19), visible_window_days=15)
+    assert [record.matched_keywords for record in records] == [["NOVORA"]]
+
+    third = scan_entalmata(
+        db_path=db_path,
+        config_path=config_path,
+        download_dir=download_dir,
+        today=date(2026, 7, 19),
+        json_fetcher=lambda url: payload,
+        bytes_fetcher=fail_download,
+    )
+    assert third["summary"]["skipped_existing"] == 1

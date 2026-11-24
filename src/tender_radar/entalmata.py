@@ -132,7 +132,9 @@ def scan_entalmata(
                     summary["without_document"] += 1
                     continue
                 try:
-                    cached = reusable_entalma_record(db_path, decision=decision, document_url=document_url)
+                    cached = reusable_entalma_record(
+                        db_path, decision=decision, document_url=document_url, keywords=keywords
+                    )
                     if cached:
                         summary["skipped_existing"] += 1
                         record = cached
@@ -153,6 +155,7 @@ def scan_entalmata(
                     "source_search_url": url,
                     "source_page": page,
                     "project_title": record.project_title,
+                    "keywords_checked": keywords,
                 }
                 upsert_entalma_record(db_path, record, metadata=metadata)
                 if record.status == "VISIBLE":
@@ -193,7 +196,13 @@ def search_url(api: dict[str, Any], org_id: str, *, page: int | None = None) -> 
     return f"{base}?{urlencode(params)}"
 
 
-def reusable_entalma_record(db_path: Path, *, decision: dict[str, Any], document_url: str | None) -> EntalmaRecord | None:
+def reusable_entalma_record(
+    db_path: Path,
+    *,
+    decision: dict[str, Any],
+    document_url: str | None,
+    keywords: list[str] | None = None,
+) -> EntalmaRecord | None:
     ada = decision_ada(decision)
     if not ada or not document_url:
         return None
@@ -224,7 +233,22 @@ def reusable_entalma_record(db_path: Path, *, decision: dict[str, Any], document
     local_path = Path(str(row["local_path"])) if row["local_path"] else None
     if not local_path or not local_path.exists():
         return None
+    if keywords is not None and _keywords_checked(row) != list(keywords):
+        # The keyword list changed since this PDF was checked: re-check the
+        # already downloaded file instead of reusing the old verdict.
+        return None
     return _record_from_row(row)
+
+
+def _keywords_checked(row: sqlite3.Row) -> list[str] | None:
+    try:
+        metadata = json.loads(row["metadata_json"] or "{}")
+    except json.JSONDecodeError:
+        return None
+    checked = metadata.get("keywords_checked") if isinstance(metadata, dict) else None
+    if not isinstance(checked, list):
+        return None
+    return [str(item) for item in checked]
 
 
 def decision_ada(decision: dict[str, Any]) -> str:

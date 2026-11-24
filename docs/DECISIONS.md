@@ -1,5 +1,12 @@
 # Decision Log
 
+## Entalmata keyword changes re-check cached decisions — 2026-11-24
+
+A cached entalma verdict is valid only for the keyword list it was checked
+with. When `config/diavgeia_entalmata.yml` keywords change, decisions inside
+the visible window are re-evaluated from the stored PDF; the PDF is not
+downloaded again and archived records are not touched.
+
 ## Linked digest rows and official record identity — 2026-11-23
 
 A regional listing can supply the evidence that puts a tender inside a

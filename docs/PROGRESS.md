@@ -1,5 +1,22 @@
 # Project Progress
 
+## 2026-11-24 — NOVORA added to the entalmata keywords
+
+At the owner's request `NOVORA` joins the beneficiary keywords in
+`config/diavgeia_entalmata.yml`. Previously a cached Diavgeia decision kept
+its old VISIBLE/REJECTED verdict, so a new keyword would never be applied to
+decisions already checked inside the visible window. Each record now stores
+the keyword list it was checked with (`metadata_json.keywords_checked`). When
+the configured list differs, the scan re-reads the PDF already on disk and
+re-evaluates it without downloading it again. The first scan after deploy
+therefore re-checks every in-window decision once.
+
+A read-only search of the 1,097 PDFs already on the server found no NOVORA
+mention (Latin or Greek spelling), so no warrant is expected to appear
+immediately. The new regression test covers a rejected cached decision that
+becomes visible after the keyword is added, with no repeat download, and
+normal reuse on the next scan. Full suite: 348 passed.
+
 ## 2026-11-23 — P.D.E. release and linked digest rows
 
 The ordinary deployment of `dec41fa` initially stopped at the local-change
