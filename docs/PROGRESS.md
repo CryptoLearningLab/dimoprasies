@@ -1,5 +1,28 @@
 # Project Progress
 
+## 2026-11-24 — Per-user entalmata keywords
+
+At the owner's request each signed-in user can tailor the entalmata keywords
+from the `Εντάλματα` screen: remove a default with ×, restore it with ↺, or add
+their own keyword. Choices are stored in that user's profile
+(`user_interest_profiles.profile_json`, fields `entalmata_removed_keywords`
+and `entalmata_added_keywords`) and apply to the list they see and to their
+entalmata email rows. Other users keep the defaults from
+`config/diavgeia_entalmata.yml`.
+
+The Diavgeia scan (UI, scheduled run and CLI) now keeps a decision when it
+matches a default or any user's added keyword. When the combined list changes,
+a local background job re-reads the stored PDFs of the visible window (no
+Diavgeia requests; 196 production PDFs took about 4.5 s), so a new keyword
+applies to recent warrants at once. Added keywords need at least 3 letters and
+are stored in capitals without accents; re-adding a default restores it.
+Saving the tender interest profile keeps the entalmata choices. With no
+config file the email rows are not filtered.
+
+Checks: 5 new tests (per-user view and email rows, keyword rules, scan union,
+filters); full suite 352 passed; the screen was exercised in headless
+Chromium against mocked API responses (remove, restore, add).
+
 ## 2026-11-24 — NOVORA added to the entalmata keywords
 
 At the owner's request `NOVORA` joins the beneficiary keywords in

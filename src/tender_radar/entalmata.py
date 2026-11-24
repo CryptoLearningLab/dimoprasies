@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
@@ -72,7 +72,7 @@ def scan_entalmata(
     visible_days = int(config.get("visible_window_days") or 15)
     as_of = today or date.today()
     cutoff = as_of - timedelta(days=visible_days - 1)
-    keywords = [str(item) for item in config.get("keywords") or [] if str(item).strip()]
+    keywords = scan_keywords(config, db_path)
     api = config.get("api") if isinstance(config.get("api"), dict) else {}
     json_fetch = json_fetcher or fetch_json
     bytes_fetch = bytes_fetcher or fetch_bytes
@@ -178,6 +178,150 @@ def scan_entalmata(
         "records": [record.to_dict() for record in sorted(visible_records, key=entalma_sort_key, reverse=True)],
         "errors": errors,
     }
+
+
+USER_ADDED_KEYWORDS_FIELD = "entalmata_added_keywords"
+USER_REMOVED_KEYWORDS_FIELD = "entalmata_removed_keywords"
+
+
+def default_keywords(config: dict[str, Any]) -> list[str]:
+    return [str(item).strip() for item in config.get("keywords") or [] if str(item).strip()]
+
+
+def user_added_keywords(db_path: Path) -> list[str]:
+    """Keywords any user added to their own entalmata list, deduplicated."""
+    initialize(db_path)
+    connection = sqlite3.connect(db_path)
+    try:
+        rows = connection.execute("SELECT profile_json FROM user_interest_profiles").fetchall()
+    finally:
+        connection.close()
+    found: dict[str, str] = {}
+    for (profile_json,) in rows:
+        try:
+            profile = json.loads(profile_json or "{}")
+        except json.JSONDecodeError:
+            continue
+        values = profile.get(USER_ADDED_KEYWORDS_FIELD) if isinstance(profile, dict) else None
+        for value in values if isinstance(values, list) else []:
+            text = str(value or "").strip()
+            key = normalize_greek(text)
+            if key and key not in found:
+                found[key] = text
+    return [found[key] for key in sorted(found)]
+
+
+def scan_keywords(config: dict[str, Any], db_path: Path) -> list[str]:
+    """Defaults first, then every user-added keyword not already a default.
+
+    The scan keeps a decision when any of these appears; each user then sees
+    only the decisions matching their own list (see effective_keywords).
+    """
+    keywords = default_keywords(config)
+    seen = {normalize_greek(item) for item in keywords}
+    for keyword in user_added_keywords(db_path):
+        key = normalize_greek(keyword)
+        if key not in seen:
+            seen.add(key)
+            keywords.append(keyword)
+    return keywords
+
+
+def effective_keywords(defaults: list[str], *, removed: list[str], added: list[str]) -> list[str]:
+    removed_keys = {normalize_greek(item) for item in removed}
+    result: list[str] = []
+    seen: set[str] = set()
+    for keyword in [*defaults, *added]:
+        key = normalize_greek(keyword)
+        if not key or key in seen:
+            continue
+        if key in removed_keys and keyword in defaults:
+            continue
+        seen.add(key)
+        result.append(keyword)
+    return result
+
+
+def filter_records_for_keywords(records: list[EntalmaRecord], keywords: list[str]) -> list[EntalmaRecord]:
+    """Keep records matching the given keywords, showing only those keywords."""
+    wanted = {normalize_greek(item) for item in keywords}
+    filtered: list[EntalmaRecord] = []
+    for record in records:
+        own = [item for item in record.matched_keywords if normalize_greek(item) in wanted]
+        if own:
+            filtered.append(replace(record, matched_keywords=own))
+    return filtered
+
+
+def rematch_entalmata(
+    db_path: Path,
+    *,
+    config_path: Path,
+    today: date | None = None,
+) -> dict[str, int]:
+    """Re-check stored in-window PDFs against the current keyword list.
+
+    Runs locally (no Diavgeia request), so a keyword a user adds or removes
+    applies to already downloaded decisions straight away.
+    """
+    config = load_config(config_path)
+    keywords = scan_keywords(config, db_path)
+    visible_days = int(config.get("visible_window_days") or 15)
+    cutoff = (today or date.today()) - timedelta(days=visible_days - 1)
+    initialize(db_path)
+    connection = sqlite3.connect(db_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        rows = connection.execute(
+            """
+            SELECT ada, local_path, status, matched_keywords_json, metadata_json
+            FROM diavgeia_entalmata
+            WHERE status IN ('VISIBLE', 'REJECTED')
+              AND (issue_date IS NULL OR issue_date >= ?)
+            """,
+            (cutoff.isoformat(),),
+        ).fetchall()
+    finally:
+        connection.close()
+    summary = {"checked": 0, "unchanged": 0, "missing_file": 0, "visible": 0, "rejected": 0}
+    for row in rows:
+        if _keywords_checked(row) == keywords:
+            summary["unchanged"] += 1
+            continue
+        local_path = Path(str(row["local_path"])) if row["local_path"] else None
+        if not local_path or not local_path.exists():
+            summary["missing_file"] += 1
+            continue
+        matched = matched_keywords(extract_pdf_text(local_path), keywords)
+        try:
+            metadata = json.loads(row["metadata_json"] or "{}")
+        except json.JSONDecodeError:
+            metadata = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata["keywords_checked"] = keywords
+        status = "VISIBLE" if matched else "REJECTED"
+        connection = sqlite3.connect(db_path)
+        try:
+            connection.execute(
+                """
+                UPDATE diavgeia_entalmata
+                SET status = ?, matched_keywords_json = ?, metadata_json = ?
+                WHERE ada = ? AND status IN ('VISIBLE', 'REJECTED')
+                """,
+                (
+                    status,
+                    json.dumps(matched, ensure_ascii=False),
+                    json.dumps(metadata, ensure_ascii=False),
+                    row["ada"],
+                ),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        summary["checked"] += 1
+        summary["visible" if matched else "rejected"] += 1
+    return summary
 
 
 def search_url(api: dict[str, Any], org_id: str, *, page: int | None = None) -> str:

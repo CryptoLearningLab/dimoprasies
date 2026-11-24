@@ -387,3 +387,55 @@ def test_scan_entalmata_rechecks_cached_pdf_when_keywords_change(tmp_path, monke
         bytes_fetcher=fail_download,
     )
     assert third["summary"]["skipped_existing"] == 1
+
+
+def test_effective_keywords_and_record_filter() -> None:
+    defaults = ["ΛΑΤΩ", "ΔΡΟΚΑΤ"]
+    assert entalmata.effective_keywords(defaults, removed=["ΛΑΤΩ"], added=["ΑΚΜΩΝ"]) == ["ΔΡΟΚΑΤ", "ΑΚΜΩΝ"]
+    assert entalmata.effective_keywords(defaults, removed=[], added=["δροκάτ"]) == ["ΛΑΤΩ", "ΔΡΟΚΑΤ"]
+    record = entalmata.EntalmaRecord(
+        ada="X", org_id="1", org_name="", subject="", protocol_number=None, issue_date=None,
+        published_at=None, document_url=None, local_path=None, archive_path=None,
+        project_title=None, status="VISIBLE", matched_keywords=["ΛΑΤΩ", "ΑΚΜΩΝ"], text_sample=None,
+    )
+    assert entalmata.filter_records_for_keywords([record], ["ΔΡΟΚΑΤ"]) == []
+    [kept] = entalmata.filter_records_for_keywords([record], ["ακμων"])
+    assert kept.matched_keywords == ["ΑΚΜΩΝ"]
+
+
+def test_scan_uses_keywords_added_by_users(tmp_path, monkeypatch) -> None:
+    from tender_radar.db import upsert_user_interest_profile
+
+    config_path = tmp_path / "diavgeia_entalmata.yml"
+    write_config(config_path)
+    db_path = tmp_path / "state.sqlite"
+    upsert_user_interest_profile(
+        db_path, user_email="me@example.test", profile={"entalmata_added_keywords": ["ΑΚΜΩΝ", "λατω"]}
+    )
+    monkeypatch.setattr(entalmata, "extract_pdf_text", lambda _path: "Επωνυμία δικαιούχου ΑΚΜΩΝ ΑΕ")
+
+    report = scan_entalmata(
+        db_path=db_path,
+        config_path=config_path,
+        download_dir=tmp_path / "downloads",
+        today=date(2026, 7, 19),
+        json_fetcher=lambda url: {
+            "decisions": [
+                {
+                    "ada": "USERKW",
+                    "subject": "ΕΝΤΟΛΗ ΠΛΗΡΩΜΗΣ 1900",
+                    "protocolNumber": "1900",
+                    "issueDate": "2026-07-08",
+                    "documentUrl": "https://example.test/1900.pdf",
+                }
+            ]
+        },
+        bytes_fetcher=lambda url: b"%PDF-1.4 fake",
+    )
+
+    assert report["summary"]["matched"] == 1
+    assert entalmata.scan_keywords({"keywords": ["ΛΑΤΩ", "ΓΕΩΡΓΑΚΟΠΟΥΛΟΙ"]}, db_path) == [
+        "ΛΑΤΩ",
+        "ΓΕΩΡΓΑΚΟΠΟΥΛΟΙ",
+        "ΑΚΜΩΝ",
+    ]

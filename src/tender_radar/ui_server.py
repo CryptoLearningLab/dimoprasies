@@ -84,7 +84,19 @@ from tender_radar.discovery_watermark import (
     utc_now_iso,
 )
 from tender_radar.documents import analyze_document
-from tender_radar.entalmata import archived_entalmata_count, entalma_file_path, list_entalmata, scan_entalmata
+from tender_radar.entalmata import (
+    USER_ADDED_KEYWORDS_FIELD,
+    USER_REMOVED_KEYWORDS_FIELD,
+    archived_entalmata_count,
+    default_keywords as entalmata_default_keywords,
+    effective_keywords as entalmata_effective_keywords,
+    entalma_file_path,
+    filter_records_for_keywords as filter_entalmata_for_keywords,
+    list_entalmata,
+    rematch_entalmata,
+    scan_entalmata,
+    scan_keywords as entalmata_scan_keywords,
+)
 from tender_radar.evaluation import normalize_evaluation_config, save_evaluation_config
 from tender_radar.ai_triage import AI_TRIAGE_PROMPT_VERSION
 from tender_radar.pricing import ingest_pricing_active_eshidis, search_pricing_rows
@@ -219,7 +231,8 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             self._send_json(user_interest_profile_payload(str(session["email"])))
             return
         if parsed.path == "/api/entalmata":
-            self._send_json(entalmata_payload())
+            session = self._admin_session() or {}
+            self._send_json(entalmata_payload(user_email=session.get("email")))
             return
         if parsed.path == "/api/pricing/ingest-status":
             session = self._admin_session()
@@ -452,6 +465,13 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/entalmata/scan":
                 self._send_json(start_job("entalmata-scan", run_entalmata_scan), status=202)
+                return
+            if parsed.path == "/api/entalmata/keywords":
+                session = self._admin_session()
+                if not session or not session.get("email"):
+                    self._send_json({"ok": False, "error": "Login required."}, status=401)
+                    return
+                self._send_json(update_user_entalmata_keywords(str(session["email"]), payload))
                 return
             if parsed.path == "/api/dismiss-tender":
                 row_key = require_row_key(payload)
@@ -2865,11 +2885,86 @@ def run_email_alerts(
     return payload
 
 
-def entalmata_payload() -> dict[str, Any]:
+ENTALMATA_REMATCH_LOCK = threading.Lock()
+
+
+def user_entalmata_keyword_prefs(user_email: str | None) -> tuple[list[str], list[str]]:
+    """Return (removed defaults, added keywords) stored in the user's profile."""
+    if not user_email:
+        return [], []
+    stored = db_user_interest_profile(runtime_db_path(), user_email=user_email) or {}
+    profile = stored.get("profile") if isinstance(stored.get("profile"), dict) else {}
+    return (
+        normalize_profile_keyword_list(profile.get(USER_REMOVED_KEYWORDS_FIELD)),
+        normalize_profile_keyword_list(profile.get(USER_ADDED_KEYWORDS_FIELD)),
+    )
+
+
+def user_effective_entalmata_keywords(data: dict[str, Any], user_email: str | None) -> list[str]:
+    removed, added = user_entalmata_keyword_prefs(user_email)
+    return entalmata_effective_keywords(entalmata_default_keywords(data), removed=removed, added=added)
+
+
+def update_user_entalmata_keywords(user_email: str, payload: dict[str, Any]) -> dict[str, Any]:
+    config_path = REPO_ROOT / "config/diavgeia_entalmata.yml"
+    data = load_config(config_path)
+    defaults = entalmata_default_keywords(data)
+    default_by_key = {normalize_greek(item): item for item in defaults}
+    removed: list[str] = []
+    for item in normalize_profile_keyword_list(payload.get("removed_keywords")):
+        if normalize_greek(item) in default_by_key:
+            removed.append(default_by_key[normalize_greek(item)])
+    removed_keys = {normalize_greek(item) for item in removed}
+    added: list[str] = []
+    for item in normalize_profile_keyword_list(payload.get("added_keywords")):
+        key = normalize_greek(item)
+        if len(key.replace(" ", "")) < 3:
+            raise ValueError(f"Η λέξη-κλειδί «{item}» είναι πολύ μικρή (τουλάχιστον 3 γράμματα).")
+        if key in default_by_key:
+            # Adding a default back simply restores it.
+            removed = [value for value in removed if normalize_greek(value) != key]
+            removed_keys.discard(key)
+            continue
+        added.append(greek_upper_without_accents(item))
+    before = entalmata_scan_keywords(data, runtime_db_path())
+    stored = db_user_interest_profile(runtime_db_path(), user_email=user_email) or {}
+    profile = dict(stored.get("profile") or {}) if isinstance(stored.get("profile"), dict) else {}
+    profile[USER_REMOVED_KEYWORDS_FIELD] = removed
+    profile[USER_ADDED_KEYWORDS_FIELD] = added
+    upsert_user_interest_profile(
+        runtime_db_path(),
+        user_email=user_email,
+        profile=profile,
+        metadata={**(stored.get("metadata") or {}), "source": "ui"},
+    )
+    after = entalmata_scan_keywords(data, runtime_db_path())
+    result = entalmata_payload(user_email=user_email)
+    if before != after:
+        result["rematch_job"] = start_job("entalmata-rematch", run_entalmata_rematch)
+    return result
+
+
+def greek_upper_without_accents(value: str) -> str:
+    decomposed = unicodedata.normalize("NFD", value.upper())
+    return unicodedata.normalize("NFC", "".join(char for char in decomposed if unicodedata.category(char) != "Mn"))
+
+
+def run_entalmata_rematch() -> dict[str, Any]:
+    with ENTALMATA_REMATCH_LOCK:
+        summary = rematch_entalmata(runtime_db_path(), config_path=REPO_ROOT / "config/diavgeia_entalmata.yml")
+    return {"ok": True, "summary": summary}
+
+
+def entalmata_payload(user_email: str | None = None) -> dict[str, Any]:
     config_path = REPO_ROOT / "config/diavgeia_entalmata.yml"
     data = load_config(config_path)
     visible_days = int(data.get("visible_window_days") or 15)
-    records = list_entalmata(runtime_db_path(), visible_window_days=visible_days)
+    defaults = entalmata_default_keywords(data)
+    removed, added = user_entalmata_keyword_prefs(user_email)
+    keywords = entalmata_effective_keywords(defaults, removed=removed, added=added)
+    records = filter_entalmata_for_keywords(
+        list_entalmata(runtime_db_path(), visible_window_days=visible_days), keywords
+    )
     report_path = REPO_ROOT / "work/reports/diavgeia_entalmata_latest.json"
     latest_report = None
     if report_path.exists():
@@ -2881,12 +2976,15 @@ def entalmata_payload() -> dict[str, Any]:
         "ok": True,
         "visible_window_days": visible_days,
         "organizations": data.get("organizations") or [],
-        "keywords": data.get("keywords") or [],
+        "keywords": keywords,
+        "default_keywords": defaults,
+        "removed_keywords": removed,
+        "added_keywords": added,
         "summary": {
             "visible": len(records),
             "archived": archived_entalmata_count(runtime_db_path()),
             "configured_organizations": len(data.get("organizations") or []),
-            "keywords": len(data.get("keywords") or []),
+            "keywords": len(keywords),
             "last_scan_at": (latest_report or {}).get("generated_at") or (latest_report or {}).get("cutoff_date"),
             "last_scan_summary": (latest_report or {}).get("summary"),
         },
@@ -3465,13 +3563,14 @@ def email_alerts_payload(
         ]
         skipped_keys = {row["row_key"] for row in skipped}
         new_rows = [row for row in rows if row["row_key"] not in skipped_keys]
+        recipient_entalmata_rows = entalmata_rows_for_user(entalmata_rows, target_user_email)
         skipped_entalmata = [
             row
-            for row in entalmata_rows
+            for row in recipient_entalmata_rows
             if notification_already_sent(runtime_db_path(), row_key=row["row_key"], channel="entalmata_email", recipient=target)
         ]
         skipped_entalmata_keys = {row["row_key"] for row in skipped_entalmata}
-        new_entalmata_rows = [row for row in entalmata_rows if row["row_key"] not in skipped_entalmata_keys]
+        new_entalmata_rows = [row for row in recipient_entalmata_rows if row["row_key"] not in skipped_entalmata_keys]
         all_new_keys.update(row["row_key"] for row in new_rows)
         all_skipped_keys.update(row["row_key"] for row in skipped)
         all_new_entalmata_keys.update(row["row_key"] for row in new_entalmata_rows)
@@ -3639,6 +3738,21 @@ def email_signal_labels(row: dict[str, Any]) -> list[str]:
     if not email_row_has_eshidis(row):
         labels.append("χωρίς ΕΣΗΔΗΣ")
     return labels
+
+
+def entalmata_rows_for_user(rows: list[dict[str, Any]], user_email: str | None) -> list[dict[str, Any]]:
+    """Keep the entalmata email rows matching this user's own keyword list."""
+    config_path = REPO_ROOT / "config/diavgeia_entalmata.yml"
+    if not config_path.exists():
+        return rows
+    data = load_config(config_path)
+    wanted = {normalize_greek(item) for item in user_effective_entalmata_keywords(data, user_email)}
+    filtered: list[dict[str, Any]] = []
+    for row in rows:
+        own = [item for item in row.get("matched_keywords") or [] if normalize_greek(str(item)) in wanted]
+        if own:
+            filtered.append({**row, "matched_keywords": own})
+    return filtered
 
 
 def entalmata_email_rows() -> list[dict[str, Any]]:
@@ -4037,6 +4151,11 @@ def user_interest_profile_payload(user_email: str) -> dict[str, Any]:
 def update_user_interest_profile(user_email: str, payload: dict[str, Any]) -> dict[str, Any]:
     profile_payload = payload.get("profile") if isinstance(payload.get("profile"), dict) else payload
     profile = normalize_user_interest_profile(profile_payload)
+    stored = db_user_interest_profile(runtime_db_path(), user_email=user_email) or {}
+    stored_profile = stored.get("profile") if isinstance(stored.get("profile"), dict) else {}
+    for field in (USER_REMOVED_KEYWORDS_FIELD, USER_ADDED_KEYWORDS_FIELD):
+        if field in stored_profile:
+            profile[field] = stored_profile[field]
     upsert_user_interest_profile(
         runtime_db_path(),
         user_email=user_email,
@@ -8844,6 +8963,19 @@ INDEX_HTML = f"""<!doctype html>
           <button id="entalmataRefreshBtn" class="secondary">Ανανέωση λίστας</button>
         </div>
       </div>
+      <div class="entalmaKeywordEditor">
+        <div class="entalmaKeywordHead">
+          <strong>Οι λέξεις-κλειδιά μου</strong>
+          <small>Ισχύουν μόνο για το δικό σου προφίλ: τη λίστα εδώ και τα email ενταλμάτων.</small>
+        </div>
+        <div id="entalmataKeywordChips" class="entalmaChips"></div>
+        <div id="entalmataRemovedChips" class="entalmaChips entalmaRemoved" hidden></div>
+        <form id="entalmataKeywordForm" class="entalmaKeywordForm">
+          <input id="entalmataKeywordInput" type="text" maxlength="80" autocomplete="off" placeholder="Νέα λέξη-κλειδί, π.χ. επωνυμία εταιρείας">
+          <button type="submit">Προσθήκη</button>
+        </form>
+        <p id="entalmataKeywordStatus" class="mutedLine"></p>
+      </div>
       <div class="metrics">
         <div><span id="entalmataVisibleCount">0</span><small>εντάλματα 15ημέρου</small></div>
         <div><span id="entalmataArchivedCount">0</span><small>αρχειοθετημένα</small></div>
@@ -9710,6 +9842,79 @@ td:nth-child(2) { white-space: nowrap; color: var(--muted); font-weight: 700; }
   font-weight: 900;
   text-transform: uppercase;
 }
+.entalmaKeywordEditor {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.entalmaKeywordHead {
+  display: grid;
+  gap: 2px;
+}
+.entalmaKeywordHead small {
+  color: var(--muted);
+}
+.entalmaChips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.entalmaChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 10px;
+  border-radius: 14px;
+  background: var(--soft);
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 800;
+}
+.entalmaChip.custom {
+  background: #fdf3e2;
+  color: var(--warn);
+}
+.entalmaChip button {
+  min-height: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.entalmaChip button:hover {
+  background: rgba(15, 23, 42, 0.1);
+}
+.entalmaRemoved .entalmaChip {
+  background: #edf1f5;
+  color: var(--muted);
+}
+.entalmaRemoved .entalmaChip span {
+  text-decoration: line-through;
+}
+.entalmaRemovedLabel {
+  color: var(--muted);
+  font-size: 12px;
+}
+.entalmaKeywordForm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.entalmaKeywordForm input {
+  flex: 1 1 220px;
+  min-width: 0;
+}
 .entalmaKeywords {
   display: flex;
   flex-wrap: wrap;
@@ -10353,7 +10558,76 @@ function renderReverseSearch(payload) {
   }
 }
 
+function renderEntalmataKeywords(payload) {
+  const defaults = payload.default_keywords || [];
+  const added = payload.added_keywords || [];
+  const removed = payload.removed_keywords || [];
+  const chips = $('entalmataKeywordChips');
+  chips.innerHTML = '';
+  for (const keyword of payload.keywords || []) {
+    const isCustom = added.includes(keyword) && !defaults.includes(keyword);
+    const chip = document.createElement('span');
+    chip.className = `entalmaChip${isCustom ? ' custom' : ''}`;
+    chip.title = isCustom ? 'Δική σου λέξη-κλειδί' : 'Προεπιλεγμένη λέξη-κλειδί';
+    chip.innerHTML = `${escapeHtml(keyword)}<button type="button" aria-label="Αφαίρεση ${escapeHtml(keyword)}" title="Αφαίρεση">×</button>`;
+    chip.querySelector('button').addEventListener('click', () => {
+      if (isCustom) {
+        saveEntalmataKeywords(removed, added.filter((item) => item !== keyword), `Αφαιρέθηκε: ${keyword}`);
+      } else {
+        saveEntalmataKeywords([...removed, keyword], added, `Αφαιρέθηκε: ${keyword}`);
+      }
+    });
+    chips.appendChild(chip);
+  }
+  if (!(payload.keywords || []).length) {
+    chips.innerHTML = '<span class="entalmaRemovedLabel">Δεν έχεις καμία λέξη-κλειδί, οπότε δεν θα βλέπεις εντάλματα.</span>';
+  }
+  const removedBox = $('entalmataRemovedChips');
+  removedBox.innerHTML = '';
+  removedBox.hidden = !removed.length;
+  if (removed.length) {
+    removedBox.insertAdjacentHTML('beforeend', '<span class="entalmaRemovedLabel">Αφαιρεμένες προεπιλογές:</span>');
+    for (const keyword of removed) {
+      const chip = document.createElement('span');
+      chip.className = 'entalmaChip';
+      chip.innerHTML = `<span>${escapeHtml(keyword)}</span><button type="button" aria-label="Επαναφορά ${escapeHtml(keyword)}" title="Επαναφορά">↺</button>`;
+      chip.querySelector('button').addEventListener('click', () => {
+        saveEntalmataKeywords(removed.filter((item) => item !== keyword), added, `Επανήλθε: ${keyword}`);
+      });
+      removedBox.appendChild(chip);
+    }
+  }
+}
+
+async function saveEntalmataKeywords(removed, added, message) {
+  const status = $('entalmataKeywordStatus');
+  status.textContent = 'Αποθήκευση...';
+  try {
+    const payload = await api('/api/entalmata/keywords', {
+      method: 'POST',
+      body: JSON.stringify({ removed_keywords: removed, added_keywords: added }),
+    });
+    state.entalmata = payload;
+    renderEntalmata(payload);
+    if (payload.rematch_job && payload.rematch_job.job_id) {
+      status.textContent = `${message} · ελέγχω τα εντάλματα του 15ημέρου...`;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        await sleep(1500);
+        const job = await api(`/api/jobs/${encodeURIComponent(payload.rematch_job.job_id)}`);
+        if (job.status === 'completed' || job.status === 'failed') break;
+      }
+      await loadEntalmata();
+    }
+    status.textContent = message;
+    return true;
+  } catch (error) {
+    status.textContent = `Σφάλμα: ${error.message || error}`;
+    return false;
+  }
+}
+
 function renderEntalmata(payload) {
+  renderEntalmataKeywords(payload);
   const summary = payload.summary || {};
   $('entalmataVisibleCount').textContent = summary.visible || 0;
   $('entalmataArchivedCount').textContent = summary.archived || 0;
@@ -10363,7 +10637,7 @@ function renderEntalmata(payload) {
   container.innerHTML = '';
   const records = payload.records || [];
   if (!records.length) {
-    container.innerHTML = '<div class="emptyState">Δεν υπάρχουν ακόμα εντάλματα στο τελευταίο 15ήμερο. Πάτα νέα αναζήτηση για σάρωση Διαύγειας.</div>';
+    container.innerHTML = '<div class="emptyState">Δεν υπάρχουν εντάλματα με τις λέξεις-κλειδιά σου στο τελευταίο 15ήμερο.</div>';
     return;
   }
   for (const item of records) {
@@ -11535,6 +11809,18 @@ $('loadAdminHiddenRowsBtn').addEventListener('click', () => {
   loadAdminAudit('hidden').catch((error) => { $('adminHiddenRowsStatus').textContent = String(error); });
 });
 $('entalmataRefreshBtn').addEventListener('click', () => loadEntalmata().catch((error) => { $('statusText').textContent = String(error); }));
+$('entalmataKeywordForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const input = $('entalmataKeywordInput');
+  const keyword = input.value.trim();
+  if (!keyword) return;
+  const payload = state.entalmata || {};
+  const removed = payload.removed_keywords || [];
+  const added = payload.added_keywords || [];
+  if (await saveEntalmataKeywords(removed, [...added, keyword], `Προστέθηκε: ${keyword}`)) {
+    input.value = '';
+  }
+});
 $('entalmataScanBtn').addEventListener('click', () => runAction('/api/entalmata/scan', {}, 'Σάρωση Διαύγειας για εντάλματα...'));
 $('appLogoutBtn').addEventListener('click', () => adminLogout().catch((error) => { $('loginStatus').textContent = String(error); }));
 $('appLogoutTopBtn').addEventListener('click', () => adminLogout().catch((error) => { $('loginStatus').textContent = String(error); }));

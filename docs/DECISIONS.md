@@ -1,5 +1,13 @@
 # Decision Log
 
+## Entalmata keywords are per user, the scan uses their union — 2026-11-24
+
+The configured keywords are everyone's defaults. A user may remove defaults or
+add keywords for their own view and emails; the scan keeps any decision that
+matches a default or any user's added keyword, and each user is shown only
+the matches for their own list. Removing a default never narrows the scan for
+other users.
+
 ## Entalmata keyword changes re-check cached decisions — 2026-11-24
 
 A cached entalma verdict is valid only for the keyword list it was checked

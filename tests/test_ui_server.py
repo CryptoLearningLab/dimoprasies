@@ -5407,3 +5407,107 @@ def test_short_text_sample_limits_preview_payload() -> None:
     assert sample is not None
     assert len(sample) <= 43
     assert sample.endswith("...")
+
+
+def _setup_entalmata_user_keywords(tmp_path, monkeypatch):
+    from tender_radar import entalmata
+
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "data").mkdir()
+    (tmp_path / "config/diavgeia_entalmata.yml").write_text(
+        'visible_window_days: 15\nkeywords:\n  - "ΛΑΤΩ"\n  - "ΔΡΟΚΑΤ"\n', encoding="utf-8"
+    )
+    texts = {
+        "A1": "Επωνυμία δικαιούχου ΛΑΤΩ ΑΤΕ",
+        "A2": "Επωνυμία δικαιούχου ΔΡΟΚΑΤ ΑΕ",
+        "A3": "Επωνυμία δικαιούχου ΑΚΜΩΝ ΤΕΧΝΙΚΗ ΑΕ",
+    }
+    today = date.today().isoformat()
+    for ada, text in texts.items():
+        pdf = tmp_path / f"{ada}.pdf"
+        pdf.write_text(text, encoding="utf-8")
+        matched = entalmata.matched_keywords(text, ["ΛΑΤΩ", "ΔΡΟΚΑΤ"])
+        entalmata.upsert_entalma_record(
+            ui_server.runtime_db_path(),
+            entalmata.EntalmaRecord(
+                ada=ada,
+                org_id="1",
+                org_name="Φορέας",
+                subject=f"ΕΝΤΟΛΗ {ada}",
+                protocol_number=ada,
+                issue_date=today,
+                published_at=None,
+                document_url=f"https://example.test/{ada}.pdf",
+                local_path=str(pdf),
+                archive_path=None,
+                project_title=None,
+                status="VISIBLE" if matched else "REJECTED",
+                matched_keywords=matched,
+                text_sample=text,
+            ),
+            metadata={"keywords_checked": ["ΛΑΤΩ", "ΔΡΟΚΑΤ"]},
+        )
+    monkeypatch.setattr(entalmata, "extract_pdf_text", lambda path: path.read_text(encoding="utf-8"))
+    monkeypatch.setattr(
+        ui_server,
+        "start_job",
+        lambda name, target, *args, **kwargs: {"job_id": name, "result": target(*args, **kwargs)},
+    )
+
+
+def test_entalmata_keywords_are_per_user(tmp_path, monkeypatch) -> None:
+    _setup_entalmata_user_keywords(tmp_path, monkeypatch)
+
+    everyone = ui_server.entalmata_payload(user_email="other@example.test")
+    assert sorted(item["ada"] for item in everyone["records"]) == ["A1", "A2"]
+
+    result = ui_server.update_user_entalmata_keywords(
+        "me@example.test",
+        {"removed_keywords": ["λατω"], "added_keywords": ["Ακμων"]},
+    )
+    assert result["removed_keywords"] == ["ΛΑΤΩ"]
+    assert result["added_keywords"] == ["ΑΚΜΩΝ"]
+    assert result["rematch_job"]["result"]["summary"]["checked"] == 3
+
+    mine = ui_server.entalmata_payload(user_email="me@example.test")
+    assert mine["keywords"] == ["ΔΡΟΚΑΤ", "ΑΚΜΩΝ"]
+    assert sorted(item["ada"] for item in mine["records"]) == ["A2", "A3"]
+
+    # The other user keeps the defaults and does not see the new keyword's match.
+    other = ui_server.entalmata_payload(user_email="other@example.test")
+    assert other["keywords"] == ["ΛΑΤΩ", "ΔΡΟΚΑΤ"]
+    assert sorted(item["ada"] for item in other["records"]) == ["A1", "A2"]
+
+    # Email rows follow each recipient's own list.
+    rows = ui_server.entalmata_email_rows()
+    assert sorted(row["ada"] for row in ui_server.entalmata_rows_for_user(rows, "me@example.test")) == ["A2", "A3"]
+    assert sorted(row["ada"] for row in ui_server.entalmata_rows_for_user(rows, "other@example.test")) == ["A1", "A2"]
+
+
+def test_entalmata_keyword_rules(tmp_path, monkeypatch) -> None:
+    _setup_entalmata_user_keywords(tmp_path, monkeypatch)
+    import pytest
+
+    with pytest.raises(ValueError):
+        ui_server.update_user_entalmata_keywords("me@example.test", {"added_keywords": ["ΑΕ"]})
+
+    # Re-adding a removed default restores it instead of duplicating it.
+    ui_server.update_user_entalmata_keywords("me@example.test", {"removed_keywords": ["ΛΑΤΩ"]})
+    restored = ui_server.update_user_entalmata_keywords(
+        "me@example.test", {"removed_keywords": ["ΛΑΤΩ"], "added_keywords": ["λάτω"]}
+    )
+    assert restored["removed_keywords"] == []
+    assert restored["added_keywords"] == []
+    assert "rematch_job" not in restored
+
+    # Saving the tender interest profile keeps the entalmata keyword choices.
+    ui_server.update_user_entalmata_keywords("me@example.test", {"added_keywords": ["Ακμών"]})
+    ui_server.update_user_interest_profile("me@example.test", {"include_keywords": ["οδοποιία"]})
+    assert ui_server.entalmata_payload(user_email="me@example.test")["added_keywords"] == ["ΑΚΜΩΝ"]
+
+
+def test_ui_exposes_entalmata_keyword_editor() -> None:
+    assert 'id="entalmataKeywordChips"' in INDEX_HTML
+    assert 'id="entalmataKeywordForm"' in INDEX_HTML
+    assert "/api/entalmata/keywords" in APP_JS
