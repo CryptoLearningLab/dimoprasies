@@ -1,5 +1,23 @@
 # Project Progress
 
+## 2026-11-24 — HEAD requests answered like GET
+
+With the owner's approval (24/11): `tender.worklogs.gr` answered HEAD with
+501 because the UI handler only had `do_GET`. `do_HEAD` now runs the same GET
+routing; the three response helpers (`_send_json`, `_send_text`,
+`_send_bytes`) send the same status and headers (Content-Type,
+Content-Length, Cache-Control, extra headers) and skip only the body for
+HEAD. GET and POST are unchanged. The UI server issues no redirects; the
+HTTP-to-HTTPS redirect is nginx's.
+
+Before deploy, HEAD returned 501 on `/`, `/app.js`, `/styles.css`,
+`/manifest.webmanifest`, `/favicon.png` and `/api/status` while GET returned
+200. The new test starts the real handler and checks, for every public route
+(pages, assets, icons, `/api/status`, `/api/auth/status`, a login-protected
+API at 401 and an unknown path at 404), that HEAD has the same status and
+headers as GET (excluding Date), an empty body and a Content-Length equal to
+the GET body. Full suite: 353 passed.
+
 ## 2026-11-24 — Per-user entalmata keywords
 
 At the owner's request each signed-in user can tailor the entalmata keywords

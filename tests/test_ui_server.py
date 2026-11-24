@@ -5511,3 +5511,49 @@ def test_ui_exposes_entalmata_keyword_editor() -> None:
     assert 'id="entalmataKeywordChips"' in INDEX_HTML
     assert 'id="entalmataKeywordForm"' in INDEX_HTML
     assert "/api/entalmata/keywords" in APP_JS
+
+
+def test_head_matches_get_for_public_routes(tmp_path, monkeypatch) -> None:
+    import http.client
+    import shutil
+
+    monkeypatch.setattr(ui_server, "REPO_ROOT", tmp_path)
+    shutil.copytree(Path(__file__).resolve().parents[1] / "config", tmp_path / "config")
+    (tmp_path / "data").mkdir()
+    server = ui_server.ThreadingHTTPServer(("127.0.0.1", 0), ui_server.TenderRadarHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    routes = [
+        "/",
+        "/password-setup",
+        "/manifest.webmanifest",
+        *ui_server.APP_ICON_PATHS,
+        "/styles.css",
+        "/app.js",
+        "/api/status",
+        "/api/auth/status",
+        "/api/entalmata",  # login required: 401
+        "/no-such-page",  # 404
+    ]
+
+    def fetch(method: str, path: str):
+        connection = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
+        try:
+            connection.request(method, path)
+            response = connection.getresponse()
+            headers = {key: value for key, value in response.getheaders() if key.lower() != "date"}
+            return response.status, headers, response.read()
+        finally:
+            connection.close()
+
+    try:
+        for path in routes:
+            get_status, get_headers, get_body = fetch("GET", path)
+            head_status, head_headers, head_body = fetch("HEAD", path)
+            assert head_status == get_status, path
+            assert head_body == b"", path
+            assert head_headers == get_headers, path
+            assert int(head_headers["Content-Length"]) == len(get_body), path
+    finally:
+        server.shutdown()
+        server.server_close()

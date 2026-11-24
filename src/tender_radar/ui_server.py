@@ -344,6 +344,15 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
             return
         self._send_json({"error": "Not found."}, status=404)
 
+    def do_HEAD(self) -> None:  # noqa: N802
+        # Same routing, status and headers as GET; _write_body drops the body.
+        self.do_GET()
+
+    def _write_body(self, body: bytes) -> None:
+        if self.command == "HEAD":
+            return
+        self.wfile.write(body)
+
     def do_POST(self) -> None:  # noqa: N802
         try:
             parsed = urlparse(self.path)
@@ -653,7 +662,7 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
         for key, value in (extra_headers or {}).items():
             self.send_header(key, value)
         self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body)
 
     def _admin_login(self, payload: dict[str, Any]) -> dict[str, Any]:
         email = str(payload.get("email") or admin_login_email() or "").strip().lower()
@@ -783,7 +792,7 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body)
 
     def _send_file(self, path: Path) -> None:
         body = path.read_bytes()
@@ -815,7 +824,7 @@ class TenderRadarHandler(BaseHTTPRequestHandler):
         for key, value in (extra_headers or {}).items():
             self.send_header(key, value)
         self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body)
 
 
 def run_cli_command(args: list[str]) -> dict[str, Any]:
