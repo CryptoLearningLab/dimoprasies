@@ -15,7 +15,7 @@ A read-only search of the 1,097 PDFs already on the server found no NOVORA
 mention (Latin or Greek spelling), so no warrant is expected to appear
 immediately. The new regression test covers a rejected cached decision that
 becomes visible after the keyword is added, with no repeat download, and
-normal reuse on the next scan. Full suite: 348 passed.
+normal reuse on the next scan. Full suite: 347 passed.
 
 ## 2026-11-23 — P.D.E. release and linked digest rows
 
